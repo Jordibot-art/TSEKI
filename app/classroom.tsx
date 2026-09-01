@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../supabase";
+import AIBuilderTab from "../components/AIBuilderTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Student = {
@@ -193,123 +194,140 @@ export default function ClassroomScreen() {
           ))}
         </View>
 
-        {/* ── Action Row ── */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.importBtn}>
-            <Ionicons name="cloud-upload-outline" size={17} color="#FFFFFF" />
-            <Text style={styles.importBtnText}>Import Record</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.exportBtn}>
-            <Ionicons
-              name="document-text-outline"
-              size={17}
-              color="#4B5563"
-            />
-            <Text style={styles.exportBtnText}>Export CSV</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.fabSmall} onPress={openAddModal}>
-            <Ionicons name="add" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
+        {/* ── Tab Content ── */}
+        {activeTab === "Record" && (
+          <>
+            {/* ── Action Row ── */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.importBtn}>
+                <Ionicons name="cloud-upload-outline" size={17} color="#FFFFFF" />
+                <Text style={styles.importBtnText}>Import Record</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.exportBtn}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={17}
+                  color="#4B5563"
+                />
+                <Text style={styles.exportBtnText}>Export CSV</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.fabSmall} onPress={openAddModal}>
+                <Ionicons name="add" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
-        {/* ── Search Bar ── */}
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={17} color="#9CA3AF" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search students by name or email..."
-            placeholderTextColor="#9CA3AF"
-            value={search}
-            onChangeText={setSearch}
+        {activeTab === "AI Builder" && (
+          <AIBuilderTab
+            classroomId={id as string}
+            classTitle={title as string}
+            accentColor={cardColor}
           />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch("")}>
-              <Ionicons name="close-circle" size={17} color="#9CA3AF" />
-            </TouchableOpacity>
-          )}
-        </View>
+        )}
 
-        {/* ── Roster Header ── */}
-        <View style={styles.rosterHeader}>
-          <Text style={styles.rosterTitle}>
-            Student Rosters ({filtered.length})
-          </Text>
-          <Text style={styles.rosterHint}>Tap name to view details</Text>
-        </View>
+        {activeTab === "Record" && (
+          <>
+            {/* \u2500\u2500 Search Bar \u2500\u2500 */}
+            <View style={styles.searchBar}>
+              <Ionicons name="search-outline" size={17} color="#9CA3AF" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search students by name or email..."
+                placeholderTextColor="#9CA3AF"
+                value={search}
+                onChangeText={setSearch}
+              />
+              {search.length > 0 && (
+                <TouchableOpacity onPress={() => setSearch("")}>
+                  <Ionicons name="close-circle" size={17} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </View>
 
-        {/* ── Student List ── */}
-        {loading ? (
-          <ActivityIndicator
-            size="large"
-            color="#F97316"
-            style={{ marginVertical: 40 }}
-          />
-        ) : filtered.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={52} color="#D1D5DB" />
-            <Text style={styles.emptyTitle}>No students yet</Text>
-            <Text style={styles.emptySub}>
-              Tap the{" "}
-              <Text style={{ color: "#F97316", fontWeight: "700" }}>+</Text>{" "}
-              button to add your first student
-            </Text>
-          </View>
-        ) : (
-          filtered.map((student, i) => {
-            const avg = student.average ?? 0;
-            const isFlagged = avg < 75;
-            const isTop = avg >= 95;
-            return (
-              <Pressable key={student.id} style={styles.studentRow}>
-                {/* Avatar */}
-                <View
-                  style={[
-                    styles.avatar,
-                    { backgroundColor: AVATAR_COLORS[i % AVATAR_COLORS.length] },
-                  ]}
-                >
-                  <Text style={styles.avatarText}>
-                    {getInitials(student.full_name)}
-                  </Text>
-                </View>
+            {/* \u2500\u2500 Roster Header \u2500\u2500 */}
+            <View style={styles.rosterHeader}>
+              <Text style={styles.rosterTitle}>
+                Student Rosters ({filtered.length})
+              </Text>
+              <Text style={styles.rosterHint}>Tap name to view details</Text>
+            </View>
 
-                {/* Info */}
-                <View style={styles.studentInfo}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.studentName} numberOfLines={1}>
-                      {student.full_name}
-                    </Text>
-                    {isTop && (
-                      <View style={styles.topBadge}>
-                        <Text style={styles.topBadgeText}>Top</Text>
+            {/* \u2500\u2500 Student List \u2500\u2500 */}
+            {loading ? (
+              <ActivityIndicator
+                size="large"
+                color="#F97316"
+                style={{ marginVertical: 40 }}
+              />
+            ) : filtered.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={52} color="#D1D5DB" />
+                <Text style={styles.emptyTitle}>No students yet</Text>
+                <Text style={styles.emptySub}>
+                  Tap the{" "}
+                  <Text style={{ color: "#F97316", fontWeight: "700" }}>+</Text>{" "}
+                  button to add your first student
+                </Text>
+              </View>
+            ) : (
+              filtered.map((student, i) => {
+                const avg = student.average ?? 0;
+                const isFlagged = avg < 75;
+                const isTop = avg >= 95;
+                return (
+                  <Pressable key={student.id} style={styles.studentRow}>
+                    {/* Avatar */}
+                    <View
+                      style={[
+                        styles.avatar,
+                        { backgroundColor: AVATAR_COLORS[i % AVATAR_COLORS.length] },
+                      ]}
+                    >
+                      <Text style={styles.avatarText}>
+                        {getInitials(student.full_name)}
+                      </Text>
+                    </View>
+
+                    {/* Info */}
+                    <View style={styles.studentInfo}>
+                      <View style={styles.nameRow}>
+                        <Text style={styles.studentName} numberOfLines={1}>
+                          {student.full_name}
+                        </Text>
+                        {isTop && (
+                          <View style={styles.topBadge}>
+                            <Text style={styles.topBadgeText}>Top</Text>
+                          </View>
+                        )}
+                        {isFlagged && (
+                          <Ionicons name="warning" size={14} color="#EF4444" />
+                        )}
                       </View>
-                    )}
-                    {isFlagged && (
-                      <Ionicons name="warning" size={14} color="#EF4444" />
-                    )}
-                  </View>
-                  <Text style={styles.studentEmail} numberOfLines={1}>
-                    {student.email ?? "No email"}
-                  </Text>
-                </View>
+                      <Text style={styles.studentEmail} numberOfLines={1}>
+                        {student.email ?? "No email"}
+                      </Text>
+                    </View>
 
-                {/* Stats */}
-                <View style={styles.studentStats}>
-                  <View style={styles.statCol}>
-                    <Text style={styles.statValue}>{avg}%</Text>
-                    <Text style={styles.statLabel}>Average</Text>
-                  </View>
-                  <View style={styles.statCol}>
-                    <Text style={styles.statValue}>
-                      {student.attendance ?? 0}%
-                    </Text>
-                    <Text style={styles.statLabel}>Attend.</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
-                </View>
-              </Pressable>
-            );
-          })
+                    {/* Stats */}
+                    <View style={styles.studentStats}>
+                      <View style={styles.statCol}>
+                        <Text style={styles.statValue}>{avg}%</Text>
+                        <Text style={styles.statLabel}>Average</Text>
+                      </View>
+                      <View style={styles.statCol}>
+                        <Text style={styles.statValue}>
+                          {student.attendance ?? 0}%
+                        </Text>
+                        <Text style={styles.statLabel}>Attend.</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
+          </>
         )}
       </ScrollView>
 

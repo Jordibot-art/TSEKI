@@ -17,6 +17,7 @@ import {
   View
 } from "react-native";
 import { supabase } from "../supabase";
+import { useTheme } from "../context/ThemeContext";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ClassCard = {
@@ -58,8 +59,16 @@ const initialCards: ClassCard[] = [
 
 export default function HomePage() {
   const router = useRouter();
+  const { darkMode, themeColor } = useTheme();
 
-  // ── State ──────────────────────────────────────────────────────────────────
+  // ── Dynamic colors ──────────────────────────────────────────────────────────
+  const bg       = darkMode ? "#111827" : "#F9FAFB";
+  const cardBg   = darkMode ? "#1F2937" : "#FFFFFF";
+  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+  const textSub  = darkMode ? "#9CA3AF" : "#6B7280";
+  const border   = darkMode ? "#374151" : "#E5E7EB";
+
+
   const [cards, setCards] = useState<ClassCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -163,21 +172,21 @@ export default function HomePage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Top App Bar ── */}
-      <View style={styles.appBar}>
+      <View style={[styles.appBar, { backgroundColor: cardBg, borderBottomColor: border }]}>
         <View style={styles.logoRow}>
-          <View style={styles.logoIconBg}>
+          <View style={[styles.logoIconBg, { backgroundColor: themeColor + "22" }]}>
             <Image
               source={require("../assets/images/logo.png")}
               style={styles.smallLogo}
               resizeMode="contain"
             />
           </View>
-          <Text style={styles.appTitle}>Tseki</Text>
+          <Text style={[styles.appTitle, { color: textMain }]}>Tseki</Text>
         </View>
         <Pressable onPress={() => { }}>
-          <Ionicons name="notifications-outline" size={24} color="#4B5563" />
+          <Ionicons name="notifications-outline" size={24} color={textSub} />
         </Pressable>
       </View>
 
@@ -189,12 +198,12 @@ export default function HomePage() {
         {/* ── Section Header ── */}
         <View style={styles.sectionHeader}>
           <View style={styles.headerTextWrap}>
-            <Text style={styles.sectionTitle}>Your Classroom</Text>
-            <Text style={styles.sectionSubtitle}>
+            <Text style={[styles.sectionTitle, { color: textSub }]}>Your Classroom</Text>
+            <Text style={[styles.sectionSubtitle, { color: textSub }]}>
               Select a course to manage quizzes &amp; scorecards
             </Text>
           </View>
-          <Pressable style={styles.addBtn} onPress={openModal}>
+          <Pressable style={[styles.addBtn, { backgroundColor: themeColor, shadowColor: themeColor }]} onPress={openModal}>
             <Ionicons name="add" size={24} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -203,7 +212,7 @@ export default function HomePage() {
         {loading && (
           <ActivityIndicator
             size="large"
-            color="#F97316"
+            color={themeColor}
             style={{ marginVertical: 32 }}
           />
         )}
@@ -212,7 +221,7 @@ export default function HomePage() {
         {!loading && cards.map((card) => (
           <Pressable
             key={card.id}
-            style={styles.classCard}
+            style={[styles.classCard, { backgroundColor: cardBg, borderColor: border }]}
             onPress={() =>
               router.push({
                 pathname: "/classroom",
@@ -231,14 +240,14 @@ export default function HomePage() {
               <Text style={styles.cardTitle}>{card.title}</Text>
               <Text style={styles.cardRoom}>{card.room}</Text>
             </View>
-            <View style={styles.cardBottom}>
+            <View style={[styles.cardBottom, { backgroundColor: cardBg }]}>
               <View style={styles.statItem}>
-                <Ionicons name="people-outline" size={16} color="#4B5563" />
-                <Text style={styles.statText}>{card.students} Students</Text>
+                <Ionicons name="people-outline" size={16} color={textSub} />
+                <Text style={[styles.statText, { color: textSub }]}>{card.students} Students</Text>
               </View>
               <View style={styles.statItem}>
-                <Ionicons name="book-outline" size={16} color="#4B5563" />
-                <Text style={styles.statText}>{card.quizzes} Quizzes</Text>
+                <Ionicons name="book-outline" size={16} color={textSub} />
+                <Text style={[styles.statText, { color: textSub }]}>{card.quizzes} Quizzes</Text>
               </View>
               {card.flagged > 0 && (
                 <View style={styles.flaggedBadge}>
@@ -269,15 +278,15 @@ export default function HomePage() {
       </ScrollView>
 
       {/* ── Bottom Navigation ── */}
-      <View style={styles.bottomNav}>
-        <Pressable style={[styles.navItem, styles.navItemActive]}>
-          <Ionicons name="school" size={26} color="#111827" />
-          <Text style={styles.navTextActive}>My Classes</Text>
+      <View style={[styles.bottomNav, { backgroundColor: cardBg, borderTopColor: border }]}>
+        <Pressable style={[styles.navItem, styles.navItemActive, { backgroundColor: themeColor + "22" }]}>
+          <Ionicons name="school" size={26} color={themeColor} />
+          <Text style={[styles.navTextActive, { color: themeColor }]}>My Classes</Text>
         </Pressable>
-        {/* Temporarily using settings as logout to keep functionality */}
-        <Pressable style={styles.navItem} onPress={handleLogout}>
-          <Ionicons name="settings" size={26} color="#4B5563" />
-          <Text style={styles.navText}>Settings</Text>
+        {/* Settings nav */}
+        <Pressable style={styles.navItem} onPress={() => router.push("/settings" as any)}>
+          <Ionicons name="settings" size={26} color={textSub} />
+          <Text style={[styles.navText, { color: textSub }]}>Settings</Text>
         </Pressable>
       </View>
 
