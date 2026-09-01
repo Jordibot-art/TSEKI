@@ -423,7 +423,7 @@ export default function LoginScreen() {
                   <Pressable
                     style={({ pressed }) => [
                       styles.primaryBtn,
-                      styles.primaryBtnOrange,
+                      styles.registerBtn,
                       pressed ? styles.btnPressed : null,
                       loading ? styles.btnDisabled : null,
                     ]}
@@ -619,8 +619,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 4,
   },
-  primaryBtnOrange: {
-    backgroundColor: "#F97316",
+  registerBtn: {
     marginTop: 16,
   },
   btnPressed: {

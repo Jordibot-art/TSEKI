@@ -1,31 +1,182 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View
+} from "react-native";
 import { supabase } from "../supabase";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+type ClassCard = {
+  id: string;
+  schedule: string;
+  title: string;
+  room: string;
+  color: string;
+  students: number;
+  quizzes: number;
+  flagged: number;
+};
+
+// ── Seed data (the two existing cards) ────────────────────────────────────────
+const CARD_COLORS = ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EF4444", "#EC4899"];
+
+const initialCards: ClassCard[] = [
+  {
+    id: "1",
+    schedule: "A - Destiny",
+    title: "Grade 10 - Newton",
+    room: "Room 301",
+    color: "#3B82F6",
+    students: 3,
+    quizzes: 2,
+    flagged: 1,
+  },
+  {
+    id: "2",
+    schedule: "MWF 12:30 - 1:30",
+    title: "Grade 10 - Einstein",
+    room: "Room 302",
+    color: "#F59E0B",
+    students: 2,
+    quizzes: 2,
+    flagged: 1,
+  },
+];
 
 export default function HomePage() {
   const router = useRouter();
 
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [cards, setCards] = useState<ClassCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  // form fields
+  const [classTitle, setClassTitle] = useState("");
+  const [subject, setSubject] = useState("");
+  const [section, setSection] = useState("");
+  const [room, setRoom] = useState("");
+
+  // ── Load classrooms from Supabase ─────────────────────────────────────────
+  useEffect(() => {
+    loadClassrooms();
+  }, []);
+
+  async function loadClassrooms() {
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
+    const { data, error } = await supabase
+      .from("classrooms")
+      .select("*")
+      .eq("teacher_id", user.id)
+      .order("created_at", { ascending: true });
+
+    if (!error && data) {
+      setCards(
+        data.map((row: any, i: number) => ({
+          id: row.id,
+          schedule: row.subject || "No Subject",
+          title: row.title,
+          room: row.room ? `Room ${row.room}` : row.section || "No Room",
+          color: CARD_COLORS[i % CARD_COLORS.length],
+          students: row.student_count ?? 0,
+          quizzes: row.quiz_count ?? 0,
+          flagged: row.flagged_count ?? 0,
+        }))
+      );
+    }
+    setLoading(false);
+  }
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleLogout() {
     await supabase.auth.signOut();
     router.replace("/");
   }
 
+  function openModal() {
+    setClassTitle("");
+    setSubject("");
+    setSection("");
+    setRoom("");
+    setModalVisible(true);
+  }
+
+  function handleCancel() {
+    Keyboard.dismiss();
+    setModalVisible(false);
+  }
+
+  async function handleBuildClass() {
+    if (!classTitle.trim() || saving) return;
+
+    setSaving(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSaving(false); return; }
+
+    const { data, error } = await supabase
+      .from("classrooms")
+      .insert({
+        teacher_id: user.id,
+        title: classTitle.trim(),
+        subject: subject.trim() || null,
+        section: section.trim() || null,
+        room: room.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      const newCard: ClassCard = {
+        id: data.id,
+        schedule: data.subject || "No Subject",
+        title: data.title,
+        room: data.room ? `Room ${data.room}` : data.section || "No Room",
+        color: CARD_COLORS[cards.length % CARD_COLORS.length],
+        students: 0,
+        quizzes: 0,
+        flagged: 0,
+      };
+      setCards((prev) => [...prev, newCard]);
+    }
+
+    Keyboard.dismiss();
+    setSaving(false);
+    setModalVisible(false);
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={styles.root}>
       {/* ── Top App Bar ── */}
       <View style={styles.appBar}>
         <View style={styles.logoRow}>
           <View style={styles.logoIconBg}>
-            <Image 
-              source={require("../assets/images/logo.png")} 
-              style={styles.smallLogo} 
-              resizeMode="contain" 
+            <Image
+              source={require("../assets/images/logo.png")}
+              style={styles.smallLogo}
+              resizeMode="contain"
             />
           </View>
           <Text style={styles.appTitle}>Tseki</Text>
         </View>
-        <Pressable onPress={() => {}}>
+        <Pressable onPress={() => { }}>
           <Ionicons name="notifications-outline" size={24} color="#4B5563" />
         </Pressable>
       </View>
@@ -40,66 +191,71 @@ export default function HomePage() {
           <View style={styles.headerTextWrap}>
             <Text style={styles.sectionTitle}>Your Classroom</Text>
             <Text style={styles.sectionSubtitle}>
-              Select a course to manage quizzes & scorecards
+              Select a course to manage quizzes &amp; scorecards
             </Text>
           </View>
-          <Pressable style={styles.addBtn}>
+          <Pressable style={styles.addBtn} onPress={openModal}>
             <Ionicons name="add" size={24} color="#FFFFFF" />
           </Pressable>
         </View>
 
-        {/* ── Class Card 1 (Blue) ── */}
-        <Pressable style={styles.classCard}>
-          <View style={[styles.cardTop, { backgroundColor: "#3B82F6" }]}>
-            <Text style={styles.cardSchedule}>A - Destiny</Text>
-            <Text style={styles.cardTitle}>Grade 10 - Newton</Text>
-            <Text style={styles.cardRoom}>Room 301</Text>
-          </View>
-          <View style={styles.cardBottom}>
-            <View style={styles.statItem}>
-              <Ionicons name="people-outline" size={16} color="#4B5563" />
-              <Text style={styles.statText}>3 Students</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="book-outline" size={16} color="#4B5563" />
-              <Text style={styles.statText}>2 Quizzes</Text>
-            </View>
-            <View style={styles.flaggedBadge}>
-              <Ionicons name="warning-outline" size={14} color="#EF4444" />
-              <Text style={styles.flaggedText}>1 FLAGGED</Text>
-            </View>
-          </View>
-        </Pressable>
+        {/* ── Loading indicator ── */}
+        {loading && (
+          <ActivityIndicator
+            size="large"
+            color="#F97316"
+            style={{ marginVertical: 32 }}
+          />
+        )}
 
-        {/* ── Class Card 2 (Orange) ── */}
-        <Pressable style={styles.classCard}>
-          <View style={[styles.cardTop, { backgroundColor: "#F59E0B" }]}>
-            <Text style={styles.cardSchedule}>MWF 12:30 - 1:30</Text>
-            <Text style={styles.cardTitle}>Grade 10 - Einstein</Text>
-            <Text style={styles.cardRoom}>Room 302</Text>
-          </View>
-          <View style={styles.cardBottom}>
-            <View style={styles.statItem}>
-              <Ionicons name="people-outline" size={16} color="#4B5563" />
-              <Text style={styles.statText}>2 Students</Text>
+        {/* ── Class Cards (dynamic) ── */}
+        {!loading && cards.map((card) => (
+          <Pressable
+            key={card.id}
+            style={styles.classCard}
+            onPress={() =>
+              router.push({
+                pathname: "/classroom",
+                params: {
+                  id: card.id,
+                  title: card.title,
+                  schedule: card.schedule,
+                  room: card.room,
+                  color: card.color,
+                },
+              })
+            }
+          >
+            <View style={[styles.cardTop, { backgroundColor: card.color }]}>
+              <Text style={styles.cardSchedule}>{card.schedule}</Text>
+              <Text style={styles.cardTitle}>{card.title}</Text>
+              <Text style={styles.cardRoom}>{card.room}</Text>
             </View>
-            <View style={styles.statItem}>
-              <Ionicons name="book-outline" size={16} color="#4B5563" />
-              <Text style={styles.statText}>2 Quizzes</Text>
+            <View style={styles.cardBottom}>
+              <View style={styles.statItem}>
+                <Ionicons name="people-outline" size={16} color="#4B5563" />
+                <Text style={styles.statText}>{card.students} Students</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="book-outline" size={16} color="#4B5563" />
+                <Text style={styles.statText}>{card.quizzes} Quizzes</Text>
+              </View>
+              {card.flagged > 0 && (
+                <View style={styles.flaggedBadge}>
+                  <Ionicons name="warning-outline" size={14} color="#EF4444" />
+                  <Text style={styles.flaggedText}>{card.flagged} FLAGGED</Text>
+                </View>
+              )}
             </View>
-            <View style={styles.flaggedBadge}>
-              <Ionicons name="warning-outline" size={14} color="#EF4444" />
-              <Text style={styles.flaggedText}>1 FLAGGED</Text>
-            </View>
-          </View>
-        </Pressable>
+          </Pressable>
+        ))}
 
         {/* ── Info Banner ── */}
         <View style={styles.infoBanner}>
-          <Image 
-            source={require("../assets/images/logo.png")} 
-            style={styles.bannerMascot} 
-            resizeMode="contain" 
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.bannerMascot}
+            resizeMode="contain"
           />
           <View style={styles.bannerTextContent}>
             <Text style={styles.bannerTitle}>Hi Teacher! I'm Tseki</Text>
@@ -124,6 +280,107 @@ export default function HomePage() {
           <Text style={styles.navText}>Settings</Text>
         </Pressable>
       </View>
+
+      {/* ── Build Classroom Modal ── */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCancel}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior="padding"
+        >
+          <TouchableWithoutFeedback onPress={handleCancel}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.modalCard}>
+                  {/* Header */}
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Build Classroom</Text>
+                    <TouchableOpacity onPress={handleCancel} style={styles.modalCloseBtn}>
+                      <Ionicons name="close" size={24} color="#6B7280" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* CLASS TITLE */}
+                  <Text style={styles.fieldLabel}>
+                    CLASS TITLE <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Grade 10 - Mathematics"
+                    placeholderTextColor="#9CA3AF"
+                    value={classTitle}
+                    onChangeText={setClassTitle}
+                  />
+
+                  {/* SUBJECT / COURSE */}
+                  <Text style={styles.fieldLabel}>
+                    SUBJECT / COURSE <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Algebra 1"
+                    placeholderTextColor="#9CA3AF"
+                    value={subject}
+                    onChangeText={setSubject}
+                  />
+
+                  {/* SECTION + ROOM (side by side) */}
+                  <View style={styles.rowFields}>
+                    <View style={styles.halfField}>
+                      <Text style={styles.fieldLabel}>SECTION</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. Section 5"
+                        placeholderTextColor="#9CA3AF"
+                        value={section}
+                        onChangeText={setSection}
+                      />
+                    </View>
+                    <View style={styles.halfField}>
+                      <Text style={styles.fieldLabel}>ROOM</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. CL1"
+                        placeholderTextColor="#9CA3AF"
+                        value={room}
+                        onChangeText={setRoom}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Action Buttons */}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={styles.cancelBtn}
+                      onPress={handleCancel}
+                    >
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.buildBtn,
+                        (!classTitle.trim() || saving) && styles.buildBtnDisabled,
+                      ]}
+                      onPress={handleBuildClass}
+                      disabled={!classTitle.trim() || saving}
+                    >
+                      {saving ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.buildBtnText}>Build Class</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -133,7 +390,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F9FAFB",
   },
-  
+
   /* ── Top App Bar ── */
   appBar: {
     flexDirection: "row",
@@ -314,7 +571,7 @@ const styles = StyleSheet.create({
   bottomNav: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
-    paddingBottom: 30, // for safe area
+    paddingBottom: 30,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
@@ -340,5 +597,117 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#111827",
+  },
+
+  /* ── Modal ── */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",   // slide up from bottom like a bottom sheet
+    alignItems: "center",
+    paddingHorizontal: 0,
+  },
+  modalCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 28,
+    paddingTop: 28,
+    paddingBottom: 40,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#1F2937",
+  },
+  modalCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#6B7280",
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  required: {
+    color: "#EF4444",
+  },
+  input: {
+    height: 56,
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 17,
+    color: "#1F2937",
+    backgroundColor: "#F9FAFB",
+  },
+  rowFields: {
+    flexDirection: "row",
+    gap: 14,
+  },
+  halfField: {
+    flex: 1,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 30,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelBtnText: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  buildBtn: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: "#F97316",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#F97316",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  buildBtnDisabled: {
+    backgroundColor: "#FCD9B6",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  buildBtnText: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });
