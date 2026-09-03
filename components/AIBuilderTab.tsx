@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useEffect, useState } from "react";
@@ -14,13 +13,11 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
 import {
-    generateScannableQuiz,
     GeneratedAssessment,
-    ScannableQuestion,
-    AnswerKeyItem,
+    generateScannableQuiz
 } from "../lib/quizGeneratorService";
-import { exportPaperSheet, BondPaperSize } from "../lib/paperSheetExporter";
 import { savePublishedQuiz } from "../lib/quizStore";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
@@ -592,7 +589,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 transparent
                 animationType="fade"
                 statusBarTranslucent
-                onRequestClose={() => {}}
+                onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
                     <View style={styles.loadingCard}>
