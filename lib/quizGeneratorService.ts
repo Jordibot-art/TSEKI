@@ -47,7 +47,7 @@ export async function generateScannableQuiz(
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const candidateModels = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
 
     const count = params.questionCount || 10;
     const diff = params.difficulty || "Medium";

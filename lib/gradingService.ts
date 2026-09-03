@@ -38,7 +38,7 @@ export async function gradeStudentTest(
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const candidateModels = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
 
     const systemInstruction = `You are an expert automated grading assistant. Read the handwritten answers inside the boxes on the provided image. Compare them to this Answer Key: ${JSON.stringify(
         answerKey
