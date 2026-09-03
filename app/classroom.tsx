@@ -16,8 +16,9 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { supabase } from "../supabase";
 import AIBuilderTab from "../components/AIBuilderTab";
+import GraderTab from "../components/GraderTab";
+import { supabase } from "../supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Student = {
@@ -47,13 +48,16 @@ function getInitials(name: string) {
 // ── Screen ────────────────────────────────────────────────────────────────────
 export default function ClassroomScreen() {
   const router = useRouter();
-  const { id, title, schedule, room, color } = useLocalSearchParams<{
+  const { id, title, schedule, room, color, subject } = useLocalSearchParams<{
     id: string;
     title: string;
     schedule: string;
     room: string;
     color: string;
+    subject?: string;
   }>();
+
+  const classroomSubject = subject || (schedule !== "No Subject" ? schedule : "");
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("Record");
@@ -222,7 +226,17 @@ export default function ClassroomScreen() {
           <AIBuilderTab
             classroomId={id as string}
             classTitle={title as string}
+            classSubject={classroomSubject}
             accentColor={cardColor}
+          />
+        )}
+
+        {activeTab === "Grader" && (
+          <GraderTab
+            classroomId={id as string}
+            classTitle={title as string}
+            accentColor={cardColor}
+            students={students}
           />
         )}
 

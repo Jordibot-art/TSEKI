@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -35,6 +35,50 @@ const QUESTION_COUNTS = [
 ];
 
 type Difficulty = "Easy" | "Medium" | "Hard";
+
+// ── Answer Matching Helper ────────────────────────────────────────────────────
+function isChoiceAnswer(choice: string, answer: string, choiceIndex: number): boolean {
+    if (!choice || !answer) return false;
+    const cClean = choice.trim();
+    const aClean = answer.trim();
+    if (cClean === aClean) return true;
+    if (cClean.toLowerCase() === aClean.toLowerCase()) return true;
+
+    const stripFormatting = (str: string) =>
+        str
+            .replace(/^['"`(]+|['"`) .]+$/g, "")
+            .replace(/['"`*_]/g, "")
+            .trim();
+
+    const cNorm = stripFormatting(cClean).toLowerCase();
+    const aNorm = stripFormatting(aClean).toLowerCase();
+    if (cNorm === aNorm) return true;
+
+    // Match single letter answers e.g. "A", "B", "Option B", "B)"
+    const optionLetter = String.fromCharCode(65 + choiceIndex);
+    const letterMatch = aNorm.match(/^(?:option\s+)?([a-d])(?:\)|\.|\:|$)/i);
+    if (letterMatch && letterMatch[1].toUpperCase() === optionLetter) {
+        return true;
+    }
+
+    // Strip leading "A)", "A.", "Option A:" from either choice or answer
+    const stripPrefix = (str: string) =>
+        str.replace(/^(?:[a-d]\s*[\)\.\:\-]|option\s+[a-d][\:\.]?)\s*/i, "").trim();
+
+    const cStripped = stripFormatting(stripPrefix(cClean)).toLowerCase();
+    const aStripped = stripFormatting(stripPrefix(aClean)).toLowerCase();
+
+    if (cStripped.length > 0 && cStripped === aStripped) return true;
+
+    // Check substring inclusion (e.g. choice `wait` in answer "The 'wait' cursor")
+    if (cStripped.length > 1 && aStripped.length > 1) {
+        if (aStripped.includes(cStripped) || cStripped.includes(aStripped)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 // ── Reusable Dropdown ─────────────────────────────────────────────────────────
 function Dropdown({
@@ -93,6 +137,7 @@ function Dropdown({
 type Props = {
     classroomId: string;
     classTitle: string;
+    classSubject?: string;
     accentColor: string;
 };
 
@@ -103,15 +148,22 @@ type GeneratedQuestion = {
     answer: string;
 };
 
-export default function AIBuilderTab({ classroomId, classTitle, accentColor }: Props) {
+export default function AIBuilderTab({ classroomId, classTitle, classSubject, accentColor }: Props) {
+    const resolvedSubject = classSubject && classSubject.trim().length > 0 ? classSubject.trim() : "General";
+
     // ── Form state ─────────────────────────────────────────────────────────────
     const [topic, setTopic] = useState("");
-    const [subject, setSubject] = useState("Mathematics");
+    const [subject, setSubject] = useState(resolvedSubject);
+
+    useEffect(() => {
+        if (classSubject && classSubject.trim().length > 0) {
+            setSubject(classSubject.trim());
+        }
+    }, [classSubject]);
     const [gradeLevel, setGradeLevel] = useState("Grade 11");
     const [questionType, setQuestionType] = useState("Multiple Choice");
     const [questionCount, setQuestionCount] = useState("20 Questions");
     const [difficulty, setDifficulty] = useState<Difficulty>("Hard");
-    const [customPrompt, setCustomPrompt] = useState("");
     const [attachedFile, setAttachedFile] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
 
     // ── Generation state ───────────────────────────────────────────────────────
@@ -128,10 +180,13 @@ export default function AIBuilderTab({ classroomId, classTitle, accentColor }: P
             });
             if (result.canceled === false && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
+                const mimeType = asset.mimeType && asset.mimeType.includes("pdf")
+                    ? asset.mimeType
+                    : "application/pdf";
                 setAttachedFile({
                     uri: asset.uri,
                     name: asset.name,
-                    mimeType: asset.mimeType || "application/octet-stream",
+                    mimeType,
                 });
             }
         } catch (error) {
@@ -142,7 +197,8 @@ export default function AIBuilderTab({ classroomId, classTitle, accentColor }: P
 
     // ── Generate handler ───────────────────────────────────────────────────────
     async function handleGenerate() {
-        if (!topic.trim() || generating) return;
+        const effectiveTopic = topic.trim() || (attachedFile ? `Content of ${attachedFile.name}` : "");
+        if (!effectiveTopic || generating) return;
         setGenerating(true);
         setShowResults(false);
 
@@ -156,7 +212,39 @@ export default function AIBuilderTab({ classroomId, classTitle, accentColor }: P
             const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
             const count = parseInt(questionCount.split(" ")[0], 10);
-            const promptText = `
+            
+            let promptText = "";
+            if (attachedFile) {
+                promptText = `
+You are an expert AI assessment specialist.
+CRITICAL INSTRUCTION - SOURCE MATERIAL GROUNDING:
+A reference document ("${attachedFile.name}") is attached.
+You MUST generate all questions, choices, and answers STRICTLY, SOLELY, AND EXCLUSIVELY based on the text, concepts, facts, and materials inside the attached PDF document.
+- DO NOT generate generic questions about ${subject} or outside general knowledge.
+- Every question MUST test direct comprehension, application, or recall of the information explicitly written in the attached PDF.
+${topic.trim() ? `- Focus within the PDF: Focus specifically on topics related to "${topic.trim()}" found within this PDF document.` : `- Coverage: Cover key concepts and sections distributed across the entire document.`}
+
+Quiz Parameters:
+- Source Document: Attached PDF ("${attachedFile.name}")
+- Subject Area: ${subject}
+- Grade Level: ${gradeLevel}
+- Question Type: ${questionType}
+- Number of Questions: ${count}
+- Difficulty Level: ${difficulty}
+
+Return ONLY a JSON array of objects, where each object represents a question and has the following exact structure:
+[
+  {
+    "number": 1,
+    "question": "The question text here (derived directly from the attached document)",
+    "choices": ["Choice A", "Choice B", "Choice C", "Choice D"], // Only include this property if question type requires choices
+    "answer": "Choice A" // IMPORTANT: For multiple choice, the answer MUST EXACTLY match one of the choices word-for-word
+  }
+]
+No markdown wrapping like \`\`\`json, just the raw JSON array string.
+`;
+            } else {
+                promptText = `
 You are an expert AI quiz maker. Generate a test based on the following parameters:
 - Topic: ${topic}
 - Subject: ${subject}
@@ -164,7 +252,6 @@ You are an expert AI quiz maker. Generate a test based on the following paramete
 - Question Type: ${questionType}
 - Number of Questions: ${count}
 - Difficulty Level: ${difficulty}
-${customPrompt ? `- Custom Guidelines: ${customPrompt}` : ""}
 
 Return ONLY a JSON array of objects, where each object represents a question and has the following exact structure:
 [
@@ -172,13 +259,14 @@ Return ONLY a JSON array of objects, where each object represents a question and
     "number": 1,
     "question": "The question text here",
     "choices": ["Choice A", "Choice B", "Choice C", "Choice D"], // Only include this property if question type requires choices
-    "answer": "The correct answer text here"
+    "answer": "Choice A" // IMPORTANT: For multiple choice, the answer MUST EXACTLY match one of the choices word-for-word
   }
 ]
 No markdown wrapping like \`\`\`json, just the raw JSON array string.
 `;
+            }
 
-            const parts: any[] = [{ text: promptText }];
+            const parts: any[] = [];
 
             if (attachedFile) {
                 const base64Data = await FileSystem.readAsStringAsync(attachedFile.uri, {
@@ -192,7 +280,29 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                 });
             }
 
-            const result = await model.generateContent(parts);
+            parts.push({ text: promptText });
+
+            let result;
+            const maxRetries = 3;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    result = await model.generateContent(parts);
+                    break;
+                } catch (apiErr: any) {
+                    const is503 = apiErr?.message?.includes("503") || apiErr?.status === 503;
+                    if (is503 && attempt < maxRetries) {
+                        console.warn(`[Gemini] Attempt ${attempt} hit 503 (high demand). Retrying in ${attempt * 1500}ms...`);
+                        await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
+                        continue;
+                    }
+                    throw apiErr;
+                }
+            }
+
+            if (!result) {
+                throw new Error("No response received from AI model.");
+            }
+
             const responseText = result.response.text().trim();
 
             let parsedQuestions: GeneratedQuestion[] = [];
@@ -208,7 +318,15 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
             setShowResults(true);
         } catch (error: any) {
             console.error("Generation error:", error);
-            Alert.alert("Error generating quiz", error.message);
+            const is503 = error?.message?.includes("503") || error?.status === 503;
+            if (is503) {
+                Alert.alert(
+                    "AI Server Busy",
+                    "Google's Gemini service is currently experiencing temporary high demand spikes. Please wait a few moments and try generating again."
+                );
+            } else {
+                Alert.alert("Error generating quiz", error.message);
+            }
         } finally {
             setGenerating(false);
         }
@@ -218,7 +336,7 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
         setShowResults(false);
         setGeneratedQuestions([]);
         setTopic("");
-        setCustomPrompt("");
+        setSubject(resolvedSubject);
         setAttachedFile(null);
     }
 
@@ -246,26 +364,30 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                 <>
                     {/* ── Assessment Topic ── */}
                     <Text style={styles.fieldLabel}>
-                        ASSESSMENT TOPIC <Text style={styles.required}>*</Text>
+                        ASSESSMENT TOPIC {attachedFile ? <Text style={styles.optional}>(OPTIONAL WITH PDF)</Text> : <Text style={styles.required}>*</Text>}
                     </Text>
                     <TextInput
                         style={styles.input}
-                        placeholder="e.g. Cold War, Photosynthesis, Quadratic Equations..."
+                        placeholder={
+                            attachedFile
+                                ? `e.g. Focus on specific chapter, or leave blank for whole document`
+                                : "e.g. Cold War, Photosynthesis, Quadratic Equations..."
+                        }
                         placeholderTextColor="#9CA3AF"
                         value={topic}
                         onChangeText={setTopic}
                     />
 
-                    {/* ── Subject + Grade Level ── */}
+                    {/* ── Subject (Auto from Classroom) + Grade Level ── */}
                     <View style={styles.twoCol}>
                         <View style={styles.colHalf}>
-                            <Dropdown
-                                label="SUBJECT"
-                                value={subject}
-                                options={SUBJECTS}
-                                onSelect={setSubject}
-                                accentColor={accentColor}
-                            />
+                            <Text style={styles.fieldLabel}>SUBJECT</Text>
+                            <View style={styles.autoSubjectBtn}>
+                                <Text style={styles.autoSubjectText} numberOfLines={1}>
+                                    {subject}
+                                </Text>
+                                <Ionicons name="lock-closed" size={14} color="#9CA3AF" />
+                            </View>
                         </View>
                         <View style={styles.colHalf}>
                             <Dropdown
@@ -321,19 +443,6 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                             </TouchableOpacity>
                         ))}
                     </View>
-
-                    {/* ── Custom Prompt ── */}
-                    <Text style={styles.fieldLabel}>CUSTOM PROMPT GUIDELINES <Text style={styles.optional}>(OPTIONAL)</Text></Text>
-                    <TextInput
-                        style={[styles.input, styles.textArea]}
-                        placeholder={"e.g. Include questions on plant respiration or emphasize fractional solving."}
-                        placeholderTextColor="#9CA3AF"
-                        value={customPrompt}
-                        onChangeText={setCustomPrompt}
-                        multiline
-                        numberOfLines={4}
-                        textAlignVertical="top"
-                    />
 
                     {/* ── Attached File ── */}
                     <Text style={styles.fieldLabel}>ATTACH REFERENCE FILE <Text style={styles.optional}>(OPTIONAL)</Text></Text>
@@ -413,25 +522,35 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                             </View>
                             {q.choices && (
                                 <View style={styles.choicesWrap}>
-                                    {q.choices.map((c) => (
-                                        <View
-                                            key={c}
-                                            style={[
-                                                styles.choiceItem,
-                                                c === q.answer && { backgroundColor: accentColor + "18", borderColor: accentColor },
-                                            ]}
-                                        >
-                                            <Text style={[
-                                                styles.choiceText,
-                                                c === q.answer && { color: accentColor, fontWeight: "700" },
-                                            ]}>
-                                                {c}
-                                            </Text>
-                                            {c === q.answer && (
-                                                <Ionicons name="checkmark-circle" size={14} color={accentColor} />
-                                            )}
+                                    {q.choices.map((c, cIdx) => {
+                                        const isCorrect = isChoiceAnswer(c, q.answer, cIdx);
+                                        return (
+                                            <View
+                                                key={`${c}_${cIdx}`}
+                                                style={[
+                                                    styles.choiceItem,
+                                                    isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
+                                                ]}
+                                            >
+                                                <Text style={[
+                                                    styles.choiceText,
+                                                    isCorrect && { color: accentColor, fontWeight: "700" },
+                                                ]}>
+                                                    {c}
+                                                </Text>
+                                                {isCorrect && (
+                                                    <Ionicons name="checkmark-circle" size={14} color={accentColor} />
+                                                )}
+                                            </View>
+                                        );
+                                    })}
+                                    {/* Fallback if no choice was highlighted */}
+                                    {!q.choices.some((c, i) => isChoiceAnswer(c, q.answer, i)) && (
+                                        <View style={[styles.answerWrap, { borderLeftColor: accentColor, marginTop: 8 }]}>
+                                            <Text style={styles.answerLabel}>Answer:</Text>
+                                            <Text style={[styles.answerText, { color: accentColor }]}>{q.answer}</Text>
                                         </View>
-                                    ))}
+                                    )}
                                 </View>
                             )}
                             {!q.choices && (
@@ -461,6 +580,54 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                     </TouchableOpacity>
                 </>
             )}
+
+            {/* ── Full-Screen Generating Loading Overlay ── */}
+            <Modal
+                visible={generating}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => {}}
+            >
+                <View style={styles.loadingOverlay}>
+                    <View style={styles.loadingCard}>
+                        {/* Glowing Icon Badge */}
+                        <View style={[styles.loadingIconGlow, { backgroundColor: accentColor + "22" }]}>
+                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor }]}>
+                                <Ionicons name="sparkles" size={28} color="#FFFFFF" />
+                            </View>
+                        </View>
+
+                        <Text style={styles.loadingTitle}>Generating Assessment</Text>
+
+                        <Text style={styles.loadingSub}>
+                            {attachedFile
+                                ? `Tseki AI is analyzing "${attachedFile.name}" and extracting questions...`
+                                : `Tseki AI is crafting DepEd-aligned questions for ${subject}...`}
+                        </Text>
+
+                        {/* Spinner */}
+                        <View style={styles.spinnerWrap}>
+                            <ActivityIndicator size="large" color={accentColor} />
+                        </View>
+
+                        {/* Parameter summary pill */}
+                        <View style={styles.loadingMetaPill}>
+                            <Text style={styles.loadingMetaText} numberOfLines={1}>
+                                {questionCount} • {difficulty} • {questionType}
+                            </Text>
+                        </View>
+
+                        {/* Do not close notice */}
+                        <View style={styles.loadingNoticeRow}>
+                            <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
+                            <Text style={styles.loadingNoticeText}>
+                                Please wait and keep this screen open.
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </ScrollView>
     );
 }
@@ -495,9 +662,6 @@ const styles = StyleSheet.create({
         borderRadius: 12, paddingHorizontal: 14, fontSize: 15,
         color: "#1F2937", backgroundColor: "#F9FAFB",
     },
-    textArea: {
-        height: 90, paddingTop: 12,
-    },
 
     /* Attach File */
     attachBtn: {
@@ -506,6 +670,16 @@ const styles = StyleSheet.create({
         backgroundColor: "#F9FAFB", gap: 10,
     },
     attachBtnText: { fontSize: 14, color: "#6B7280", flex: 1 },
+
+    autoSubjectBtn: {
+        height: 52, borderWidth: 1.5, borderColor: "#E5E7EB",
+        borderRadius: 12, paddingHorizontal: 14,
+        flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+        backgroundColor: "#F3F4F6",
+    },
+    autoSubjectText: {
+        fontSize: 14, color: "#4B5563", fontWeight: "600", flex: 1, marginRight: 6,
+    },
 
     /* Dropdown */
     dropdownBtn: {
@@ -619,4 +793,89 @@ const styles = StyleSheet.create({
         gap: 6, marginTop: 16,
     },
     regenerateLinkText: { fontSize: 13, color: "#6B7280" },
+
+    /* Full-screen Loading Overlay */
+    loadingOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(17, 24, 39, 0.85)",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 28,
+    },
+    loadingCard: {
+        width: "100%",
+        maxWidth: 360,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 24,
+        paddingHorizontal: 24,
+        paddingVertical: 32,
+        alignItems: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.3,
+        shadowRadius: 24,
+        elevation: 16,
+    },
+    loadingIconGlow: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 18,
+    },
+    loadingIconCircle: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    loadingTitle: {
+        fontSize: 19,
+        fontWeight: "800",
+        color: "#1F2937",
+        textAlign: "center",
+        marginBottom: 8,
+    },
+    loadingSub: {
+        fontSize: 13,
+        color: "#6B7280",
+        textAlign: "center",
+        lineHeight: 19,
+        marginBottom: 16,
+        paddingHorizontal: 8,
+    },
+    spinnerWrap: {
+        marginVertical: 10,
+        transform: [{ scale: 1.15 }],
+    },
+    loadingMetaPill: {
+        backgroundColor: "#F3F4F6",
+        borderRadius: 20,
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        marginTop: 12,
+        marginBottom: 14,
+    },
+    loadingMetaText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: "#4B5563",
+    },
+    loadingNoticeRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    loadingNoticeText: {
+        fontSize: 12,
+        color: "#9CA3AF",
+        fontWeight: "500",
+    },
 });

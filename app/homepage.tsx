@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -16,8 +16,8 @@ import {
   TouchableWithoutFeedback,
   View
 } from "react-native";
-import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
+import { supabase } from "../supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ClassCard = {
@@ -62,11 +62,11 @@ export default function HomePage() {
   const { darkMode, themeColor } = useTheme();
 
   // ── Dynamic colors ──────────────────────────────────────────────────────────
-  const bg       = darkMode ? "#111827" : "#F9FAFB";
-  const cardBg   = darkMode ? "#1F2937" : "#FFFFFF";
+  const bg = darkMode ? "#111827" : "#F9FAFB";
+  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
   const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-  const textSub  = darkMode ? "#9CA3AF" : "#6B7280";
-  const border   = darkMode ? "#374151" : "#E5E7EB";
+  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+  const border = darkMode ? "#374151" : "#E5E7EB";
 
 
   const [cards, setCards] = useState<ClassCard[]>([]);
@@ -81,30 +81,47 @@ export default function HomePage() {
   const [room, setRoom] = useState("");
 
   // ── Load classrooms from Supabase ─────────────────────────────────────────
-  useEffect(() => {
-    loadClassrooms();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadClassrooms();
+    }, [])
+  );
 
   async function loadClassrooms() {
-    setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
 
-    const { data, error } = await supabase
+    const { data: classrooms, error } = await supabase
       .from("classrooms")
       .select("*")
       .eq("teacher_id", user.id)
       .order("created_at", { ascending: true });
 
-    if (!error && data) {
+    if (!error && classrooms) {
+      const classroomIds = classrooms.map((row: any) => row.id);
+      const studentCounts: Record<string, number> = {};
+
+      if (classroomIds.length > 0) {
+        const { data: studentsData } = await supabase
+          .from("students")
+          .select("classroom_id")
+          .in("classroom_id", classroomIds);
+
+        if (studentsData) {
+          for (const s of studentsData) {
+            studentCounts[s.classroom_id] = (studentCounts[s.classroom_id] || 0) + 1;
+          }
+        }
+      }
+
       setCards(
-        data.map((row: any, i: number) => ({
+        classrooms.map((row: any, i: number) => ({
           id: row.id,
           schedule: row.subject || "No Subject",
           title: row.title,
           room: row.room ? `Room ${row.room}` : row.section || "No Room",
           color: CARD_COLORS[i % CARD_COLORS.length],
-          students: row.student_count ?? 0,
+          students: studentCounts[row.id] ?? row.student_count ?? 0,
           quizzes: row.quiz_count ?? 0,
           flagged: row.flagged_count ?? 0,
         }))
@@ -229,6 +246,7 @@ export default function HomePage() {
                   id: card.id,
                   title: card.title,
                   schedule: card.schedule,
+                  subject: card.schedule !== "No Subject" ? card.schedule : "",
                   room: card.room,
                   color: card.color,
                 },
@@ -325,13 +343,13 @@ export default function HomePage() {
                     onChangeText={setClassTitle}
                   />
 
-                  {/* SUBJECT / COURSE */}
+                  {/* SUBJECT */}
                   <Text style={styles.fieldLabel}>
-                    SUBJECT / COURSE <Text style={styles.required}>*</Text>
+                    SUBJECT <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g. Algebra 1"
+                    placeholder="e.g. Mathematics"
                     placeholderTextColor="#9CA3AF"
                     value={subject}
                     onChangeText={setSubject}
