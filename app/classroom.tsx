@@ -61,6 +61,7 @@ export default function ClassroomScreen() {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("Record");
+  const [selectedGradingQuiz, setSelectedGradingQuiz] = useState<string | undefined>(undefined);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -228,6 +229,10 @@ export default function ClassroomScreen() {
             classTitle={title as string}
             classSubject={classroomSubject}
             accentColor={cardColor}
+            onQuizPublished={(quizTitle) => {
+              setSelectedGradingQuiz(quizTitle);
+              setActiveTab("Grader");
+            }}
           />
         )}
 
@@ -237,6 +242,7 @@ export default function ClassroomScreen() {
             classTitle={title as string}
             accentColor={cardColor}
             students={students}
+            defaultSelectedQuiz={selectedGradingQuiz}
           />
         )}
 

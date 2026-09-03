@@ -14,6 +14,14 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import {
+    generateScannableQuiz,
+    GeneratedAssessment,
+    ScannableQuestion,
+    AnswerKeyItem,
+} from "../lib/quizGeneratorService";
+import { exportPaperSheet, BondPaperSize } from "../lib/paperSheetExporter";
+import { savePublishedQuiz } from "../lib/quizStore";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const SUBJECTS = [
@@ -26,8 +34,7 @@ const GRADE_LEVELS = [
     "Grade 11", "Grade 12",
 ];
 const QUESTION_TYPES = [
-    "Multiple Choice", "True or False", "Fill in the Blank",
-    "Short Answer", "Enumeration", "Essay",
+    "Multiple Choice", "True / False", "Fill in the Blank", "Enumeration", "Mixed Assessment",
 ];
 const QUESTION_COUNTS = [
     "5 Questions", "10 Questions", "15 Questions", "20 Questions",
@@ -139,16 +146,10 @@ type Props = {
     classTitle: string;
     classSubject?: string;
     accentColor: string;
+    onQuizPublished?: (quizTitle: string) => void;
 };
 
-type GeneratedQuestion = {
-    number: number;
-    question: string;
-    choices?: string[];
-    answer: string;
-};
-
-export default function AIBuilderTab({ classroomId, classTitle, classSubject, accentColor }: Props) {
+export default function AIBuilderTab({ classroomId, classTitle, classSubject, accentColor, onQuizPublished }: Props) {
     const resolvedSubject = classSubject && classSubject.trim().length > 0 ? classSubject.trim() : "General";
 
     // ── Form state ─────────────────────────────────────────────────────────────
@@ -168,8 +169,10 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     // ── Generation state ───────────────────────────────────────────────────────
     const [generating, setGenerating] = useState(false);
-    const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
+    const [generatedAssessment, setGeneratedAssessment] = useState<GeneratedAssessment | null>(null);
     const [showResults, setShowResults] = useState(false);
+    const [exportModalOpen, setExportModalOpen] = useState(false);
+    const [exportingPdf, setExportingPdf] = useState(false);
 
     // ── File handler ───────────────────────────────────────────────────────────
     async function handleAttachFile() {
@@ -203,118 +206,26 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setShowResults(false);
 
         try {
-            const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-            if (!apiKey) {
-                throw new Error("API Key not found. Please set EXPO_PUBLIC_GEMINI_API_KEY in .env");
-            }
-
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-            const count = parseInt(questionCount.split(" ")[0], 10);
-            
-            let promptText = "";
+            let attachedPdfBase64: string | undefined;
             if (attachedFile) {
-                promptText = `
-You are an expert AI assessment specialist.
-CRITICAL INSTRUCTION - SOURCE MATERIAL GROUNDING:
-A reference document ("${attachedFile.name}") is attached.
-You MUST generate all questions, choices, and answers STRICTLY, SOLELY, AND EXCLUSIVELY based on the text, concepts, facts, and materials inside the attached PDF document.
-- DO NOT generate generic questions about ${subject} or outside general knowledge.
-- Every question MUST test direct comprehension, application, or recall of the information explicitly written in the attached PDF.
-${topic.trim() ? `- Focus within the PDF: Focus specifically on topics related to "${topic.trim()}" found within this PDF document.` : `- Coverage: Cover key concepts and sections distributed across the entire document.`}
-
-Quiz Parameters:
-- Source Document: Attached PDF ("${attachedFile.name}")
-- Subject Area: ${subject}
-- Grade Level: ${gradeLevel}
-- Question Type: ${questionType}
-- Number of Questions: ${count}
-- Difficulty Level: ${difficulty}
-
-Return ONLY a JSON array of objects, where each object represents a question and has the following exact structure:
-[
-  {
-    "number": 1,
-    "question": "The question text here (derived directly from the attached document)",
-    "choices": ["Choice A", "Choice B", "Choice C", "Choice D"], // Only include this property if question type requires choices
-    "answer": "Choice A" // IMPORTANT: For multiple choice, the answer MUST EXACTLY match one of the choices word-for-word
-  }
-]
-No markdown wrapping like \`\`\`json, just the raw JSON array string.
-`;
-            } else {
-                promptText = `
-You are an expert AI quiz maker. Generate a test based on the following parameters:
-- Topic: ${topic}
-- Subject: ${subject}
-- Grade Level: ${gradeLevel}
-- Question Type: ${questionType}
-- Number of Questions: ${count}
-- Difficulty Level: ${difficulty}
-
-Return ONLY a JSON array of objects, where each object represents a question and has the following exact structure:
-[
-  {
-    "number": 1,
-    "question": "The question text here",
-    "choices": ["Choice A", "Choice B", "Choice C", "Choice D"], // Only include this property if question type requires choices
-    "answer": "Choice A" // IMPORTANT: For multiple choice, the answer MUST EXACTLY match one of the choices word-for-word
-  }
-]
-No markdown wrapping like \`\`\`json, just the raw JSON array string.
-`;
-            }
-
-            const parts: any[] = [];
-
-            if (attachedFile) {
-                const base64Data = await FileSystem.readAsStringAsync(attachedFile.uri, {
+                attachedPdfBase64 = await FileSystem.readAsStringAsync(attachedFile.uri, {
                     encoding: "base64",
                 });
-                parts.push({
-                    inlineData: {
-                        data: base64Data,
-                        mimeType: attachedFile.mimeType,
-                    },
-                });
             }
 
-            parts.push({ text: promptText });
+            const count = parseInt(questionCount.split(" ")[0], 10) || 10;
+            const assessment = await generateScannableQuiz({
+                topic: effectiveTopic,
+                subject,
+                gradeLevel,
+                questionType,
+                questionCount: count,
+                difficulty,
+                attachedPdfBase64,
+                attachedPdfName: attachedFile ? attachedFile.name : undefined,
+            });
 
-            let result;
-            const maxRetries = 3;
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    result = await model.generateContent(parts);
-                    break;
-                } catch (apiErr: any) {
-                    const is503 = apiErr?.message?.includes("503") || apiErr?.status === 503;
-                    if (is503 && attempt < maxRetries) {
-                        console.warn(`[Gemini] Attempt ${attempt} hit 503 (high demand). Retrying in ${attempt * 1500}ms...`);
-                        await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
-                        continue;
-                    }
-                    throw apiErr;
-                }
-            }
-
-            if (!result) {
-                throw new Error("No response received from AI model.");
-            }
-
-            const responseText = result.response.text().trim();
-
-            let parsedQuestions: GeneratedQuestion[] = [];
-            try {
-                const cleanedText = responseText.replace(/^```(json)?|```$/g, '').trim();
-                parsedQuestions = JSON.parse(cleanedText);
-            } catch (err) {
-                console.error("Failed to parse JSON response:", responseText);
-                throw new Error("Failed to parse AI response as JSON.");
-            }
-
-            setGeneratedQuestions(parsedQuestions);
+            setGeneratedAssessment(assessment);
             setShowResults(true);
         } catch (error: any) {
             console.error("Generation error:", error);
@@ -334,10 +245,52 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
 
     function handleReset() {
         setShowResults(false);
-        setGeneratedQuestions([]);
+        setGeneratedAssessment(null);
         setTopic("");
         setSubject(resolvedSubject);
         setAttachedFile(null);
+    }
+
+    async function handleExportPaper(includeKey: boolean = false, paperSize: BondPaperSize = "short") {
+        setExportModalOpen(false);
+        if (!generatedAssessment) return;
+        setExportingPdf(true);
+        try {
+            await exportPaperSheet({
+                assessment: generatedAssessment,
+                classTitle,
+                subject,
+                includeAnswerKey: includeKey,
+                paperSize,
+            });
+        } catch (err: any) {
+            Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
+        } finally {
+            setExportingPdf(false);
+        }
+    }
+
+    async function handlePublishQuiz() {
+        if (!generatedAssessment) return;
+        try {
+            await savePublishedQuiz(classroomId, generatedAssessment);
+            Alert.alert(
+                "Quiz Published!",
+                `"${generatedAssessment.quizTitle}" is published and ready for grading in the Grader tab!`,
+                [
+                    {
+                        text: "Go to Grader to Scan",
+                        onPress: () => onQuizPublished?.(generatedAssessment.quizTitle),
+                    },
+                    {
+                        text: "Stay Here",
+                        style: "cancel",
+                    },
+                ]
+            );
+        } catch (err: any) {
+            Alert.alert("Publish Failed", err.message || "Failed to save quiz to grader.");
+        }
     }
 
     const canGenerate = (topic.trim().length > 0 || attachedFile !== null) && !generating;
@@ -497,13 +450,13 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                 <>
                     {/* ── Results Header ── */}
                     <View style={[styles.resultsBanner, { backgroundColor: accentColor + "18", borderColor: accentColor + "44" }]}>
-                        <Ionicons name="checkmark-circle" size={22} color={accentColor} />
+                        <Ionicons name="checkmark-circle" size={24} color={accentColor} />
                         <View style={{ flex: 1, marginLeft: 10 }}>
-                            <Text style={[styles.resultsBannerTitle, { color: accentColor }]}>
-                                Quiz Generated!
+                            <Text style={[styles.resultsBannerTitle, { color: accentColor }]} numberOfLines={1}>
+                                {generatedAssessment?.quizTitle || "Assessment Generated!"}
                             </Text>
                             <Text style={styles.resultsBannerSub}>
-                                {questionCount} • {questionType} • {difficulty} • {subject}
+                                {generatedAssessment?.questions.length || questionCount} Questions • {difficulty} • Scannable Paper Layout
                             </Text>
                         </View>
                         <TouchableOpacity onPress={handleReset}>
@@ -511,64 +464,116 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                         </TouchableOpacity>
                     </View>
 
-                    {/* ── Question Cards ── */}
-                    {generatedQuestions.map((q) => (
-                        <View key={q.number} style={styles.questionCard}>
-                            <View style={styles.questionHeader}>
-                                <View style={[styles.questionNumber, { backgroundColor: accentColor }]}>
-                                    <Text style={styles.questionNumberText}>{q.number}</Text>
-                                </View>
-                                <Text style={styles.questionText} numberOfLines={4}>{q.question}</Text>
-                            </View>
-                            {q.choices && (
-                                <View style={styles.choicesWrap}>
-                                    {q.choices.map((c, cIdx) => {
-                                        const isCorrect = isChoiceAnswer(c, q.answer, cIdx);
-                                        return (
-                                            <View
-                                                key={`${c}_${cIdx}`}
-                                                style={[
-                                                    styles.choiceItem,
-                                                    isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
-                                                ]}
-                                            >
-                                                <Text style={[
-                                                    styles.choiceText,
-                                                    isCorrect && { color: accentColor, fontWeight: "700" },
-                                                ]}>
-                                                    {c}
-                                                </Text>
-                                                {isCorrect && (
-                                                    <Ionicons name="checkmark-circle" size={14} color={accentColor} />
-                                                )}
+                    {/* ── Scannable Question Cards ── */}
+                    {generatedAssessment?.questions.map((q) => {
+                        const answerObj = generatedAssessment.answerKey.find((k) => k.questionNumber === q.questionNumber);
+                        const correctAnswer = answerObj ? answerObj.correctAnswer : "";
+                        const points = answerObj ? answerObj.points : 1;
+                        const typeLabel = q.type.replace(/_/g, " ").toUpperCase();
+
+                        return (
+                            <View key={q.questionNumber} style={styles.questionCard}>
+                                <View style={styles.questionHeader}>
+                                    <View style={[styles.questionNumber, { backgroundColor: accentColor }]}>
+                                        <Text style={styles.questionNumberText}>{q.questionNumber}</Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                            <View style={styles.qTypeBadge}>
+                                                <Text style={styles.qTypeBadgeText}>{typeLabel}</Text>
                                             </View>
-                                        );
-                                    })}
-                                    {/* Fallback if no choice was highlighted */}
-                                    {!q.choices.some((c, i) => isChoiceAnswer(c, q.answer, i)) && (
-                                        <View style={[styles.answerWrap, { borderLeftColor: accentColor, marginTop: 8 }]}>
-                                            <Text style={styles.answerLabel}>Answer:</Text>
-                                            <Text style={[styles.answerText, { color: accentColor }]}>{q.answer}</Text>
+                                            <View style={styles.boxesBadge}>
+                                                <Text style={styles.boxesBadgeText}>
+                                                    {q.answerBoxesRequired} {q.answerBoxesRequired > 1 ? "BOXES" : "BOX"}
+                                                </Text>
+                                            </View>
                                         </View>
-                                    )}
+                                        <Text style={styles.questionText} numberOfLines={4}>{q.questionText}</Text>
+                                    </View>
                                 </View>
-                            )}
-                            {!q.choices && (
-                                <View style={[styles.answerWrap, { borderLeftColor: accentColor }]}>
-                                    <Text style={styles.answerLabel}>Answer:</Text>
-                                    <Text style={[styles.answerText, { color: accentColor }]}>{q.answer}</Text>
+
+                                {q.options && q.options.length > 0 && (
+                                    <View style={styles.choicesWrap}>
+                                        {q.options.map((opt, cIdx) => {
+                                            const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
+                                            return (
+                                                <View
+                                                    key={`${opt}_${cIdx}`}
+                                                    style={[
+                                                        styles.choiceItem,
+                                                        isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
+                                                    ]}
+                                                >
+                                                    <Text style={[
+                                                        styles.choiceText,
+                                                        isCorrect && { color: accentColor, fontWeight: "700" },
+                                                    ]}>
+                                                        {opt}
+                                                    </Text>
+                                                    {isCorrect && (
+                                                        <Ionicons name="checkmark-circle" size={14} color={accentColor} />
+                                                    )}
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                )}
+
+                                {/* Scannable Answer Boxes Preview */}
+                                <View style={styles.answerBoxesPreviewRow}>
+                                    <Ionicons name="create-outline" size={16} color="#6B7280" />
+                                    <Text style={styles.answerBoxLabel}>Student Answer Box{q.answerBoxesRequired > 1 ? "es" : ""}:</Text>
+                                    <View style={{ flexDirection: "row", gap: 6 }}>
+                                        {Array.from({ length: Math.min(q.answerBoxesRequired, 5) }).map((_, bIdx) => (
+                                            <View key={bIdx} style={styles.answerBoxItem}>
+                                                <Text style={{ fontSize: 9, color: "#9CA3AF" }}>#{bIdx + 1}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
                                 </View>
-                            )}
-                        </View>
-                    ))}
+
+                                {/* Official Answer Key Pill */}
+                                <View style={[styles.answerWrap, { borderLeftColor: accentColor, marginTop: 10 }]}>
+                                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                                        <Text style={styles.answerLabel}>OFFICIAL ANSWER KEY</Text>
+                                        <Text style={[styles.pointsBadge, { color: accentColor }]}>+{points} pt{points > 1 ? "s" : ""}</Text>
+                                    </View>
+                                    <Text style={[styles.answerText, { color: accentColor }]}>{correctAnswer}</Text>
+                                </View>
+                            </View>
+                        );
+                    })}
+
+                    {/* ── Export / Print Test Paper Button ── */}
+                    <TouchableOpacity
+                        style={[styles.exportPdfBtn, { backgroundColor: accentColor || "#1F2937" }]}
+                        onPress={() => setExportModalOpen(true)}
+                        disabled={exportingPdf}
+                        activeOpacity={0.85}
+                    >
+                        {exportingPdf ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                            <>
+                                <Ionicons name="print-outline" size={18} color="#FFFFFF" />
+                                <Text style={styles.exportPdfBtnText}>Export / Print Paper Sheet (PDF)</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
 
                     {/* ── Action Buttons ── */}
                     <View style={styles.resultActions}>
-                        <TouchableOpacity style={[styles.saveDraftBtn, { borderColor: accentColor }]}>
+                        <TouchableOpacity
+                            style={[styles.saveDraftBtn, { borderColor: accentColor }]}
+                            onPress={() => Alert.alert("Draft Saved", `Saved "${generatedAssessment?.quizTitle}" to your drafts.`)}
+                        >
                             <Ionicons name="save-outline" size={16} color={accentColor} />
                             <Text style={[styles.saveDraftText, { color: accentColor }]}>Save as Draft</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.publishBtn, { backgroundColor: accentColor }]}>
+                        <TouchableOpacity
+                            style={[styles.publishBtn, { backgroundColor: accentColor }]}
+                            onPress={handlePublishQuiz}
+                        >
                             <Ionicons name="send-outline" size={16} color="#FFFFFF" />
                             <Text style={styles.publishText}>Publish Quiz</Text>
                         </TouchableOpacity>
@@ -627,6 +632,87 @@ No markdown wrapping like \`\`\`json, just the raw JSON array string.
                         </View>
                     </View>
                 </View>
+            </Modal>
+
+            {/* ── Export Paper Sheet Modal ── */}
+            <Modal
+                visible={exportModalOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setExportModalOpen(false)}
+            >
+                <TouchableOpacity
+                    style={styles.exportBackdrop}
+                    activeOpacity={1}
+                    onPress={() => setExportModalOpen(false)}
+                >
+                    <View style={styles.exportSheet}>
+                        <View style={styles.exportSheetHeader}>
+                            <Text style={styles.exportSheetTitle}>Export Paper Sheet Layout</Text>
+                            <Text style={styles.exportSheetSub}>
+                                Download, print, or share the physical test sheet formatted with scannable answer boxes.
+                            </Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.exportOptionBtn}
+                            onPress={() => handleExportPaper(false, "short")}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[styles.exportOptionIcon, { backgroundColor: (accentColor || "#2563EB") + "18" }]}>
+                                <Ionicons name="document-text" size={22} color={accentColor || "#2563EB"} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.exportOptionTitle}>Short Bond Paper (8.5" × 11")</Text>
+                                <Text style={styles.exportOptionSub}>
+                                    1 single sheet (Letter size) • 2-column scannable layout for 1-shot camera scanning
+                                </Text>
+                            </View>
+                            <Ionicons name="download-outline" size={20} color="#6B7280" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.exportOptionBtn}
+                            onPress={() => handleExportPaper(false, "long")}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[styles.exportOptionIcon, { backgroundColor: "#8B5CF618" }]}>
+                                <Ionicons name="document-outline" size={22} color="#8B5CF6" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.exportOptionTitle}>Long Bond Paper (8.5" × 13")</Text>
+                                <Text style={styles.exportOptionSub}>
+                                    1 single sheet (Philippine Folio) • Fits all questions with extra spacing on 1 page
+                                </Text>
+                            </View>
+                            <Ionicons name="download-outline" size={20} color="#6B7280" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.exportOptionBtn}
+                            onPress={() => handleExportPaper(true, "short")}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[styles.exportOptionIcon, { backgroundColor: "#10B98118" }]}>
+                                <Ionicons name="checkmark-done-circle" size={22} color="#10B981" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.exportOptionTitle}>Teacher Answer Key Paper (PDF)</Text>
+                                <Text style={styles.exportOptionSub}>
+                                    1 single sheet with correct answers pre-printed in the boxes for grading reference
+                                </Text>
+                            </View>
+                            <Ionicons name="download-outline" size={20} color="#6B7280" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.exportCancelBtn}
+                            onPress={() => setExportModalOpen(false)}
+                        >
+                            <Text style={styles.exportCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
             </Modal>
         </ScrollView>
     );
@@ -793,6 +879,152 @@ const styles = StyleSheet.create({
         gap: 6, marginTop: 16,
     },
     regenerateLinkText: { fontSize: 13, color: "#6B7280" },
+
+    /* Scannable Question Elements */
+    qTypeBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        backgroundColor: "#F3F4F6",
+    },
+    qTypeBadgeText: {
+        fontSize: 10,
+        fontWeight: "700",
+        color: "#6B7280",
+    },
+    boxesBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        backgroundColor: "#EEF2FF",
+    },
+    boxesBadgeText: {
+        fontSize: 10,
+        fontWeight: "700",
+        color: "#4F46E5",
+    },
+    answerBoxesPreviewRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 10,
+        padding: 8,
+        backgroundColor: "#F9FAFB",
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+        borderStyle: "dashed",
+    },
+    answerBoxItem: {
+        width: 32,
+        height: 32,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: "#9CA3AF",
+        backgroundColor: "#FFFFFF",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    answerBoxLabel: {
+        fontSize: 11,
+        color: "#6B7280",
+        fontWeight: "500",
+    },
+    pointsBadge: {
+        fontSize: 11,
+        fontWeight: "700",
+    },
+
+    /* Export PDF Styles */
+    exportPdfBtn: {
+        height: 52,
+        borderRadius: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        marginTop: 14,
+        marginBottom: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    exportPdfBtnText: {
+        color: "#FFFFFF",
+        fontSize: 15,
+        fontWeight: "700",
+    },
+    exportBackdrop: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "flex-end",
+    },
+    exportSheet: {
+        backgroundColor: "#FFFFFF",
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 24,
+        paddingTop: 24,
+        paddingBottom: 36,
+        gap: 12,
+    },
+    exportSheetHeader: {
+        marginBottom: 8,
+    },
+    exportSheetTitle: {
+        fontSize: 18,
+        fontWeight: "800",
+        color: "#1F2937",
+        marginBottom: 4,
+    },
+    exportSheetSub: {
+        fontSize: 13,
+        color: "#6B7280",
+        lineHeight: 18,
+    },
+    exportOptionBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 14,
+        backgroundColor: "#F9FAFB",
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+        gap: 14,
+    },
+    exportOptionIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    exportOptionTitle: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: "#1F2937",
+        marginBottom: 2,
+    },
+    exportOptionSub: {
+        fontSize: 12,
+        color: "#6B7280",
+        lineHeight: 16,
+    },
+    exportCancelBtn: {
+        height: 48,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        marginTop: 4,
+    },
+    exportCancelText: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#6B7280",
+    },
 
     /* Full-screen Loading Overlay */
     loadingOverlay: {

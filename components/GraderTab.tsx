@@ -1,6 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import {
+    ActivityIndicator,
+    Alert,
     Modal,
     ScrollView,
     StyleSheet,
@@ -8,6 +11,8 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { gradeStudentTest, GradingResponse } from "../lib/gradingService";
+import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -18,6 +23,35 @@ export type Student = {
     average: number;
     attendance: number;
 };
+
+// ── Quiz Presets & Answer Keys ────────────────────────────────────────────────
+const QUIZ_PRESETS: { title: string; answerKey: any[] }[] = [
+    {
+        title: "Standard Assessment (10 Questions)",
+        answerKey: [
+            { questionNumber: 1, correctAnswer: "A" },
+            { questionNumber: 2, correctAnswer: "Mitochondria" },
+            { questionNumber: 3, correctAnswer: "T" },
+            { questionNumber: 4, correctAnswer: "Osmosis" },
+            { questionNumber: 5, correctAnswer: "C" },
+            { questionNumber: 6, correctAnswer: "T" },
+            { questionNumber: 7, correctAnswer: "D" },
+            { questionNumber: 8, correctAnswer: "Nucleus" },
+            { questionNumber: 9, correctAnswer: "T" },
+            { questionNumber: 10, correctAnswer: "B" },
+        ],
+    },
+    {
+        title: "Quick Quiz (5 Questions)",
+        answerKey: [
+            { questionNumber: 1, correctAnswer: "B" },
+            { questionNumber: 2, correctAnswer: "Photosynthesis" },
+            { questionNumber: 3, correctAnswer: "T" },
+            { questionNumber: 4, correctAnswer: "Meiosis" },
+            { questionNumber: 5, correctAnswer: "A" },
+        ],
+    },
+];
 
 // ── Reusable Dropdown ─────────────────────────────────────────────────────────
 function Dropdown({
@@ -77,19 +111,33 @@ type Props = {
     classTitle: string;
     accentColor: string;
     students?: Student[];
+    defaultSelectedQuiz?: string;
 };
 
-export default function GraderTab({ classroomId, classTitle, accentColor, students = [] }: Props) {
-    // 1. Grade against quiz (placeholder without fixed mock quizzes)
-    const [selectedQuiz, setSelectedQuiz] = useState("Select a quiz...");
+export default function GraderTab({
+    classroomId,
+    classTitle,
+    accentColor,
+    students = [],
+    defaultSelectedQuiz,
+}: Props) {
+    // 1. Grade against quiz
+    const [publishedQuizzes, setPublishedQuizzes] = useState<StoredQuiz[]>([]);
+    const [selectedQuiz, setSelectedQuiz] = useState(defaultSelectedQuiz || QUIZ_PRESETS[0].title);
 
     // 2. Identify student sheet (functional with real database students)
     const [roster, setRoster] = useState<Student[]>(students);
     const [selectedStudent, setSelectedStudent] = useState("");
 
-    // 3. Choose answer sheet sample (without fixed data)
+    // 3. Choose answer sheet sample
     const [sampleSheets, setSampleSheets] = useState<{ id: string; title: string; badge?: string }[]>([]);
     const [selectedSample, setSelectedSample] = useState("");
+
+    // ── Grading & Camera States ────────────────────────────────────────────────
+    const [sourceModalOpen, setSourceModalOpen] = useState(false);
+    const [gradingLoading, setGradingLoading] = useState(false);
+    const [gradingResult, setGradingResult] = useState<GradingResponse | null>(null);
+    const [savingScore, setSavingScore] = useState(false);
 
     useEffect(() => {
         if (students && students.length > 0) {
@@ -106,11 +154,156 @@ export default function GraderTab({ classroomId, classTitle, accentColor, studen
         }
     }, [classroomId, students]);
 
+    useEffect(() => {
+        loadPublished();
+    }, [classroomId, defaultSelectedQuiz]);
+
+    async function loadPublished() {
+        if (!classroomId) return;
+        const stored = await getPublishedQuizzes(classroomId);
+        setPublishedQuizzes(stored);
+        if (defaultSelectedQuiz) {
+            setSelectedQuiz(defaultSelectedQuiz);
+        } else if (stored.length > 0) {
+            setSelectedQuiz(stored[0].quizTitle);
+        }
+    }
+
+    const quizOptions = publishedQuizzes.length > 0
+        ? [
+            ...publishedQuizzes.map((q) => q.quizTitle),
+            ...QUIZ_PRESETS.map((q) => `Preset: ${q.title}`),
+          ]
+        : QUIZ_PRESETS.map((q) => q.title);
+
     const studentOptions = roster.length > 0
         ? roster.map((s) => `${s.full_name}${s.email ? ` (${s.email})` : ""}`)
         : ["No students enrolled yet"];
 
     const currentStudentValue = selectedStudent || (roster.length > 0 ? studentOptions[0] : "Select a student...");
+
+    // ── Open Camera ────────────────────────────────────────────────────────────
+    async function handleOpenCamera() {
+        setSourceModalOpen(false);
+        try {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== "granted") {
+                Alert.alert("Permission Required", "Camera permission is required to scan student test papers.");
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ["images"],
+                allowsEditing: false,
+                quality: 0.85,
+                base64: true,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0 && result.assets[0].base64) {
+                const asset = result.assets[0];
+                const mimeType = asset.mimeType && asset.mimeType.includes("png") ? "image/png" : "image/jpeg";
+                processGrading(asset.base64!, mimeType);
+            }
+        } catch (err: any) {
+            Alert.alert("Camera Error", err.message || "Failed to launch camera.");
+        }
+    }
+
+    // ── Choose from Library ────────────────────────────────────────────────────
+    async function handlePickImage() {
+        setSourceModalOpen(false);
+        try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== "granted") {
+                Alert.alert("Permission Required", "Photo library permission is required to select test papers.");
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ["images"],
+                allowsEditing: false,
+                quality: 0.85,
+                base64: true,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0 && result.assets[0].base64) {
+                const asset = result.assets[0];
+                const mimeType = asset.mimeType && asset.mimeType.includes("png") ? "image/png" : "image/jpeg";
+                processGrading(asset.base64!, mimeType);
+            }
+        } catch (err: any) {
+            Alert.alert("Picker Error", err.message || "Failed to select photo.");
+        }
+    }
+
+    // ── Run AI Grading ─────────────────────────────────────────────────────────
+    async function processGrading(base64Data: string, mimeType: "image/jpeg" | "image/png") {
+        setGradingLoading(true);
+        try {
+            const published = publishedQuizzes.find((q) => q.quizTitle === selectedQuiz);
+            const preset = QUIZ_PRESETS.find((q) => q.title === selectedQuiz || `Preset: ${q.title}` === selectedQuiz) || QUIZ_PRESETS[0];
+            const activeAnswerKey = published ? published.answerKey : preset.answerKey;
+
+            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType);
+            setGradingResult(result);
+
+            // Match student if detected name matches a student in classroom roster
+            if (result.studentName && roster.length > 0) {
+                const match = roster.find(
+                    (s) =>
+                        s.full_name.toLowerCase().includes(result.studentName.toLowerCase()) ||
+                        result.studentName.toLowerCase().includes(s.full_name.toLowerCase())
+                );
+                if (match) {
+                    setSelectedStudent(`${match.full_name}${match.email ? ` (${match.email})` : ""}`);
+                }
+            }
+        } catch (error: any) {
+            console.error("Grading failed:", error);
+            Alert.alert(
+                "Grading Failed",
+                error.message || "Could not analyze the paper. Please ensure the answers and student name are legible."
+            );
+        } finally {
+            setGradingLoading(false);
+        }
+    }
+
+    // ── Save Graded Score to Supabase ──────────────────────────────────────────
+    async function handleSaveScore() {
+        if (!gradingResult) return;
+        setSavingScore(true);
+        try {
+            const student = roster.find(
+                (s) =>
+                    (selectedStudent && selectedStudent.includes(s.full_name)) ||
+                    (gradingResult.studentName && s.full_name.toLowerCase().includes(gradingResult.studentName.toLowerCase()))
+            ) || roster[0];
+
+            if (student) {
+                const percentage = Math.round((gradingResult.totalScore / (gradingResult.maxScore || 1)) * 100);
+                const { error } = await supabase
+                    .from("students")
+                    .update({ average: percentage })
+                    .eq("id", student.id);
+
+                if (error) throw error;
+
+                setRoster((prev) =>
+                    prev.map((s) => (s.id === student.id ? { ...s, average: percentage } : s))
+                );
+                Alert.alert("Score Saved", `Successfully recorded ${percentage}% for ${student.full_name}!`);
+                setGradingResult(null);
+            } else {
+                Alert.alert("Notice", "Score calculated, but no student in the roster was selected.");
+                setGradingResult(null);
+            }
+        } catch (err: any) {
+            Alert.alert("Error Saving Score", err.message || "Failed to update student database record.");
+        } finally {
+            setSavingScore(false);
+        }
+    }
 
     return (
         <ScrollView
@@ -134,7 +327,7 @@ export default function GraderTab({ classroomId, classTitle, accentColor, studen
                     <Dropdown
                         label="GRADE AGAINST QUIZ"
                         value={selectedQuiz}
-                        options={["No quizzes available"]}
+                        options={quizOptions}
                         onSelect={setSelectedQuiz}
                         accentColor={accentColor}
                     />
@@ -202,17 +395,234 @@ export default function GraderTab({ classroomId, classTitle, accentColor, studen
 
                 {/* Scan Button */}
                 <TouchableOpacity
-                    style={[styles.scanBtn, { backgroundColor: "#2563EB" }]}
+                    style={[styles.scanBtn, { backgroundColor: accentColor || "#2563EB" }]}
+                    onPress={() => setSourceModalOpen(true)}
                     activeOpacity={0.8}
                 >
                     <Ionicons name="camera-outline" size={20} color="#FFFFFF" />
                     <Text style={styles.scanBtnText}>Open Camera & Scan</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* ── Source Picker Modal ── */}
+            <Modal
+                visible={sourceModalOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setSourceModalOpen(false)}
+            >
+                <TouchableOpacity
+                    style={styles.modalBackdrop}
+                    activeOpacity={1}
+                    onPress={() => setSourceModalOpen(false)}
+                >
+                    <View style={styles.actionSheet}>
+                        <View style={styles.actionSheetHeader}>
+                            <Text style={styles.actionSheetTitle}>Scan Student Test Paper</Text>
+                            <Text style={styles.actionSheetSub}>Choose how to provide the handwritten test sheet</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.sheetBtn}
+                            onPress={handleOpenCamera}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[styles.sheetBtnIcon, { backgroundColor: (accentColor || "#2563EB") + "18" }]}>
+                                <Ionicons name="camera" size={20} color={accentColor || "#2563EB"} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.sheetBtnTitle}>Take Photo with Camera</Text>
+                                <Text style={styles.sheetBtnSub}>Snap a photo of the printed paper</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.sheetBtn}
+                            onPress={handlePickImage}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[styles.sheetBtnIcon, { backgroundColor: "#10B98118" }]}>
+                                <Ionicons name="images" size={20} color="#10B981" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.sheetBtnTitle}>Choose from Photo Library</Text>
+                                <Text style={styles.sheetBtnSub}>Upload an existing photo from your device</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.sheetCancelBtn}
+                            onPress={() => setSourceModalOpen(false)}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={styles.sheetCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* ── Full-Screen Grading Loading Overlay ── */}
+            <Modal
+                visible={gradingLoading}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => {}}
+            >
+                <View style={styles.loadingOverlay}>
+                    <View style={styles.loadingCard}>
+                        <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#2563EB") + "22" }]}>
+                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#2563EB" }]}>
+                                <Ionicons name="scan-outline" size={28} color="#FFFFFF" />
+                            </View>
+                        </View>
+
+                        <Text style={styles.loadingTitle}>Grading Assessment...</Text>
+                        <Text style={styles.loadingSub}>
+                            Tseki AI Vision is reading handwritten answers from the boxes and matching against the answer key.
+                        </Text>
+
+                        <View style={styles.spinnerWrap}>
+                            <ActivityIndicator size="large" color={accentColor || "#2563EB"} />
+                        </View>
+
+                        <View style={styles.loadingMetaPill}>
+                            <Text style={styles.loadingMetaText} numberOfLines={1}>
+                                {selectedQuiz}
+                            </Text>
+                        </View>
+
+                        <View style={styles.loadingNoticeRow}>
+                            <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
+                            <Text style={styles.loadingNoticeText}>Please wait and keep this screen open.</Text>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* ── Grading Results Modal ── */}
+            <Modal
+                visible={gradingResult !== null}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setGradingResult(null)}
+            >
+                <View style={styles.resultsOverlay}>
+                    <View style={styles.resultsCard}>
+                        {/* Header */}
+                        <View style={styles.resultsHeader}>
+                            <View>
+                                <Text style={styles.resultsTitle}>Grading Completed</Text>
+                                <Text style={styles.resultsSubtitle}>
+                                    Detected Student: <Text style={{ fontWeight: "700", color: "#1F2937" }}>{gradingResult?.studentName || "Unknown"}</Text>
+                                </Text>
+                            </View>
+                            <TouchableOpacity onPress={() => setGradingResult(null)} style={styles.closeBtn}>
+                                <Ionicons name="close" size={20} color="#6B7280" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Score Hero Banner */}
+                        {gradingResult && (
+                            <View style={[styles.scoreBanner, { backgroundColor: (accentColor || "#2563EB") + "14", borderColor: (accentColor || "#2563EB") + "44" }]}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.scoreBannerLabel}>TOTAL SCORE</Text>
+                                    <Text style={[styles.scoreBannerNumber, { color: accentColor || "#2563EB" }]}>
+                                        {gradingResult.totalScore} <Text style={styles.scoreBannerMax}>/ {gradingResult.maxScore}</Text>
+                                    </Text>
+                                </View>
+                                <View style={[styles.percentageBadge, { backgroundColor: accentColor || "#2563EB" }]}>
+                                    <Text style={styles.percentageText}>
+                                        {Math.round((gradingResult.totalScore / (gradingResult.maxScore || 1)) * 100)}%
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
+
+                        {/* Roster Assignment Selector */}
+                        <View style={styles.assignRow}>
+                            <Text style={styles.assignLabel}>Record For:</Text>
+                            <View style={{ flex: 1 }}>
+                                <Dropdown
+                                    label="SELECT ROSTER STUDENT"
+                                    value={currentStudentValue}
+                                    options={studentOptions}
+                                    onSelect={setSelectedStudent}
+                                    accentColor={accentColor}
+                                />
+                            </View>
+                        </View>
+
+                        {/* Breakdown Header */}
+                        <Text style={styles.breakdownHeader}>QUESTION BREAKDOWN</Text>
+
+                        {/* Questions List */}
+                        <ScrollView style={styles.resultsScroll} showsVerticalScrollIndicator={false}>
+                            {gradingResult?.results.map((item) => (
+                                <View key={item.questionNumber} style={styles.resultItemRow}>
+                                    <View style={[styles.itemNumBadge, { backgroundColor: item.isCorrect ? "#10B981" : "#EF4444" }]}>
+                                        <Text style={styles.itemNumText}>#{item.questionNumber}</Text>
+                                    </View>
+                                    <View style={{ flex: 1, paddingHorizontal: 10 }}>
+                                        <Text style={styles.itemAnswerText}>
+                                            Answer: <Text style={{ fontWeight: "700", color: item.isCorrect ? "#059669" : "#DC2626" }}>{item.studentAnswer || "(Empty)"}</Text>
+                                        </Text>
+                                        <Text style={styles.itemKeyText}>Key: {item.correctAnswer}</Text>
+                                    </View>
+                                    <View style={styles.itemPointsWrap}>
+                                        <Ionicons
+                                            name={item.isCorrect ? "checkmark-circle" : "close-circle"}
+                                            size={18}
+                                            color={item.isCorrect ? "#10B981" : "#EF4444"}
+                                        />
+                                        <Text style={[styles.itemPointsText, { color: item.isCorrect ? "#059669" : "#DC2626" }]}>
+                                            +{item.pointsAwarded}
+                                        </Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </ScrollView>
+
+                        {/* Action Buttons */}
+                        <View style={styles.resultsFooter}>
+                            <TouchableOpacity
+                                style={[styles.saveRecordBtn, { backgroundColor: accentColor || "#2563EB" }]}
+                                onPress={handleSaveScore}
+                                disabled={savingScore}
+                                activeOpacity={0.8}
+                            >
+                                {savingScore ? (
+                                    <ActivityIndicator size="small" color="#FFFFFF" />
+                                ) : (
+                                    <>
+                                        <Ionicons name="checkmark-done-outline" size={18} color="#FFFFFF" />
+                                        <Text style={styles.saveRecordText}>Save to Student Record</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.scanNextBtn}
+                                onPress={() => {
+                                    setGradingResult(null);
+                                    setSourceModalOpen(true);
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Ionicons name="camera-outline" size={16} color="#4B5563" />
+                                <Text style={styles.scanNextText}>Scan Another Paper</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </ScrollView>
     );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     root: { flex: 1 },
     content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 },
@@ -353,7 +763,7 @@ const styles = StyleSheet.create({
         height: 56,
         borderRadius: 12,
         marginTop: 16,
-        shadowColor: "#2563EB",
+        shadowColor: "#000",
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.2,
         shadowRadius: 8,
@@ -363,5 +773,331 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
         fontSize: 15,
         fontWeight: "700",
+    },
+
+    /* Action Sheet Modal */
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "flex-end",
+    },
+    actionSheet: {
+        backgroundColor: "#FFFFFF",
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 24,
+        paddingTop: 24,
+        paddingBottom: 36,
+        gap: 12,
+    },
+    actionSheetHeader: {
+        marginBottom: 8,
+    },
+    actionSheetTitle: {
+        fontSize: 18,
+        fontWeight: "800",
+        color: "#1F2937",
+        marginBottom: 4,
+    },
+    actionSheetSub: {
+        fontSize: 13,
+        color: "#6B7280",
+    },
+    sheetBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 14,
+        backgroundColor: "#F9FAFB",
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+        gap: 14,
+    },
+    sheetBtnIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    sheetBtnTitle: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: "#1F2937",
+        marginBottom: 2,
+    },
+    sheetBtnSub: {
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    sheetCancelBtn: {
+        height: 48,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        marginTop: 4,
+    },
+    sheetCancelText: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#6B7280",
+    },
+
+    /* Full-screen Loading Overlay */
+    loadingOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(17, 24, 39, 0.85)",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 28,
+    },
+    loadingCard: {
+        width: "100%",
+        maxWidth: 360,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 24,
+        paddingHorizontal: 24,
+        paddingVertical: 32,
+        alignItems: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.3,
+        shadowRadius: 24,
+        elevation: 16,
+    },
+    loadingIconGlow: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 18,
+    },
+    loadingIconCircle: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    loadingTitle: {
+        fontSize: 19,
+        fontWeight: "800",
+        color: "#1F2937",
+        textAlign: "center",
+        marginBottom: 8,
+    },
+    loadingSub: {
+        fontSize: 13,
+        color: "#6B7280",
+        textAlign: "center",
+        lineHeight: 19,
+        marginBottom: 16,
+        paddingHorizontal: 8,
+    },
+    spinnerWrap: {
+        marginVertical: 10,
+        transform: [{ scale: 1.15 }],
+    },
+    loadingMetaPill: {
+        backgroundColor: "#F3F4F6",
+        borderRadius: 20,
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        marginTop: 12,
+        marginBottom: 14,
+    },
+    loadingMetaText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: "#4B5563",
+    },
+    loadingNoticeRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    loadingNoticeText: {
+        fontSize: 12,
+        color: "#9CA3AF",
+        fontWeight: "500",
+    },
+
+    /* Results Modal */
+    resultsOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 32,
+    },
+    resultsCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 24,
+        padding: 20,
+        maxHeight: "90%",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 20,
+        elevation: 12,
+    },
+    resultsHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        marginBottom: 16,
+    },
+    resultsTitle: {
+        fontSize: 20,
+        fontWeight: "800",
+        color: "#1F2937",
+    },
+    resultsSubtitle: {
+        fontSize: 13,
+        color: "#6B7280",
+        marginTop: 2,
+    },
+    closeBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: "#F3F4F6",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    scoreBanner: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        marginBottom: 16,
+    },
+    scoreBannerLabel: {
+        fontSize: 11,
+        fontWeight: "700",
+        color: "#6B7280",
+        letterSpacing: 0.5,
+    },
+    scoreBannerNumber: {
+        fontSize: 28,
+        fontWeight: "800",
+        marginTop: 2,
+    },
+    scoreBannerMax: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: "#6B7280",
+    },
+    percentageBadge: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 12,
+    },
+    percentageText: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: "#FFFFFF",
+    },
+    assignRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 16,
+    },
+    assignLabel: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#4B5563",
+    },
+    breakdownHeader: {
+        fontSize: 12,
+        fontWeight: "800",
+        color: "#9CA3AF",
+        letterSpacing: 0.6,
+        marginBottom: 10,
+    },
+    resultsScroll: {
+        maxHeight: 220,
+        marginBottom: 16,
+    },
+    resultItemRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 10,
+        backgroundColor: "#F9FAFB",
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+        marginBottom: 8,
+    },
+    itemNumBadge: {
+        width: 34,
+        height: 24,
+        borderRadius: 6,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    itemNumText: {
+        fontSize: 11,
+        fontWeight: "800",
+        color: "#FFFFFF",
+    },
+    itemAnswerText: {
+        fontSize: 13,
+        color: "#374151",
+    },
+    itemKeyText: {
+        fontSize: 11,
+        color: "#6B7280",
+        marginTop: 1,
+    },
+    itemPointsWrap: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+    },
+    itemPointsText: {
+        fontSize: 13,
+        fontWeight: "700",
+    },
+    resultsFooter: {
+        gap: 8,
+    },
+    saveRecordBtn: {
+        height: 50,
+        borderRadius: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+    },
+    saveRecordText: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: "#FFFFFF",
+    },
+    scanNextBtn: {
+        height: 44,
+        borderRadius: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        backgroundColor: "#F3F4F6",
+    },
+    scanNextText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#4B5563",
     },
 });
