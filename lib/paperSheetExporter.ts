@@ -1,7 +1,7 @@
 import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
 import { Platform } from "react-native";
-import { GeneratedAssessment } from "./quizGeneratorService";
+import { GeneratedAssessment, ScannableQuestion } from "./quizGeneratorService";
 
 export type BondPaperSize = "short" | "long";
 
@@ -11,6 +11,78 @@ export interface ExportPaperOptions {
     subject?: string;
     includeAnswerKey?: boolean;
     paperSize?: BondPaperSize; // "short" (8.5x11") or "long" (8.5x13")
+}
+
+type NormalizedQuestionType = "multiple_choice" | "true_false" | "identification" | "enumeration";
+
+function normalizeQuestionType(type: string): NormalizedQuestionType {
+    const t = (type || "").toLowerCase().trim();
+    if (t.includes("true") || t.includes("false") || t === "tf") return "true_false";
+    if (t.includes("ident") || t.includes("fill") || t.includes("blank")) return "identification";
+    if (t.includes("enum")) return "enumeration";
+    return "multiple_choice";
+}
+
+function getTypeBadgeLabel(type: string): string {
+    const norm = normalizeQuestionType(type);
+    if (norm === "true_false") return "TRUE / FALSE";
+    if (norm === "identification") return "IDENTIFICATION";
+    if (norm === "enumeration") return "ENUMERATION";
+    return "MULTIPLE CHOICE";
+}
+
+/**
+ * Builds dynamic instructions depending on whether the assessment is a single type
+ * (Multiple Choice, True/False, Identification, Enumeration) or a Mixed Assessment.
+ */
+function buildInstructionsHtml(questions: ScannableQuestion[]): string {
+    const rawTypes = questions.map((q) => normalizeQuestionType(q.type));
+    const uniqueTypes = Array.from(new Set(rawTypes));
+
+    // Single-type assessments
+    if (uniqueTypes.length === 1) {
+        const type = uniqueTypes[0];
+        if (type === "true_false") {
+            return `
+        <div class="instructions-strip">
+          <strong>Instructions (True or False):</strong> Read each statement carefully. Write <strong>T</strong> if the statement is True and <strong>F</strong> if False clearly inside the answer box on the right.
+        </div>
+      `;
+        }
+        if (type === "identification") {
+            return `
+        <div class="instructions-strip">
+          <strong>Instructions (Identification):</strong> Read each statement or question carefully. Identify the correct term or concept and write your answer clearly inside the answer box on the right.
+        </div>
+      `;
+        }
+        if (type === "enumeration") {
+            return `
+        <div class="instructions-strip">
+          <strong>Instructions (Enumeration):</strong> Enumerate or list the required items for each question. Write each item clearly inside its corresponding numbered box (#1, #2, ...) on the right.
+        </div>
+      `;
+        }
+        // Default: multiple_choice
+        return `
+      <div class="instructions-strip">
+        <strong>Instructions (Multiple Choice):</strong> Read each question and choices carefully. Write the letter of your chosen answer (A, B, C, or D) clearly inside the answer box on the right.
+      </div>
+    `;
+    }
+
+    // Mixed Assessment: provide tailored instructions for each question type present
+    return `
+    <div class="instructions-strip">
+      <div class="instruction-heading"><strong>General Instructions (Mixed Assessment):</strong> Read each question carefully and write your answers inside the designated box(es) on the right:</div>
+      <div class="mixed-instructions-inline">
+        ${uniqueTypes.includes("multiple_choice") ? `<span class="mixed-rule">• <strong>Multiple Choice:</strong> Write single letter (A, B, C, or D)</span>` : ""}
+        ${uniqueTypes.includes("true_false") ? `<span class="mixed-rule">• <strong>True / False:</strong> Write <strong>T</strong> if True, <strong>F</strong> if False</span>` : ""}
+        ${uniqueTypes.includes("identification") ? `<span class="mixed-rule">• <strong>Identification:</strong> Write the exact term, word, or name</span>` : ""}
+        ${uniqueTypes.includes("enumeration") ? `<span class="mixed-rule">• <strong>Enumeration:</strong> Write one item per numbered box</span>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 /**
@@ -40,12 +112,31 @@ export function buildPaperSheetHtml({
     // Use 2 columns if more than 5 questions so everything fits on 1 sheet of bond paper
     const isTwoColumn = questionCount > 5;
 
+    const rawTypes = assessment.questions.map((q) => normalizeQuestionType(q.type));
+    const isMixed = new Set(rawTypes).size > 1;
+
+    const instructionsHtml = buildInstructionsHtml(assessment.questions);
+
     const questionsHtml = assessment.questions
         .map((q) => {
             const answerObj = assessment.answerKey.find((k) => k.questionNumber === q.questionNumber);
-            const correctAnswer = answerObj ? answerObj.correctAnswer : "";
+            const rawCorrectAnswer = answerObj ? answerObj.correctAnswer : "";
             const points = answerObj ? answerObj.points : 1;
 
+            const normType = normalizeQuestionType(q.type);
+            const boxCount = Math.max(1, q.answerBoxesRequired || 1);
+            const isTextFill = normType === "identification";
+            const isEnum = normType === "enumeration";
+
+            // Format answer for answer key
+            let formattedAnswer = rawCorrectAnswer;
+            if (normType === "true_false") {
+                const lower = rawCorrectAnswer.trim().toLowerCase();
+                if (lower === "true" || lower === "t") formattedAnswer = "T";
+                else if (lower === "false" || lower === "f") formattedAnswer = "F";
+            }
+
+            // Options row (for multiple choice or true/false)
             let optionsHtml = "";
             if (q.options && q.options.length > 0) {
                 optionsHtml = `
@@ -57,17 +148,38 @@ export function buildPaperSheetHtml({
         `;
             }
 
-            const boxCount = Math.max(1, q.answerBoxesRequired || 1);
-            const isTextFill = q.type === "fill_blank";
+            // Parse enumeration items if answer key is included
+            let enumItems: string[] = [];
+            if (includeAnswerKey && isEnum) {
+                enumItems = rawCorrectAnswer
+                    .split(/(?:^|\s*)[,\n;]+(?:\s*)|(?:\d+[\.\)]\s*)/g)
+                    .map((s) => s.trim())
+                    .filter((s) => s.length > 0);
+                if (enumItems.length === 0 && rawCorrectAnswer) {
+                    enumItems = [rawCorrectAnswer];
+                }
+            }
 
             const boxesHtml = `
-        <div class="boxes-cluster">
+        <div class="boxes-cluster ${isEnum && boxCount > 1 ? "boxes-vertical" : ""}">
           ${Array.from({ length: boxCount })
                 .map((_, idx) => {
-                    const filledText = includeAnswerKey && idx === 0 ? escapeHtml(correctAnswer) : "";
+                    let filledText = "";
+                    if (includeAnswerKey) {
+                        if (isEnum) {
+                            filledText = enumItems[idx] || (idx === 0 ? rawCorrectAnswer : "");
+                        } else if (idx === 0) {
+                            filledText = formattedAnswer;
+                        }
+                    }
+
+                    const boxClass = isTextFill ? "box-wide" : isEnum ? "box-enum" : "box-square";
+                    const watermark = isEnum && boxCount > 1 && !filledText ? `<span class="box-watermark">#${idx + 1}</span>` : "";
+
                     return `
-              <div class="answer-box ${isTextFill ? "box-wide" : "box-square"}">
-                ${filledText ? `<span class="answer-key-text">${filledText}</span>` : ""}
+              <div class="answer-box ${boxClass}">
+                ${watermark}
+                ${filledText ? `<span class="answer-key-text">${escapeHtml(filledText)}</span>` : ""}
               </div>
             `;
                 })
@@ -80,6 +192,7 @@ export function buildPaperSheetHtml({
           <div class="q-body">
             <div class="q-statement">
               <span class="q-num">${q.questionNumber}.</span>
+              ${isMixed ? `<span class="q-type-badge">${getTypeBadgeLabel(q.type)}</span>` : ""}
               <span class="q-text">${escapeHtml(q.questionText)}</span>
               ${points > 1 ? `<span class="q-pts">(${points}pts)</span>` : ""}
             </div>
@@ -212,14 +325,29 @@ export function buildPaperSheetHtml({
     .instructions-strip {
       background-color: #F3F4F6;
       border-left: 3px solid #111827;
-      padding: 2.5px 8px;
-      font-size: 9px;
+      padding: 3px 8px;
+      font-size: 8.8px;
       color: #374151;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
       border-radius: 0 3px 3px 0;
+      line-height: 1.35;
+    }
+    .instruction-heading {
+      font-size: 8.5px;
+      margin-bottom: 2px;
+    }
+    .mixed-instructions-inline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px 10px;
+      margin-top: 2px;
+    }
+    .mixed-rule {
+      font-size: 8.2px;
+      color: #1F2937;
     }
 
-    /* ── Questions Layout (Clean, authentic paper format — NO outer boxes!) ── */
+    /* ── Questions Layout ── */
     .questions-grid {
       display: ${isTwoColumn ? "grid" : "flex"};
       grid-template-columns: ${isTwoColumn ? "1fr 1fr" : "none"};
@@ -232,7 +360,7 @@ export function buildPaperSheetHtml({
       justify-content: space-between;
       align-items: flex-start;
       padding-bottom: ${questionCount > 15 ? "3px" : "4px"};
-      border-bottom: 1px dashed #E5E7EB; /* Clean, subtle separator line */
+      border-bottom: 1px dashed #E5E7EB;
       page-break-inside: avoid;
     }
 
@@ -249,6 +377,18 @@ export function buildPaperSheetHtml({
       color: #000000;
       margin-right: 2px;
     }
+    .q-type-badge {
+      display: inline-block;
+      font-size: 7.5px;
+      font-weight: 800;
+      color: #374151;
+      background-color: #E5E7EB;
+      padding: 0.5px 4px;
+      border-radius: 3px;
+      margin-right: 3px;
+      vertical-align: middle;
+      letter-spacing: 0.2px;
+    }
     .q-text {
       font-weight: 600;
       color: #1F2937;
@@ -260,7 +400,7 @@ export function buildPaperSheetHtml({
       margin-left: 2px;
     }
 
-    /* Options: clean text list (no bulky pills) */
+    /* Options: clean text list */
     .options-row {
       display: flex;
       flex-wrap: wrap;
@@ -283,6 +423,10 @@ export function buildPaperSheetHtml({
       display: flex;
       gap: 3px;
     }
+    .boxes-vertical {
+      flex-direction: column;
+      gap: 2px;
+    }
     .answer-box {
       border: 2px solid #000000;
       border-radius: 2px;
@@ -290,19 +434,35 @@ export function buildPaperSheetHtml({
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
     }
     .box-square {
       width: 25px;
       height: 25px;
     }
     .box-wide {
-      width: 60px;
+      width: 75px;
       height: 25px;
+      padding: 0 4px;
+    }
+    .box-enum {
+      width: 75px;
+      height: 22px;
+      padding: 0 4px;
+    }
+    .box-watermark {
+      font-size: 7.5px;
+      font-weight: 700;
+      color: #9CA3AF;
     }
     .answer-key-text {
-      font-size: 10.5px;
+      font-size: 9.5px;
       font-weight: 800;
       color: #2563EB;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
     /* Compact Footer */
@@ -350,9 +510,7 @@ export function buildPaperSheetHtml({
     </div>
   </div>
 
-  <div class="instructions-strip">
-    <strong>Instructions:</strong> Write your answer clearly inside the black box on the right. For multiple choice, write the single letter (A, B, C, D). Fits on 1 single sheet.
-  </div>
+  ${instructionsHtml}
 
   <div class="questions-grid">
     ${questionsHtml}

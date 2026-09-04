@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "enumeration";
+export type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "identification" | "enumeration";
 
 export interface ScannableQuestion {
     questionNumber: number;
@@ -90,7 +90,34 @@ Assessment Parameters:
 - Selected Difficulty: ${diff.toUpperCase()}
 ${params.attachedPdfName ? `- Source Document: Strictly derive questions and answers from the attached PDF document ("${params.attachedPdfName}"). Do NOT ask general questions outside this document.` : ""}
 
-${difficultyGuide}
+CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
+1. If Question Type Preference is "Multiple Choice":
+   - Every question MUST have type: "multiple_choice"
+   - options: array of 4 choices formatted as ["A) ...", "B) ...", "C) ...", "D) ..."]
+   - answerBoxesRequired: 1
+   - correctAnswer: Single capital letter "A", "B", "C", or "D"
+
+2. If Question Type Preference is "True / False" or contains "True":
+   - Every question MUST have type: "true_false"
+   - options: ["A) True", "B) False"]
+   - answerBoxesRequired: 1
+   - correctAnswer: Single letter "T" or "F"
+
+3. If Question Type Preference is "Identification" or "Fill in the Blank":
+   - Every question MUST have type: "identification"
+   - options: [] (MUST BE AN EMPTY ARRAY - DO NOT PROVIDE CHOICES!)
+   - answerBoxesRequired: 1
+   - correctAnswer: The exact concept, term, name, or word being tested (e.g. "Photosynthesis", "Isaac Newton")
+
+4. If Question Type Preference is "Enumeration":
+   - Every question MUST have type: "enumeration"
+   - questionText: clearly state how many items to enumerate (e.g. "Name 3 greenhouse gases:", "List the 4 cardinal directions:")
+   - options: [] (MUST BE AN EMPTY ARRAY - DO NOT PROVIDE CHOICES!)
+   - answerBoxesRequired: The number of items to enumerate (between 2 and 4)
+   - correctAnswer: Comma-separated list of items (e.g. "Carbon dioxide, Methane, Water vapor")
+
+5. If Question Type Preference is "Mixed Assessment":
+   - Create a balanced pedagogical mix of the above types across the test (e.g. Multiple Choice, True / False, Identification, and Enumeration) following each type's exact rules.
 
 You MUST return ONLY a strict, valid JSON object. Do not include markdown formatting (like \`\`\`json). The JSON must perfectly follow this structure so it can be rendered into a scannable test paper:
 
@@ -99,10 +126,10 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
   "questions": [
     {
       "questionNumber": 1,
-      "type": "multiple_choice", // Must be one of: "multiple_choice", "true_false", "fill_blank", "enumeration"
+      "type": "multiple_choice", // Must be one of: "multiple_choice", "true_false", "identification", "enumeration"
       "questionText": "What is the capital of France?",
-      "options": ["A) London", "B) Paris", "C) Berlin", "D) Rome"], // Leave empty array if not applicable
-      "answerBoxesRequired": 1 // How many physical boxes the student needs (e.g., 1 for MC, 3 for a 3-part enumeration)
+      "options": ["A) London", "B) Paris", "C) Berlin", "D) Rome"], // Leave empty array [] if identification or enumeration
+      "answerBoxesRequired": 1 // 1 for MC/TF/Identification, 2-4 for Enumeration
     }
   ],
   "answerKey": [

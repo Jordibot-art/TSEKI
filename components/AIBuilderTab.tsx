@@ -18,7 +18,7 @@ import {
     GeneratedAssessment,
     generateScannableQuiz
 } from "../lib/quizGeneratorService";
-import { savePublishedQuiz } from "../lib/quizStore";
+import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const SUBJECTS = [
@@ -31,7 +31,7 @@ const GRADE_LEVELS = [
     "Grade 11", "Grade 12",
 ];
 const QUESTION_TYPES = [
-    "Multiple Choice", "True / False", "Fill in the Blank", "Enumeration", "Mixed Assessment",
+    "Multiple Choice", "True / False", "Identification", "Fill in the Blank", "Enumeration", "Mixed Assessment",
 ];
 const QUESTION_COUNTS = [
     "5 Questions", "10 Questions", "15 Questions", "20 Questions",
@@ -170,6 +170,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [showResults, setShowResults] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
     const [exportingPdf, setExportingPdf] = useState(false);
+    const [savingDraft, setSavingDraft] = useState(false);
+    const [publishingQuiz, setPublishingQuiz] = useState(false);
 
     // ── File handler ───────────────────────────────────────────────────────────
     async function handleAttachFile() {
@@ -268,12 +270,20 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     }
 
     async function handlePublishQuiz() {
-        if (!generatedAssessment) return;
+        if (!generatedAssessment || publishingQuiz) return;
+        setPublishingQuiz(true);
         try {
-            await savePublishedQuiz(classroomId, generatedAssessment);
+            const quizWithMeta = {
+                ...generatedAssessment,
+                subject,
+                difficulty,
+                questionType,
+                gradeLevel,
+            };
+            await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
             Alert.alert(
                 "Quiz Published!",
-                `"${generatedAssessment.quizTitle}" is published and ready for grading in the Grader tab!`,
+                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and archived in Settings under "Archive". It is ready for camera grading in the Grader tab!`,
                 [
                     {
                         text: "Go to Grader to Scan",
@@ -287,6 +297,32 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             );
         } catch (err: any) {
             Alert.alert("Publish Failed", err.message || "Failed to save quiz to grader.");
+        } finally {
+            setPublishingQuiz(false);
+        }
+    }
+
+    async function handleSaveDraft() {
+        if (!generatedAssessment || savingDraft) return;
+        setSavingDraft(true);
+        try {
+            const draftWithMeta = {
+                ...generatedAssessment,
+                subject,
+                difficulty,
+                questionType,
+                gradeLevel,
+            };
+            await saveDraftQuiz(classroomId, draftWithMeta, classTitle);
+            Alert.alert(
+                "Assessment Saved as Draft",
+                `"${generatedAssessment.quizTitle}" has been saved as DRAFT.\n\nYou can view, inspect, or publish it anytime in Settings under "DRAFT".`,
+                [{ text: "OK" }]
+            );
+        } catch (err: any) {
+            Alert.alert("Save Failed", err.message || "Failed to save draft.");
+        } finally {
+            setSavingDraft(false);
         }
     }
 
@@ -561,18 +597,32 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     {/* ── Action Buttons ── */}
                     <View style={styles.resultActions}>
                         <TouchableOpacity
-                            style={[styles.saveDraftBtn, { borderColor: accentColor }]}
-                            onPress={() => Alert.alert("Draft Saved", `Saved "${generatedAssessment?.quizTitle}" to your drafts.`)}
+                            style={[styles.saveDraftBtn, { borderColor: accentColor, opacity: savingDraft ? 0.6 : 1 }]}
+                            onPress={handleSaveDraft}
+                            disabled={savingDraft}
                         >
-                            <Ionicons name="save-outline" size={16} color={accentColor} />
-                            <Text style={[styles.saveDraftText, { color: accentColor }]}>Save as Draft</Text>
+                            {savingDraft ? (
+                                <ActivityIndicator size="small" color={accentColor} />
+                            ) : (
+                                <>
+                                    <Ionicons name="save-outline" size={16} color={accentColor} />
+                                    <Text style={[styles.saveDraftText, { color: accentColor }]}>Save as Draft</Text>
+                                </>
+                            )}
                         </TouchableOpacity>
                         <TouchableOpacity
-                            style={[styles.publishBtn, { backgroundColor: accentColor }]}
+                            style={[styles.publishBtn, { backgroundColor: accentColor, opacity: publishingQuiz ? 0.6 : 1 }]}
                             onPress={handlePublishQuiz}
+                            disabled={publishingQuiz}
                         >
-                            <Ionicons name="send-outline" size={16} color="#FFFFFF" />
-                            <Text style={styles.publishText}>Publish Quiz</Text>
+                            {publishingQuiz ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                                <>
+                                    <Ionicons name="send-outline" size={16} color="#FFFFFF" />
+                                    <Text style={styles.publishText}>Publish Quiz</Text>
+                                </>
+                            )}
                         </TouchableOpacity>
                     </View>
 

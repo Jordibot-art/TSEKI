@@ -66,19 +66,36 @@ function getStudentAvatar(name: string) {
 // ── Screen ────────────────────────────────────────────────────────────────────
 export default function ClassroomScreen() {
   const router = useRouter();
-  const { id, title, schedule, room, color, subject } = useLocalSearchParams<{
+  const {
+    id,
+    title,
+    schedule,
+    room,
+    color,
+    subject,
+    initialTab,
+    openStudentId,
+    openStudentName,
+  } = useLocalSearchParams<{
     id: string;
     title: string;
     schedule: string;
     room: string;
     color: string;
     subject?: string;
+    initialTab?: Tab;
+    openStudentId?: string;
+    openStudentName?: string;
   }>();
 
   const classroomSubject = subject || (schedule !== "No Subject" ? schedule : "");
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<Tab>("Record");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    initialTab === "Tracker" || initialTab === "AI Builder" || initialTab === "Grader"
+      ? initialTab
+      : "Record"
+  );
   const [selectedGradingQuiz, setSelectedGradingQuiz] = useState<string | undefined>(undefined);
   const [publishedQuizzes, setPublishedQuizzes] = useState<StoredQuiz[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -99,6 +116,27 @@ export default function ClassroomScreen() {
   useEffect(() => {
     loadStudents();
   }, []);
+
+  // Auto-switch to initialTab if param changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab as Tab);
+    }
+  }, [initialTab]);
+
+  // Auto-open requested student profile preview when redirected from notification alert
+  useEffect(() => {
+    if ((openStudentId || openStudentName) && students.length > 0) {
+      const match = students.find(
+        (s) =>
+          (openStudentId && s.id === openStudentId) ||
+          (openStudentName && s.full_name.toLowerCase() === openStudentName.toLowerCase())
+      );
+      if (match) {
+        setSelectedProfile(match);
+      }
+    }
+  }, [students, openStudentId, openStudentName]);
 
   useEffect(() => {
     if (id) {

@@ -13,6 +13,7 @@ import {
     View,
 } from "react-native";
 import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
+import { saveRosterAlert } from "../lib/alertStore";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
@@ -376,6 +377,25 @@ export default function GraderTab({
             const quizTitleToRecord = selectedQuiz || "Assessment 1";
             if (classroomId) {
                 await saveQuizPerformanceRecord(classroomId, quizTitleToRecord, percentage);
+
+                // If student score is 50% or below, trigger system at-risk notification alert
+                if (percentage <= 50) {
+                    const studentName = student ? student.full_name : (gradingResult.studentName && gradingResult.studentName !== "Unknown" ? gradingResult.studentName : "Student");
+                    const studentId = student ? student.id : (gradingResult.studentName || "student");
+                    await saveRosterAlert({
+                        studentId,
+                        studentName,
+                        classroomId,
+                        classroomTitle: classTitle || "Classroom",
+                        classroomSchedule: "",
+                        classroomRoom: "",
+                        classroomColor: accentColor || "#3B82F6",
+                        scorePercentage: percentage,
+                        quizTitle: quizTitleToRecord,
+                        alertType: percentage <= 40 ? "HIGH RISK" : "URGENT REVIEW",
+                        message: `${studentName} has dropped to an average of ${percentage}%. Performance Flagged: At-Risk.`,
+                    });
+                }
             }
 
             // Successfully recorded!

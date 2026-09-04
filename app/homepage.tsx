@@ -17,6 +17,8 @@ import {
   View
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
+import { clearAllAlerts, getClearedAlertIds, getPersistedAlerts, RosterAlert } from "../lib/alertStore";
+import { getPublishedQuizzes, getQuizPerformanceRecords } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -73,6 +75,8 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [alerts, setAlerts] = useState<RosterAlert[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   // form fields
   const [classTitle, setClassTitle] = useState("");
@@ -100,34 +104,132 @@ export default function HomePage() {
     if (!error && classrooms) {
       const classroomIds = classrooms.map((row: any) => row.id);
       const studentCounts: Record<string, number> = {};
+      const flaggedCounts: Record<string, number> = {};
+      const quizCounts: Record<string, number> = {};
+      const activeAlerts: RosterAlert[] = [];
 
       if (classroomIds.length > 0) {
+        // 1. Fetch real students and their averages from Supabase
         const { data: studentsData } = await supabase
           .from("students")
-          .select("classroom_id")
+          .select("id, classroom_id, full_name, average")
           .in("classroom_id", classroomIds);
+
+        const clearedIds = await getClearedAlertIds();
 
         if (studentsData) {
           for (const s of studentsData) {
             studentCounts[s.classroom_id] = (studentCounts[s.classroom_id] || 0) + 1;
+            // Student is flagged by the system if average is 50% or below
+            if ((s.average ?? 0) <= 50) {
+              flaggedCounts[s.classroom_id] = (flaggedCounts[s.classroom_id] || 0) + 1;
+
+              const cIdx = classrooms.findIndex((c: any) => c.id === s.classroom_id);
+              const c = classrooms[cIdx];
+              const alertId = `flag_${s.id}`;
+
+              if (!clearedIds.includes(alertId) && !clearedIds.includes(s.id)) {
+                activeAlerts.push({
+                  id: alertId,
+                  studentId: s.id,
+                  studentName: s.full_name || "Student",
+                  classroomId: s.classroom_id,
+                  classroomTitle: c ? c.title : "Classroom",
+                  classroomSchedule: c ? (c.subject || "No Subject") : "",
+                  classroomRoom: c ? (c.room ? `Room ${c.room}` : c.section || "No Room") : "",
+                  classroomColor: CARD_COLORS[cIdx >= 0 ? cIdx % CARD_COLORS.length : 0],
+                  scorePercentage: s.average ?? 0,
+                  alertType: (s.average ?? 0) <= 45 ? "HIGH RISK" : "URGENT REVIEW",
+                  message: `${s.full_name || "Student"} has dropped to an average of ${s.average ?? 0}%. Performance Flagged: At-Risk.`,
+                  createdAt: new Date().toISOString(),
+                  timeLabel: "Today",
+                });
+              }
+            }
           }
         }
+
+        // Incorporate any persisted alerts from GraderTab
+        const persisted = await getPersistedAlerts();
+        for (const p of persisted) {
+          if (!clearedIds.includes(p.id) && !clearedIds.includes(p.studentId)) {
+            if (!activeAlerts.some((a) => a.studentId === p.studentId)) {
+              activeAlerts.push(p);
+            }
+          }
+        }
+
+        setAlerts(activeAlerts);
+
+        // 2. Fetch real quizzes created and graded for each classroom
+        await Promise.all(
+          classroomIds.map(async (cId: string) => {
+            try {
+              const [published, perf] = await Promise.all([
+                getPublishedQuizzes(cId),
+                getQuizPerformanceRecords(cId),
+              ]);
+              const uniqueTitles = new Set([
+                ...published.map((q) => q.quizTitle.trim().toLowerCase()),
+                ...perf.map((p) => p.quizTitle.trim().toLowerCase()),
+              ]);
+              quizCounts[cId] = uniqueTitles.size;
+            } catch (err) {
+              console.error("Failed to load quizzes for classroom:", cId, err);
+              quizCounts[cId] = 0;
+            }
+          })
+        );
       }
 
       setCards(
-        classrooms.map((row: any, i: number) => ({
-          id: row.id,
-          schedule: row.subject || "No Subject",
-          title: row.title,
-          room: row.room ? `Room ${row.room}` : row.section || "No Room",
-          color: CARD_COLORS[i % CARD_COLORS.length],
-          students: studentCounts[row.id] ?? row.student_count ?? 0,
-          quizzes: row.quiz_count ?? 0,
-          flagged: row.flagged_count ?? 0,
-        }))
+        classrooms.map((row: any, i: number) => {
+          const realStudentCount = studentCounts[row.id];
+          const realFlaggedCount = flaggedCounts[row.id];
+          const realQuizCount = quizCounts[row.id];
+
+          const displayStudents = realStudentCount !== undefined ? realStudentCount : (row.student_count ?? 0);
+          const displayFlagged = realFlaggedCount !== undefined ? realFlaggedCount : (row.flagged_count ?? 0);
+          const displayQuizzes = realQuizCount !== undefined ? realQuizCount : (row.quiz_count ?? 0);
+
+          return {
+            id: row.id,
+            schedule: row.subject || "No Subject",
+            title: row.title,
+            room: row.room ? `Room ${row.room}` : row.section || "No Room",
+            color: CARD_COLORS[i % CARD_COLORS.length],
+            students: displayStudents,
+            quizzes: displayQuizzes,
+            flagged: displayFlagged,
+          };
+        })
       );
     }
     setLoading(false);
+  }
+
+  // ── Notification Alerts Handlers ─────────────────────────────────────────
+  async function handleAlertPress(alert: RosterAlert) {
+    setNotifOpen(false);
+    router.push({
+      pathname: "/classroom",
+      params: {
+        id: alert.classroomId,
+        title: alert.classroomTitle,
+        schedule: alert.classroomSchedule,
+        subject: alert.classroomSchedule !== "No Subject" ? alert.classroomSchedule : "",
+        room: alert.classroomRoom,
+        color: alert.classroomColor,
+        initialTab: "Tracker",
+        openStudentId: alert.studentId,
+        openStudentName: alert.studentName,
+      },
+    });
+  }
+
+  async function handleClearAllAlerts() {
+    await clearAllAlerts(alerts);
+    setAlerts([]);
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -202,9 +304,20 @@ export default function HomePage() {
           </View>
           <Text style={[styles.appTitle, { color: textMain }]}>Tseki</Text>
         </View>
-        <Pressable onPress={() => { }}>
+        <TouchableOpacity
+          style={styles.notifBtn}
+          onPress={() => setNotifOpen(true)}
+          activeOpacity={0.7}
+        >
           <Ionicons name="notifications-outline" size={24} color={textSub} />
-        </Pressable>
+          {alerts.length > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>
+                {alerts.length > 9 ? "9+" : alerts.length}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -261,16 +374,25 @@ export default function HomePage() {
             <View style={[styles.cardBottom, { backgroundColor: cardBg }]}>
               <View style={styles.statItem}>
                 <Ionicons name="people-outline" size={16} color={textSub} />
-                <Text style={[styles.statText, { color: textSub }]}>{card.students} Students</Text>
+                <Text style={[styles.statText, { color: textSub }]}>
+                  {card.students} {card.students === 1 ? "student" : "students"}
+                </Text>
               </View>
               <View style={styles.statItem}>
                 <Ionicons name="book-outline" size={16} color={textSub} />
-                <Text style={[styles.statText, { color: textSub }]}>{card.quizzes} Quizzes</Text>
+                <Text style={[styles.statText, { color: textSub }]}>
+                  {card.quizzes} {card.quizzes === 1 ? "Quiz" : "Quizzes"}
+                </Text>
               </View>
-              {card.flagged > 0 && (
+              {card.flagged > 0 ? (
                 <View style={styles.flaggedBadge}>
                   <Ionicons name="warning-outline" size={14} color="#EF4444" />
                   <Text style={styles.flaggedText}>{card.flagged} FLAGGED</Text>
+                </View>
+              ) : (
+                <View style={styles.allClearBadge}>
+                  <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
+                  <Text style={styles.allClearBadgeText}>0 FLAGGED</Text>
                 </View>
               )}
             </View>
@@ -407,6 +529,74 @@ export default function HomePage() {
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Active Roster Alerts Modal (Image 2) ── */}
+      <Modal
+        visible={notifOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNotifOpen(false)}
+      >
+        <View style={styles.alertsModalOverlay}>
+          <TouchableWithoutFeedback onPress={() => setNotifOpen(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          <View style={[styles.alertsCard, { backgroundColor: cardBg, borderColor: darkMode ? "#4B5563" : "#0F172A" }]}>
+            {/* Header */}
+            <View style={styles.alertsHeader}>
+              <View style={styles.alertsHeaderLeft}>
+                <Ionicons name="notifications" size={18} color="#F97316" />
+                <Text style={[styles.alertsTitle, { color: textMain }]}>Active Roster Alerts</Text>
+              </View>
+              {alerts.length > 0 && (
+                <TouchableOpacity onPress={handleClearAllAlerts} activeOpacity={0.7}>
+                  <Text style={styles.alertsClearBtn}>Clear all</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Content */}
+            {alerts.length === 0 ? (
+              <View style={styles.alertsEmptyState}>
+                <Ionicons name="shield-checkmark-outline" size={32} color="#10B981" />
+                <Text style={[styles.alertsEmptyTitle, { color: textMain }]}>All Clear</Text>
+                <Text style={[styles.alertsEmptySub, { color: textSub }]}>
+                  No students currently flagged as at-risk across your classrooms.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.alertsList} showsVerticalScrollIndicator={false}>
+                {alerts.map((alert) => (
+                  <TouchableOpacity
+                    key={alert.id}
+                    style={[styles.alertCard, { backgroundColor: darkMode ? "#374151" : "#FFFFFF" }]}
+                    onPress={() => handleAlertPress(alert)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.alertCardHeader}>
+                      <View style={styles.alertCardTag}>
+                        <Ionicons name="warning-outline" size={12} color="#DC2626" />
+                        <Text style={styles.alertCardTagText}>{alert.alertType}</Text>
+                      </View>
+                      <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
+                    </View>
+                    <Text style={[styles.alertCardMessage, { color: textMain }]}>
+                      {alert.message}
+                    </Text>
+                    <View style={styles.alertCardActionRow}>
+                      <Text style={styles.alertCardActionText} numberOfLines={1}>
+                        {alert.classroomTitle} • Tap to view Tracker & profile
+                      </Text>
+                      <Ionicons name="arrow-forward" size={12} color="#2563EB" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -562,6 +752,20 @@ const styles = StyleSheet.create({
   flaggedText: {
     fontSize: 10,
     color: "#EF4444",
+    fontWeight: "700",
+  },
+  allClearBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  allClearBadgeText: {
+    fontSize: 10,
+    color: "#10B981",
     fontWeight: "700",
   },
 
@@ -736,5 +940,142 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+
+  /* ── Notification Bell & Badge (Image 1) ── */
+  notifBtn: {
+    position: "relative",
+    padding: 6,
+  },
+  notifBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    backgroundColor: "#EF4444",
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+  notifBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  /* ── Active Roster Alerts Popup (Image 2) ── */
+  alertsModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    paddingTop: 80,
+    paddingHorizontal: 16,
+  },
+  alertsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: "#0F172A",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 14,
+    elevation: 8,
+    maxHeight: 480,
+  },
+  alertsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  alertsHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  alertsTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  alertsClearBtn: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+  alertsEmptyState: {
+    paddingVertical: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  alertsEmptyTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  alertsEmptySub: {
+    fontSize: 12,
+    textAlign: "center",
+    paddingHorizontal: 20,
+    lineHeight: 18,
+  },
+  alertsList: {
+    maxHeight: 390,
+  },
+  alertCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#0F172A",
+    padding: 12,
+    marginBottom: 10,
+  },
+  alertCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  alertCardTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  alertCardTagText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#DC2626",
+    letterSpacing: 0.3,
+  },
+  alertCardTime: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  alertCardMessage: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#1E293B",
+    lineHeight: 18,
+  },
+  alertCardActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  alertCardActionText: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: "#2563EB",
+    flex: 1,
   },
 });
