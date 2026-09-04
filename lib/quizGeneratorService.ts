@@ -55,8 +55,31 @@ export async function generateScannableQuiz(
     const grade = params.gradeLevel || "Grade 10";
     const qType = params.questionType || "Mixed (Multiple Choice, True/False, Fill in Blank)";
 
+    const difficultyGuide = {
+        Easy: `
+CRITICAL DIFFICULTY GUIDELINES - EASY (Bloom's Level 1 & 2: Direct Recall & Basic Understanding):
+- Cognitive Focus: Focus strictly on direct definitions, basic facts, core terminology, and straightforward identification.
+- Question Phrasing: Keep sentences short, simple, and unambiguous. Avoid trick wording, double negatives, or complex scenarios.
+- Distractors / Choices: Incorrect options should be plausible but clearly distinguishable from the correct answer for any student with basic familiarity.
+- Pedagogical Goal: Rebuild student confidence and test essential foundational literacy.`,
+        Medium: `
+CRITICAL DIFFICULTY GUIDELINES - MEDIUM (Bloom's Level 3 & 4: Application, Context & Conceptual Analysis):
+- Cognitive Focus: Test cause-and-effect relationships, practical applications, formula use, and standard scenario interpretations.
+- Question Phrasing: Frame questions around realistic contextual examples or multi-step problem solving.
+- Distractors / Choices: Distractors must represent common student errors or closely related concepts, requiring true comprehension rather than simple memorization.
+- Pedagogical Goal: Assess whether the student can apply the concept to novel situations.`,
+        Hard: `
+CRITICAL DIFFICULTY GUIDELINES - HARD (Bloom's Level 5 & 6: Evaluation, Complex Synthesis & Edge Cases):
+- Cognitive Focus: Multi-step critical deduction, evaluating contrasting scenarios, subtle edge cases, and high-level synthesis.
+- Question Phrasing: Present challenging, multi-layered problem scenarios where simple recall is insufficient to arrive at the answer.
+- Distractors / Choices: Distractors must be highly sophisticated, specifically targeting subtle student misconceptions, calculation traps, and edge-case pitfalls.
+- Pedagogical Goal: Challenge and stretch top-tier students, demanding deep mastery and rigorous critical thinking.`,
+    }[diff as "Easy" | "Medium" | "Hard"] || `
+CRITICAL DIFFICULTY GUIDELINES:
+- Calibrate the cognitive complexity, vocabulary, and distractor subtlety strictly to the requested "${diff}" level.`;
+
     let promptText = `
-You are an expert curriculum designer. Generate an educational assessment based on the requested topic and difficulty.
+You are an expert curriculum designer and psychometrician. Generate an educational assessment based on the requested topic and the STRICT cognitive difficulty guidelines below.
 
 Assessment Parameters:
 - Topic: ${params.topic}
@@ -64,8 +87,10 @@ Assessment Parameters:
 - Grade Level: ${grade}
 - Question Type Preference: ${qType}
 - Number of Questions: ${count}
-- Difficulty Level: ${diff}
+- Selected Difficulty: ${diff.toUpperCase()}
 ${params.attachedPdfName ? `- Source Document: Strictly derive questions and answers from the attached PDF document ("${params.attachedPdfName}"). Do NOT ask general questions outside this document.` : ""}
+
+${difficultyGuide}
 
 You MUST return ONLY a strict, valid JSON object. Do not include markdown formatting (like \`\`\`json). The JSON must perfectly follow this structure so it can be rendered into a scannable test paper:
 

@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
+import TrackerTab from "../components/TrackerTab";
 import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
@@ -305,6 +306,19 @@ export default function ClassroomScreen() {
             onStudentCreated={(newStudent) => {
               setStudents((prev) => [...prev, newStudent]);
             }}
+          />
+        )}
+
+        {activeTab === "Tracker" && (
+          <TrackerTab
+            classroomId={id as string}
+            classTitle={title as string}
+            classSubject={classroomSubject}
+            students={students}
+            publishedQuizzes={publishedQuizzes}
+            selectedQuizTitle={selectedGradingQuiz}
+            onOpenStudentProfile={(student) => setSelectedProfile(student)}
+            onNavigateToAIBuilder={() => setActiveTab("AI Builder")}
           />
         )}
 
