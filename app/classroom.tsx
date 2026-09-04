@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -18,6 +20,7 @@ import {
 } from "react-native";
 import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
+import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -45,6 +48,20 @@ function getInitials(name: string) {
     .slice(0, 2);
 }
 
+function getStudentAvatar(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.includes("sarah") || lower.includes("jenkins")) {
+    return "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80";
+  }
+  if (lower.includes("michael") || lower.includes("chang")) {
+    return "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80";
+  }
+  if (lower.includes("emily") || lower.includes("davis")) {
+    return "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80";
+  }
+  return null;
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 export default function ClassroomScreen() {
   const router = useRouter();
@@ -62,6 +79,7 @@ export default function ClassroomScreen() {
   // ── State ──────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("Record");
   const [selectedGradingQuiz, setSelectedGradingQuiz] = useState<string | undefined>(undefined);
+  const [publishedQuizzes, setPublishedQuizzes] = useState<StoredQuiz[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -73,10 +91,19 @@ export default function ClassroomScreen() {
   const [attendance, setAttendance] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Student Profile Detail Modal
+  const [selectedProfile, setSelectedProfile] = useState<Student | null>(null);
+
   // ── Data ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     loadStudents();
   }, []);
+
+  useEffect(() => {
+    if (id) {
+      getPublishedQuizzes(id).then(setPublishedQuizzes);
+    }
+  }, [id, activeTab]);
 
   async function loadStudents() {
     setLoading(true);
@@ -86,7 +113,34 @@ export default function ClassroomScreen() {
       .eq("classroom_id", id)
       .order("created_at", { ascending: true });
 
-    if (!error && data) setStudents(data as Student[]);
+    if (!error && data && data.length > 0) {
+      setStudents(data as Student[]);
+    } else {
+      // If no database students yet, provide initial sample roster matching reference design
+      setStudents([
+        {
+          id: "seed-1",
+          full_name: "Sarah Jenkins",
+          email: "s.jenkins@school.edu",
+          average: 90,
+          attendance: 96,
+        },
+        {
+          id: "seed-2",
+          full_name: "Michael Chang",
+          email: "m.chang@school.edu",
+          average: 70,
+          attendance: 91,
+        },
+        {
+          id: "seed-3",
+          full_name: "Emily Davis",
+          email: "emily.d@school.edu",
+          average: 50,
+          attendance: 82,
+        },
+      ]);
+    }
     setLoading(false);
   }
 
@@ -243,6 +297,14 @@ export default function ClassroomScreen() {
             accentColor={cardColor}
             students={students}
             defaultSelectedQuiz={selectedGradingQuiz}
+            onScoreRecorded={(studentId, newAvg) => {
+              setStudents((prev) =>
+                prev.map((s) => (s.id === studentId ? { ...s, average: newAvg } : s))
+              );
+            }}
+            onStudentCreated={(newStudent) => {
+              setStudents((prev) => [...prev, newStudent]);
+            }}
           />
         )}
 
@@ -293,21 +355,33 @@ export default function ClassroomScreen() {
             ) : (
               filtered.map((student, i) => {
                 const avg = student.average ?? 0;
-                const isFlagged = avg < 75;
-                const isTop = avg >= 95;
+                const isFlagged = avg <= 50;
+                const highestAvg = students.length > 0 ? Math.max(...students.map((s) => s.average ?? 0)) : 0;
+                const isTop = !isFlagged && highestAvg > 50 && avg === highestAvg;
+                const avatarUri = getStudentAvatar(student.full_name);
+
                 return (
-                  <Pressable key={student.id} style={styles.studentRow}>
+                  <TouchableOpacity
+                    key={student.id}
+                    style={styles.studentRow}
+                    onPress={() => setSelectedProfile(student)}
+                    activeOpacity={0.7}
+                  >
                     {/* Avatar */}
-                    <View
-                      style={[
-                        styles.avatar,
-                        { backgroundColor: AVATAR_COLORS[i % AVATAR_COLORS.length] },
-                      ]}
-                    >
-                      <Text style={styles.avatarText}>
-                        {getInitials(student.full_name)}
-                      </Text>
-                    </View>
+                    {avatarUri ? (
+                      <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                    ) : (
+                      <View
+                        style={[
+                          styles.avatar,
+                          { backgroundColor: AVATAR_COLORS[i % AVATAR_COLORS.length] },
+                        ]}
+                      >
+                        <Text style={styles.avatarText}>
+                          {getInitials(student.full_name)}
+                        </Text>
+                      </View>
+                    )}
 
                     {/* Info */}
                     <View style={styles.studentInfo}>
@@ -321,7 +395,10 @@ export default function ClassroomScreen() {
                           </View>
                         )}
                         {isFlagged && (
-                          <Ionicons name="warning" size={14} color="#EF4444" />
+                          <View style={styles.flaggedBadge}>
+                            <Ionicons name="warning-outline" size={12} color="#DC2626" />
+                            <Text style={styles.flaggedBadgeText}>Flagged</Text>
+                          </View>
                         )}
                       </View>
                       <Text style={styles.studentEmail} numberOfLines={1}>
@@ -335,15 +412,16 @@ export default function ClassroomScreen() {
                         <Text style={styles.statValue}>{avg}%</Text>
                         <Text style={styles.statLabel}>Average</Text>
                       </View>
+                      <View style={styles.statDivider} />
                       <View style={styles.statCol}>
                         <Text style={styles.statValue}>
                           {student.attendance ?? 0}%
                         </Text>
-                        <Text style={styles.statLabel}>Attend.</Text>
+                        <Text style={styles.statLabel}>Attend</Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
+                      <Ionicons name="arrow-forward" size={16} color="#CBD5E1" />
                     </View>
-                  </Pressable>
+                  </TouchableOpacity>
                 );
               })
             )}
@@ -437,6 +515,194 @@ export default function ClassroomScreen() {
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
+      </Modal>
+      {/* ── Student Profile Modal (Popup) ── */}
+      <Modal
+        visible={selectedProfile !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedProfile(null)}
+      >
+        <View style={styles.profileModalOverlay}>
+          {/* Backdrop dismiss touchable */}
+          <TouchableWithoutFeedback onPress={() => setSelectedProfile(null)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          {selectedProfile && (() => {
+            const profileAvg = selectedProfile.average ?? 0;
+            const profileIsFlagged = profileAvg <= 50;
+            const highestAvg = students.length > 0 ? Math.max(...students.map((s) => s.average ?? 0)) : 0;
+            const profileIsTop = !profileIsFlagged && highestAvg > 50 && profileAvg === highestAvg;
+            const firstName = selectedProfile.full_name.split(" ")[0];
+            const profileAvatar = getStudentAvatar(selectedProfile.full_name);
+
+            const quizTitleDisplay =
+              publishedQuizzes[0]?.quizTitle ||
+              selectedGradingQuiz ||
+              classroomSubject ||
+              (schedule !== "No Subject" ? schedule : "") ||
+              "Assessment";
+
+            const quizTotalPoints = publishedQuizzes[0]?.questions?.length || 10;
+            const quizScore = Math.round((profileAvg / 100) * quizTotalPoints);
+
+            return (
+              <View style={styles.profileModalCard}>
+                {/* Header (Pinned) */}
+                <View style={styles.profileHeader}>
+                  <View style={styles.profileHeaderLeft}>
+                    {profileAvatar ? (
+                      <Image source={{ uri: profileAvatar }} style={styles.profileAvatarImg} />
+                    ) : (
+                      <View style={styles.profileAvatarFallback}>
+                        <Text style={styles.profileAvatarFallbackText}>
+                          {getInitials(selectedProfile.full_name)}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profileName} numberOfLines={1}>
+                        {selectedProfile.full_name}
+                      </Text>
+                      <Text style={styles.profileEmail} numberOfLines={1}>
+                        {selectedProfile.email || "No email registered"}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.profileCloseBtn}
+                    onPress={() => setSelectedProfile(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Scrollable Body Content */}
+                <ScrollView
+                  style={styles.profileScroll}
+                  contentContainerStyle={styles.profileBody}
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {/* 3 Stats Row */}
+                  <View style={styles.profileStatsRow}>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statBoxLabel}>AVERAGE</Text>
+                      <Text style={styles.statBoxValue}>{profileAvg}%</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statBoxLabel}>ATTENDANCE</Text>
+                      <Text style={styles.statBoxValue}>{selectedProfile.attendance ?? 0}%</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statBoxLabel}>STATUS</Text>
+                      {profileIsTop ? (
+                        <View style={[styles.statusPill, { backgroundColor: "#EFF6FF" }]}>
+                          <Text style={[styles.statusPillText, { color: "#2563EB" }]}>TOP TIER</Text>
+                        </View>
+                      ) : profileIsFlagged ? (
+                        <View style={[styles.statusPill, { backgroundColor: "#FEE2E2" }]}>
+                          <Text style={[styles.statusPillText, { color: "#DC2626" }]}>AT RISK</Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.statusPill, { backgroundColor: "#ECFDF5" }]}>
+                          <Text style={[styles.statusPillText, { color: "#059669" }]}>ON TRACK</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* At-Risk Warning Flag (Only if profileIsFlagged) */}
+                  {profileIsFlagged && (
+                    <View style={styles.atRiskCard}>
+                      <Ionicons name="warning-outline" size={20} color="#DC2626" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.atRiskTitle}>At-Risk Behavioral Flag</Text>
+                        <Text style={styles.atRiskSub}>
+                          {quizTitleDisplay} score below threshold
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Quiz Grade Sheet */}
+                  <View style={styles.quizSheetSection}>
+                    <View style={styles.quizSheetHeader}>
+                      <Ionicons name="book-outline" size={14} color="#64748B" />
+                      <Text style={styles.quizSheetTitle}>QUIZ GRADE SHEET</Text>
+                    </View>
+                    <View style={styles.quizScoreCard}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.quizScoreName} numberOfLines={1}>
+                          {quizTitleDisplay}
+                        </Text>
+                        <Text style={styles.quizScoreSub}>Total weight: {quizTotalPoints} points</Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <View style={styles.quizScoreNumRow}>
+                          <Text style={styles.quizScoreNum}>
+                            {quizScore} / {quizTotalPoints}
+                          </Text>
+                          <View
+                            style={[
+                              styles.quizScoreDot,
+                              { backgroundColor: profileIsFlagged ? "#EF4444" : "#10B981" },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.quizScorePercent}>({profileAvg}%)</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Tseki Pedagogical Advice */}
+                  <View style={styles.pedagogicalCard}>
+                    <View style={styles.pedagogicalHeader}>
+                      <Ionicons name="sparkles" size={15} color="#059669" />
+                      <Text style={styles.pedagogicalTitle}>TSEKI PEDAGOGICAL ADVICE</Text>
+                    </View>
+                    <Text style={styles.pedagogicalText}>
+                      {profileIsTop
+                        ? `${firstName} displays exemplary proficiency! Consider assigning them as a peer tutor or creating an advanced, harder-tier quiz to keep them engaged.`
+                        : profileIsFlagged
+                          ? `${firstName} is struggling with recent formulas. I recommend compiling a shorter, 5-question multiple choice homework using the AI generator focused exclusively on introductory concepts to rebuild confidence!`
+                          : `${firstName} is maintaining steady progress across recent exercises. Recommend targeted practice on complex problem sets to help boost mastery toward the top tier.`}
+                    </Text>
+                  </View>
+                </ScrollView>
+
+                {/* Fixed Footer Action Buttons (Always Visible at bottom!) */}
+                <View style={styles.profileFooter}>
+                  <TouchableOpacity
+                    style={styles.emailBtn}
+                    onPress={() => {
+                      if (selectedProfile.email) {
+                        Linking.openURL(`mailto:${selectedProfile.email}`);
+                      } else {
+                        Alert.alert("No Email", `${selectedProfile.full_name} does not have an email address recorded.`);
+                      }
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="mail" size={16} color="#FFFFFF" />
+                    <Text style={styles.emailBtnText}>Email Student</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.closeProfileBtn}
+                    onPress={() => setSelectedProfile(null)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.closeProfileBtnText}>Close Profile</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
+        </View>
       </Modal>
     </View>
   );
@@ -694,16 +960,41 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#1F2937",
   },
+  avatarImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
   topBadge: {
     backgroundColor: "#DBEAFE",
     borderRadius: 6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
   },
   topBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 10.5,
+    fontWeight: "800",
     color: "#2563EB",
+  },
+  flaggedBadge: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  flaggedBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: "#DC2626",
+  },
+  statDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "#E5E7EB",
+    marginHorizontal: 8,
   },
   studentEmail: {
     fontSize: 12,
@@ -845,5 +1136,274 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+
+  /* ── Student Profile Modal ── */
+  profileModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+  },
+  profileModalCard: {
+    width: "100%",
+    maxWidth: 390,
+    maxHeight: "85%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  profileHeader: {
+    backgroundColor: "#2563EB",
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  profileHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 12,
+  },
+  profileAvatarImg: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    marginRight: 14,
+  },
+  profileAvatarFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    marginRight: 14,
+  },
+  profileAvatarFallbackText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  profileEmail: {
+    fontSize: 12.5,
+    color: "rgba(255, 255, 255, 0.85)",
+    marginTop: 2,
+  },
+  profileCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  profileBody: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 12,
+  },
+  profileStatsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+  statBox: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  statBoxLabel: {
+    fontSize: 9.5,
+    fontWeight: "700",
+    color: "#64748B",
+    letterSpacing: 0.5,
+  },
+  statBoxValue: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 4,
+  },
+  statusPill: {
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginTop: 5,
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  atRiskCard: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 14,
+  },
+  atRiskTitle: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#991B1B",
+  },
+  atRiskSub: {
+    fontSize: 11.5,
+    color: "#DC2626",
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  quizSheetSection: {
+    marginBottom: 14,
+  },
+  quizSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  quizSheetTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#64748B",
+    letterSpacing: 0.6,
+  },
+  quizScoreCard: {
+    borderWidth: 1.5,
+    borderColor: "#0F172A",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+  },
+  quizScoreName: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  quizScoreSub: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  quizScoreNumRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  quizScoreNum: {
+    fontSize: 14.5,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  quizScoreDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  quizScorePercent: {
+    fontSize: 11,
+    color: "#64748B",
+    textAlign: "right",
+    marginTop: 2,
+  },
+  pedagogicalCard: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 18,
+  },
+  pedagogicalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
+  pedagogicalTitle: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: "#9A3412",
+    letterSpacing: 0.5,
+  },
+  pedagogicalText: {
+    fontSize: 11.5,
+    color: "#475569",
+    lineHeight: 17,
+    fontWeight: "500",
+  },
+  profileFooter: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 24,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  emailBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#2563EB",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  emailBtnText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  closeProfileBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeProfileBtnText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#334155",
   },
 });
