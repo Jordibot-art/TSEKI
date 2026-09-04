@@ -13,7 +13,7 @@ import {
     View,
 } from "react-native";
 import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
-import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
+import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -370,6 +370,12 @@ export default function GraderTab({
                     onStudentCreated?.(newStudent);
                     onScoreRecorded?.(newStudent.id, percentage);
                 }
+            }
+
+            // Record to quiz performance history for tracker trend
+            const quizTitleToRecord = selectedQuiz || "Assessment 1";
+            if (classroomId) {
+                await saveQuizPerformanceRecord(classroomId, quizTitleToRecord, percentage);
             }
 
             // Successfully recorded!

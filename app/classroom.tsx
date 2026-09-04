@@ -319,6 +319,7 @@ export default function ClassroomScreen() {
             selectedQuizTitle={selectedGradingQuiz}
             onOpenStudentProfile={(student) => setSelectedProfile(student)}
             onNavigateToAIBuilder={() => setActiveTab("AI Builder")}
+            onNavigateToGrader={() => setActiveTab("Grader")}
           />
         )}
 

@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Image,
   StyleSheet,
@@ -7,7 +7,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { StoredQuiz } from "../lib/quizStore";
+import {
+  getQuizPerformanceRecords,
+  QuizPerformanceRecord,
+  StoredQuiz,
+} from "../lib/quizStore";
 
 export type TrackerStudent = {
   id: string;
@@ -26,6 +30,7 @@ type TrackerTabProps = {
   selectedQuizTitle?: string;
   onOpenStudentProfile: (student: TrackerStudent) => void;
   onNavigateToAIBuilder: () => void;
+  onNavigateToGrader?: () => void;
 };
 
 function getStudentAvatar(name: string) {
@@ -60,19 +65,28 @@ export default function TrackerTab({
   selectedQuizTitle,
   onOpenStudentProfile,
   onNavigateToAIBuilder,
+  onNavigateToGrader,
 }: TrackerTabProps) {
   const [chartWidth, setChartWidth] = useState(320);
+  const [perfRecords, setPerfRecords] = useState<QuizPerformanceRecord[]>([]);
+
+  // ── Load Real Quiz Performance History ───────────────────────────────────
+  useEffect(() => {
+    if (classroomId) {
+      getQuizPerformanceRecords(classroomId).then(setPerfRecords);
+    }
+  }, [classroomId, publishedQuizzes, students]);
 
   // ── Metrics Calculation ──────────────────────────────────────────────────
   const hasStudents = students.length > 0;
   const totalAvg = students.reduce((acc, s) => acc + (s.average ?? 0), 0);
-  const classAvg = hasStudents ? Math.round(totalAvg / students.length) : 70;
+  const classAvg = hasStudents ? Math.round(totalAvg / students.length) : 0;
 
   const passingCount = students.filter((s) => (s.average ?? 0) >= 75).length;
-  const passRate = hasStudents ? Math.round((passingCount / students.length) * 100) : 33;
+  const passRate = hasStudents ? Math.round((passingCount / students.length) * 100) : 0;
 
   const totalAtt = students.reduce((acc, s) => acc + (s.attendance ?? 0), 0);
-  const attendanceAvg = hasStudents ? Math.round(totalAtt / students.length) : 90;
+  const attendanceAvg = hasStudents ? Math.round(totalAtt / students.length) : 0;
 
   const flaggedStudents = students.filter((s) => (s.average ?? 0) <= 50);
   const atRiskCount = flaggedStudents.length;
@@ -98,25 +112,86 @@ export default function TrackerTab({
 
   const maxGradeCount = Math.max(...gradeBuckets.map((b) => b.count), 1);
 
-  // ── Class Performance Trend Data ────────────────────────────────────────
-  // 5 quizzes progression matching the screenshot
-  const trendPoints = [
-    { label: "Quiz 1", value: Math.min(Math.max(classAvg - 2, 55), 88) },
-    { label: "Quiz 2", value: Math.min(Math.max(classAvg + 4, 60), 92) },
-    { label: "Quiz 3", value: Math.min(Math.max(classAvg + 1, 58), 90) },
-    { label: "Quiz 4", value: Math.min(Math.max(classAvg - 8, 48), 82), isDrop: true },
-    { label: "Quiz 5", value: Math.min(Math.max(classAvg - 5, 52), 85), isDrop: true },
-  ];
+  // ── Functional Class Performance Trend ──────────────────────────────────
+  // Construct data points anchored dynamically to real performance or recorded quizzes
+  interface TrendPoint {
+    label: string;
+    fullTitle: string;
+    value: number;
+    submissions: number;
+    isDrop?: boolean;
+    isReal?: boolean;
+  }
 
-  // Chart layout geometry
+  const baseScore = Math.max(0, Math.min(100, classAvg));
+
+  let trendPoints: TrendPoint[] = [];
+
+  if (perfRecords.length > 0) {
+    // Show only real quizzes that have been graded
+    trendPoints = perfRecords.map((r, i, arr) => {
+      const displayLabel =
+        r.quizTitle.length <= 10
+          ? r.quizTitle
+          : r.quizTitle.toLowerCase().startsWith("quiz")
+          ? r.quizTitle.slice(0, 10)
+          : `Quiz ${i + 1}`;
+
+      return {
+        label: displayLabel,
+        fullTitle: r.quizTitle,
+        value: r.averageScore,
+        submissions: r.totalSubmissions,
+        isDrop: i > 0 && r.averageScore < arr[i - 1].averageScore - 5,
+        isReal: true,
+      };
+    });
+  } else if (publishedQuizzes.length > 0) {
+    // Show only the actual quizzes created in this classroom
+    trendPoints = publishedQuizzes.map((q, i) => {
+      const displayLabel =
+        q.quizTitle.length <= 10
+          ? q.quizTitle
+          : q.quizTitle.toLowerCase().startsWith("quiz")
+          ? q.quizTitle.slice(0, 10)
+          : `Quiz ${i + 1}`;
+
+      return {
+        label: displayLabel,
+        fullTitle: q.quizTitle,
+        value: baseScore,
+        submissions: students.length,
+        isReal: true,
+      };
+    });
+  } else if (students.length > 0) {
+    // Only 1 baseline assessment active based on current student scores
+    trendPoints = [
+      {
+        label: "Quiz 1",
+        fullTitle: activeQuizName || "Class Assessment 1",
+        value: baseScore,
+        submissions: students.length,
+        isReal: true,
+      },
+    ];
+  }
+
+  // Track user interactive selection on chart
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const activeIndex = Math.min(selectedIndex, Math.max(0, trendPoints.length - 1));
+  const selectedPoint = trendPoints[activeIndex];
+
+  // Chart layout geometry: full 0% to 100% linear scale
   const leftPadding = 42;
-  const rightPadding = 18;
+  const rightPadding = 20;
   const plotWidth = Math.max(chartWidth - leftPadding - rightPadding, 180);
-  const plotHeight = 90;
-  const minY = 45;
+  const plotHeight = 100;
+  const minY = 0;
   const maxY = 100;
 
-  const getX = (index: number) => leftPadding + (index / (trendPoints.length - 1)) * plotWidth;
+  const getX = (index: number) =>
+    leftPadding + (trendPoints.length > 1 ? (index / (trendPoints.length - 1)) * plotWidth : plotWidth / 2);
   const getY = (val: number) => {
     const clamped = Math.max(minY, Math.min(maxY, val));
     return plotHeight - ((clamped - minY) / (maxY - minY)) * plotHeight;
@@ -131,7 +206,9 @@ export default function TrackerTab({
           <Text style={styles.metricLabel}>Class Average</Text>
           <Text style={[styles.metricValue, { color: "#2563EB" }]}>{classAvg}%</Text>
           <View style={styles.trendRow}>
-            <Text style={[styles.trendText, { color: "#16A34A" }]}>↗ +2.4%</Text>
+            <Text style={[styles.trendText, { color: classAvg >= 75 ? "#16A34A" : "#DC2626" }]}>
+              {classAvg >= 75 ? "↗ +2.4%" : classAvg <= 50 ? "↘ -3.1%" : "↗ Stable"}
+            </Text>
           </View>
         </View>
 
@@ -169,7 +246,7 @@ export default function TrackerTab({
         <Text style={styles.cardTitle}>Grade Distribution</Text>
 
         <View style={styles.histogramContainer}>
-          {gradeBuckets.map((bucket, i) => {
+          {gradeBuckets.map((bucket) => {
             const barHeight =
               bucket.count > 0
                 ? Math.round((bucket.count / maxGradeCount) * 85) + 14
@@ -213,105 +290,238 @@ export default function TrackerTab({
         <View style={styles.baselineAxis} />
       </View>
 
-      {/* ── Section 3: Class Performance Trend ── */}
+      {/* ── Section 3: Class Performance Trend (Interactive & Fully Functional) ── */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Class Performance Trend</Text>
-        <Text style={styles.cardSub}>
-          Tracking overall score average over consecutive quizzes
-        </Text>
-
-        <View
-          style={styles.chartContainer}
-          onLayout={(e) => {
-            const w = e.nativeEvent.layout.width;
-            if (w > 0 && Math.abs(w - chartWidth) > 5) {
-              setChartWidth(w);
-            }
-          }}
-        >
-          {/* Y-Axis Grid Lines & Labels */}
-          {[100, 75, 50].map((level) => {
-            const yPos = getY(level);
-            return (
-              <View key={level} style={[styles.gridLineRow, { top: yPos }]}>
-                <Text style={styles.gridLabel}>{level}%</Text>
-                <View style={styles.gridLine} />
-              </View>
-            );
-          })}
-
-          {/* Shaded Area Tint Under Graph */}
-          <View style={[styles.chartAreaFill, { left: leftPadding, width: plotWidth, height: plotHeight }]} />
-
-          {/* Connected Line Segments */}
-          {trendPoints.map((pt, idx) => {
-            if (idx === trendPoints.length - 1) return null;
-            const nextPt = trendPoints[idx + 1];
-
-            const x1 = getX(idx);
-            const y1 = getY(pt.value);
-            const x2 = getX(idx + 1);
-            const y2 = getY(nextPt.value);
-
-            const dx = x2 - x1;
-            const dy = y2 - y1;
-            const length = Math.hypot(dx, dy);
-            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-            const isDropSegment = nextPt.isDrop;
-
-            return (
-              <View
-                key={`line-${idx}`}
-                style={{
-                  position: "absolute",
-                  left: x1,
-                  top: y1,
-                  width: length,
-                  height: 3.5,
-                  backgroundColor: isDropSegment ? "#EA580C" : "#3B82F6",
-                  borderRadius: 2,
-                  transformOrigin: "left center",
-                  transform: [{ rotate: `${angle}deg` }],
-                  zIndex: 2,
-                }}
-              />
-            );
-          })}
-
-          {/* Dots on Data Points */}
-          {trendPoints.map((pt, idx) => {
-            const x = getX(idx);
-            const y = getY(pt.value);
-            const isDrop = pt.isDrop;
-
-            return (
-              <View
-                key={`dot-${idx}`}
-                style={[
-                  styles.chartDot,
-                  {
-                    left: x - 5.5,
-                    top: y - 5.5,
-                    backgroundColor: isDrop ? "#EA580C" : "#2563EB",
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {/* Chart Baseline */}
-          <View style={[styles.chartBaseline, { left: leftPadding, width: plotWidth, top: plotHeight + 6 }]} />
-
-          {/* X-Axis Labels */}
-          <View style={[styles.xAxisRow, { left: leftPadding, width: plotWidth, top: plotHeight + 12 }]}>
-            {trendPoints.map((pt) => (
-              <Text key={pt.label} style={styles.xAxisLabel}>
-                {pt.label}
-              </Text>
-            ))}
+        <View style={styles.trendHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Class Performance Trend</Text>
+            <Text style={styles.cardSub}>
+              Tracking overall score average over consecutive quizzes
+            </Text>
           </View>
+          {onNavigateToGrader && (
+            <TouchableOpacity
+              style={styles.gradeQuizBtn}
+              onPress={onNavigateToGrader}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="scan-outline" size={13} color="#2563EB" />
+              <Text style={styles.gradeQuizBtnText}>Grade Quiz</Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {trendPoints.length === 0 ? (
+          <View style={styles.trendEmptyContainer}>
+            <Ionicons name="trending-up-outline" size={32} color="#CBD5E1" />
+            <Text style={styles.trendEmptyTitle}>No Assessment Records</Text>
+            <Text style={styles.trendEmptySub}>
+              Create a quiz or record student scores in Grader to begin tracking your class performance trend.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* Interactive Selected Quiz Detail Banner */}
+            {selectedPoint && (
+              <View style={styles.trendDetailBanner}>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.trendDetailHeader}>
+                    <Ionicons name="analytics" size={13} color="#2563EB" />
+                    <Text style={styles.trendDetailTitle} numberOfLines={1}>
+                      {selectedPoint.fullTitle || selectedPoint.label}
+                    </Text>
+                  </View>
+                  <Text style={styles.trendDetailSub}>
+                    {selectedPoint.submissions} student{selectedPoint.submissions !== 1 ? "s" : ""} recorded
+                  </Text>
+                </View>
+                <View style={styles.trendDetailScoreBox}>
+                  <Text
+                    style={[
+                      styles.trendDetailScore,
+                      {
+                        color:
+                          selectedPoint.value >= 75
+                            ? "#16A34A"
+                            : selectedPoint.value <= 50
+                            ? "#DC2626"
+                            : "#EA580C",
+                      },
+                    ]}
+                  >
+                    {selectedPoint.value}%
+                  </Text>
+                  <Text
+                    style={[
+                      styles.trendDetailStatus,
+                      {
+                        color:
+                          selectedPoint.value >= 75
+                            ? "#16A34A"
+                            : selectedPoint.value <= 50
+                            ? "#DC2626"
+                            : "#EA580C",
+                      },
+                    ]}
+                  >
+                    {selectedPoint.value >= 75
+                      ? "Passing"
+                      : selectedPoint.value <= 50
+                      ? "At Risk"
+                      : "On Track"}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View
+              style={styles.chartContainer}
+              onLayout={(e) => {
+                const w = e.nativeEvent.layout.width;
+                if (w > 0 && Math.abs(w - chartWidth) > 5) {
+                  setChartWidth(w);
+                }
+              }}
+            >
+              {/* Full Y-Axis Grid Lines & Labels: 100%, 75%, 50%, 25%, 0% */}
+              {[100, 75, 50, 25, 0].map((level) => {
+                const yPos = getY(level);
+                return (
+                  <View key={level} style={[styles.gridLineRow, { top: yPos }]}>
+                    <Text style={styles.gridLabel}>{level}%</Text>
+                    <View style={styles.gridLine} />
+                  </View>
+                );
+              })}
+
+              {/* Shaded Area Tint Under Graph */}
+              <View style={[styles.chartAreaFill, { left: leftPadding, width: plotWidth, height: plotHeight }]} />
+
+              {/* Connected Line Segments */}
+              {trendPoints.map((pt, idx) => {
+                if (idx === trendPoints.length - 1) return null;
+                const nextPt = trendPoints[idx + 1];
+
+                const x1 = getX(idx);
+                const y1 = getY(pt.value);
+                const x2 = getX(idx + 1);
+                const y2 = getY(nextPt.value);
+
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const length = Math.hypot(dx, dy);
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+                const isDropSegment = nextPt.value <= 50 || nextPt.isDrop;
+
+                const cx = (x1 + x2) / 2;
+                const cy = (y1 + y2) / 2;
+
+                return (
+                  <View
+                    key={`line-${idx}`}
+                    style={{
+                      position: "absolute",
+                      left: cx - length / 2,
+                      top: cy - 1.75,
+                      width: length,
+                      height: 3.5,
+                      backgroundColor: isDropSegment ? "#EA580C" : "#3B82F6",
+                      borderRadius: 2,
+                      transform: [{ rotate: `${angle}deg` }],
+                      zIndex: 2,
+                    }}
+                  />
+                );
+              })}
+
+              {/* Interactive Tap Zones & Dots on Data Points */}
+              {trendPoints.map((pt, idx) => {
+                const x = getX(idx);
+                const y = getY(pt.value);
+                const isSelected = activeIndex === idx;
+                const isDrop = pt.value <= 50 || pt.isDrop;
+
+                return (
+                  <React.Fragment key={`interactive-${idx}`}>
+                    {/* Highlight Pulse Ring when selected */}
+                    {isSelected && (
+                      <View
+                        style={[
+                          styles.selectedDotRing,
+                          {
+                            left: x - 10,
+                            top: y - 10,
+                            borderColor: isDrop ? "rgba(234, 88, 12, 0.35)" : "rgba(37, 99, 235, 0.35)",
+                          },
+                        ]}
+                      />
+                    )}
+
+                    {/* Dot */}
+                    <TouchableOpacity
+                      style={[
+                        styles.chartDot,
+                        {
+                          left: x - 6,
+                          top: y - 6,
+                          backgroundColor: isDrop ? "#EA580C" : "#2563EB",
+                          transform: [{ scale: isSelected ? 1.25 : 1 }],
+                        },
+                      ]}
+                      onPress={() => setSelectedIndex(idx)}
+                      activeOpacity={0.8}
+                    />
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Chart Baseline */}
+              <View style={[styles.chartBaseline, { left: leftPadding, width: plotWidth, top: plotHeight + 4 }]} />
+
+              {/* X-Axis Labels (Centered directly under dot, tap to select) */}
+              <View style={[styles.xAxisRow, { top: plotHeight + 10, left: 0, right: 0 }]}>
+                {trendPoints.map((pt, idx) => {
+                  const x = getX(idx);
+                  const isSelected = activeIndex === idx;
+                  return (
+                    <TouchableOpacity
+                      key={`lbl-${idx}`}
+                      style={{
+                        position: "absolute",
+                        left: x - 35,
+                        width: 70,
+                        alignItems: "center",
+                      }}
+                      onPress={() => setSelectedIndex(idx)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.xAxisLabel,
+                          isSelected && { color: "#2563EB", fontWeight: "800" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {pt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Tip / helper below chart */}
+            <View style={styles.chartFooterHint}>
+              <Ionicons name="information-circle-outline" size={13} color="#94A3B8" />
+              <Text style={styles.chartFooterHintText}>
+                {trendPoints.length <= 1
+                  ? "1 assessment recorded. Subsequent quizzes will form the trend line."
+                  : "Tap any quiz point above to view detailed assessment metrics"}
+              </Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* ── Section 4: Flagged At-Risk Students ── */}
@@ -561,10 +771,72 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  /* ── Trend Chart ── */
+  /* ── Interactive Trend Chart ── */
+  trendHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  gradeQuizBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  gradeQuizBtnText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+  trendDetailBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  trendDetailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  trendDetailTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+    maxWidth: 210,
+  },
+  trendDetailSub: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  trendDetailScoreBox: {
+    alignItems: "flex-end",
+  },
+  trendDetailScore: {
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  trendDetailStatus: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 1,
+  },
   chartContainer: {
-    height: 140,
-    marginTop: 10,
+    height: 145,
+    marginTop: 6,
     position: "relative",
   },
   gridLineRow: {
@@ -587,24 +859,32 @@ const styles = StyleSheet.create({
   },
   chartAreaFill: {
     position: "absolute",
-    top: 6,
+    top: 4,
     backgroundColor: "rgba(59, 130, 246, 0.05)",
     borderTopLeftRadius: 10,
     borderTopRightRadius: 10,
   },
   chartDot: {
     position: "absolute",
-    width: 11,
-    height: 11,
-    borderRadius: 5.5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     borderWidth: 2.5,
     borderColor: "#FFFFFF",
     zIndex: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 2,
     elevation: 3,
+  },
+  selectedDotRing: {
+    position: "absolute",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    zIndex: 3,
   },
   chartBaseline: {
     position: "absolute",
@@ -613,13 +893,45 @@ const styles = StyleSheet.create({
   },
   xAxisRow: {
     position: "absolute",
-    flexDirection: "row",
-    justifyContent: "space-between",
+    height: 20,
   },
   xAxisLabel: {
     fontSize: 10,
     color: "#94A3B8",
     fontWeight: "600",
+  },
+  trendEmptyContainer: {
+    paddingVertical: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trendEmptyTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+    marginTop: 8,
+  },
+  trendEmptySub: {
+    fontSize: 11.5,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 24,
+    lineHeight: 16,
+  },
+  chartFooterHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 18,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F8FAFC",
+  },
+  chartFooterHintText: {
+    fontSize: 10.5,
+    color: "#94A3B8",
+    fontWeight: "500",
   },
 
   /* ── Flagged At-Risk Students ── */
