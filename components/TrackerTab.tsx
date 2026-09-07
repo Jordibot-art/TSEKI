@@ -103,8 +103,7 @@ export default function TrackerTab({
   const activeQuizName =
     publishedQuizzes[0]?.quizTitle ||
     selectedQuizTitle ||
-    classSubject ||
-    "Kinematics exam";
+    (classSubject && classSubject !== "No Subject" ? classSubject : (classTitle ? `${classTitle} Assessment` : "Class Assessment"));
 
   // ── Grade Distribution ──────────────────────────────────────────────────
   const countA = students.filter((s) => (s.average ?? 0) >= 90).length;
@@ -611,6 +610,8 @@ export default function TrackerTab({
           <Text style={[styles.recommendationText, darkMode && { color: "#E2E8F0" }]}>
             {atRiskCount > 0
               ? `You have ${atRiskCount} student${atRiskCount > 1 ? "s" : ""} showing signs of difficulty. Click "Create remedial quiz" to automatically generate custom, easier homework for them!`
+              : students.length === 0
+              ? "Welcome to your new classroom! Add students in Record or create your first quiz in AI Builder to get started."
               : "All students are performing on track! Consider creating an advanced challenge quiz using AI Builder to keep top performers engaged."}
           </Text>
 
@@ -621,7 +622,7 @@ export default function TrackerTab({
           >
             <Ionicons name="sparkles" size={13} color="#FFFFFF" />
             <Text style={styles.remedialBtnText}>
-              {atRiskCount > 0 ? "Create remedial quiz" : "Create challenge quiz"}
+              {atRiskCount > 0 ? "Create remedial quiz" : students.length === 0 ? "Create your first quiz" : "Create challenge quiz"}
             </Text>
           </TouchableOpacity>
         </View>

@@ -153,33 +153,10 @@ export default function ClassroomScreen() {
       .eq("classroom_id", id)
       .order("created_at", { ascending: true });
 
-    if (!error && data && data.length > 0) {
+    if (!error && data) {
       setStudents(data as Student[]);
     } else {
-      // If no database students yet, provide initial sample roster matching reference design
-      setStudents([
-        {
-          id: "seed-1",
-          full_name: "Sarah Jenkins",
-          email: "s.jenkins@school.edu",
-          average: 90,
-          attendance: 96,
-        },
-        {
-          id: "seed-2",
-          full_name: "Michael Chang",
-          email: "m.chang@school.edu",
-          average: 70,
-          attendance: 91,
-        },
-        {
-          id: "seed-3",
-          full_name: "Emily Davis",
-          email: "emily.d@school.edu",
-          average: 50,
-          attendance: 82,
-        },
-      ]);
+      setStudents([]);
     }
     setLoading(false);
   }

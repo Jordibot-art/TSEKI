@@ -150,7 +150,7 @@ export default function GraderTab({
     const subBorder = darkMode ? "#374151" : "#F3F4F6";
 
     useEffect(() => {
-        if (students && students.length > 0) {
+        if (students !== undefined) {
             setRoster(students);
         } else if (classroomId) {
             supabase
