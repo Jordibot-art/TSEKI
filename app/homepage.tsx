@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -14,18 +15,23 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import {
   clearAllAlerts,
+  deleteClassroomAlerts,
   getClearedAlertIds,
   getPersistedAlerts,
   getReadAlertIds,
   markAlertsAsRead,
   RosterAlert,
 } from "../lib/alertStore";
-import { getPublishedQuizzes, getQuizPerformanceRecords } from "../lib/quizStore";
+import {
+  deleteClassroomQuizzes,
+  getPublishedQuizzes,
+  getQuizPerformanceRecords,
+} from "../lib/quizStore";
 import { supabase } from "../supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -60,6 +66,11 @@ export default function HomePage() {
   const [modalVisible, setModalVisible] = useState(false);
   const [alerts, setAlerts] = useState<RosterAlert[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  // Delete Classroom Confirmation State
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false);
+  const [classToDelete, setClassToDelete] = useState<ClassCard | null>(null);
+  const [isDeletingClass, setIsDeletingClass] = useState(false);
 
   // form fields
   const [classTitle, setClassTitle] = useState("");
@@ -251,6 +262,46 @@ export default function HomePage() {
     setAlerts([]);
   }
 
+  // ── Delete Classroom Handlers ───────────────────────────────────────────
+  function promptDeleteClass(card: ClassCard) {
+    setClassToDelete(card);
+    setConfirmModalVisible(true);
+  }
+
+  async function handleConfirmDeleteClass() {
+    if (!classToDelete || isDeletingClass) return;
+    setIsDeletingClass(true);
+
+    try {
+      const classId = classToDelete.id;
+      // 1. Delete all students enrolled in this classroom first to respect foreign keys
+      await supabase.from("students").delete().eq("classroom_id", classId);
+
+      // 2. Delete the classroom itself
+      const { error } = await supabase.from("classrooms").delete().eq("id", classId);
+      if (error) {
+        throw error;
+      }
+
+      // 3. Purge related alerts and quiz records
+      await Promise.all([
+        deleteClassroomAlerts(classId),
+        deleteClassroomQuizzes(classId),
+      ]);
+
+      // 4. Update UI state
+      setCards((prev) => prev.filter((c) => c.id !== classId));
+      setAlerts((prev) => prev.filter((a) => a.classroomId !== classId));
+      setConfirmModalVisible(false);
+      setClassToDelete(null);
+    } catch (err: any) {
+      console.error("Failed to delete classroom:", err);
+      Alert.alert("Error Deleting Classroom", err.message || "Failed to delete classroom from database.");
+    } finally {
+      setIsDeletingClass(false);
+    }
+  }
+
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -386,7 +437,21 @@ export default function HomePage() {
             }
           >
             <View style={[styles.cardTop, { backgroundColor: card.color }]}>
-              <Text style={styles.cardSchedule}>{card.schedule}</Text>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardSchedule}>{card.schedule}</Text>
+                <TouchableOpacity
+                  style={styles.cardDeleteBtn}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    promptDeleteClass(card);
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Delete classroom"
+                >
+                  <Ionicons name="trash-outline" size={15} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
               <Text style={styles.cardTitle}>{card.title}</Text>
               <Text style={styles.cardRoom}>{card.room}</Text>
             </View>
@@ -632,6 +697,60 @@ export default function HomePage() {
                 ))}
               </ScrollView>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Delete Classroom Confirmation Modal ── */}
+      <Modal
+        visible={confirmModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isDeletingClass && setConfirmModalVisible(false)}
+      >
+        <View style={styles.confirmModalOverlay}>
+          <TouchableWithoutFeedback onPress={() => !isDeletingClass && setConfirmModalVisible(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={styles.dangerIconWrap}>
+              <Ionicons name="trash" size={30} color="#EF4444" />
+            </View>
+
+            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
+            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
+              Are you sure you want to permanently delete{" "}
+              <Text style={{ fontWeight: "700", color: textMain }}>"{classToDelete?.title}"</Text>?
+              {"\n\n"}This will permanently remove all enrolled students, quizzes, answer keys, and grade records.
+            </Text>
+
+            <View style={styles.confirmModalActions}>
+              <TouchableOpacity
+                style={[styles.confirmCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
+                onPress={() => setConfirmModalVisible(false)}
+                disabled={isDeletingClass}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmDeleteBtn, isDeletingClass && styles.btnDisabled]}
+                onPress={handleConfirmDeleteClass}
+                disabled={isDeletingClass}
+                activeOpacity={0.8}
+              >
+                {isDeletingClass ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.confirmDeleteBtnText}>Delete Class</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1139,5 +1258,94 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     color: "#EF4444",
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  cardDeleteBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0, 0, 0, 0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  confirmModalCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1.5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+    alignItems: "center",
+  },
+  dangerIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#FEE2E2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  confirmModalDesc: {
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  confirmModalActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCancelBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    backgroundColor: "#EF4444",
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  confirmDeleteBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
 });

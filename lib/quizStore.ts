@@ -364,3 +364,18 @@ export async function saveQuizPerformanceRecord(
         return [];
     }
 }
+
+/**
+ * Deletes all stored quizzes, drafts, and performance records for a classroom.
+ */
+export async function deleteClassroomQuizzes(classroomId: string): Promise<void> {
+    try {
+        await Promise.all([
+            AsyncStorage.removeItem(`${STORAGE_PREFIX}${classroomId}`),
+            AsyncStorage.removeItem(`${DRAFT_PREFIX}${classroomId}`),
+            AsyncStorage.removeItem(`tseki_perf_${classroomId}`),
+        ]);
+    } catch (err) {
+        console.error("Failed to delete classroom quizzes:", err);
+    }
+}

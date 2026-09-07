@@ -168,3 +168,29 @@ export async function getClassroomAlerts(classroomId: string): Promise<RosterAle
     return [];
   }
 }
+
+/**
+ * Permanently deletes all alerts associated with a classroom.
+ */
+export async function deleteClassroomAlerts(classroomId: string): Promise<void> {
+  try {
+    const existing = await getPersistedAlerts();
+    const remaining = existing.filter((a) => a.classroomId !== classroomId);
+    await AsyncStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(remaining));
+  } catch (err) {
+    console.error("Failed to delete classroom alerts:", err);
+  }
+}
+
+/**
+ * Permanently deletes all alerts associated with a student.
+ */
+export async function deleteStudentAlerts(studentId: string): Promise<void> {
+  try {
+    const existing = await getPersistedAlerts();
+    const remaining = existing.filter((a) => a.studentId !== studentId);
+    await AsyncStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(remaining));
+  } catch (err) {
+    console.error("Failed to delete student alerts:", err);
+  }
+}

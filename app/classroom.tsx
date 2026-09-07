@@ -24,13 +24,19 @@ import TrackerTab from "../components/TrackerTab";
 import { useTheme } from "../context/ThemeContext";
 import {
   clearAllAlerts,
+  deleteClassroomAlerts,
+  deleteStudentAlerts,
   getClearedAlertIds,
   getPersistedAlerts,
   getReadAlertIds,
   markAlertsAsRead,
   RosterAlert,
 } from "../lib/alertStore";
-import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
+import {
+  deleteClassroomQuizzes,
+  getPublishedQuizzes,
+  StoredQuiz,
+} from "../lib/quizStore";
 import { supabase } from "../supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -125,6 +131,14 @@ export default function ClassroomScreen() {
   const [classroomAlerts, setClassroomAlerts] = useState<RosterAlert[]>([]);
   const [classroomUnreadCount, setClassroomUnreadCount] = useState<number>(0);
   const [notifModalVisible, setNotifModalVisible] = useState<boolean>(false);
+
+  // Deletion Confirmation States
+  const [confirmDeleteStudentModal, setConfirmDeleteStudentModal] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [isDeletingStudent, setIsDeletingStudent] = useState(false);
+
+  const [confirmDeleteClassModal, setConfirmDeleteClassModal] = useState(false);
+  const [isDeletingClass, setIsDeletingClass] = useState(false);
 
   const loadClassroomAlerts = useCallback(async () => {
     if (!id) return;
@@ -233,6 +247,74 @@ export default function ClassroomScreen() {
     await clearAllAlerts(classroomAlerts);
     setClassroomAlerts([]);
     setClassroomUnreadCount(0);
+  }
+
+  // ── Remove Student Handlers ────────────────────────────────────────────────
+  function promptDeleteStudent(student: Student | null) {
+    if (!student) return;
+    setStudentToDelete(student);
+    setConfirmDeleteStudentModal(true);
+  }
+
+  async function handleConfirmDeleteStudent() {
+    if (!studentToDelete || isDeletingStudent) return;
+    setIsDeletingStudent(true);
+
+    try {
+      const studentId = studentToDelete.id;
+      // 1. Delete student record from Supabase
+      const { error } = await supabase.from("students").delete().eq("id", studentId);
+      if (error) throw error;
+
+      // 2. Delete related alerts in alertStore
+      await deleteStudentAlerts(studentId);
+
+      // 3. Update local state
+      setStudents((prev) => prev.filter((s) => s.id !== studentId));
+      if (selectedProfile?.id === studentId) {
+        setSelectedProfile(null);
+      }
+      setConfirmDeleteStudentModal(false);
+      setStudentToDelete(null);
+      loadClassroomAlerts();
+    } catch (err: any) {
+      console.error("Failed to delete student:", err);
+      Alert.alert("Error Removing Student", err.message || "Failed to remove student from database.");
+    } finally {
+      setIsDeletingStudent(false);
+    }
+  }
+
+  // ── Delete Classroom Handlers ──────────────────────────────────────────────
+  function promptDeleteClassroom() {
+    setConfirmDeleteClassModal(true);
+  }
+
+  async function handleConfirmDeleteClassroom() {
+    if (!id || isDeletingClass) return;
+    setIsDeletingClass(true);
+
+    try {
+      // 1. Delete all students enrolled in this classroom
+      await supabase.from("students").delete().eq("classroom_id", id);
+
+      // 2. Delete the classroom record
+      const { error } = await supabase.from("classrooms").delete().eq("id", id);
+      if (error) throw error;
+
+      // 3. Purge related alerts and quiz storage
+      await Promise.all([
+        deleteClassroomAlerts(id),
+        deleteClassroomQuizzes(id),
+      ]);
+
+      setConfirmDeleteClassModal(false);
+      router.replace("/homepage");
+    } catch (err: any) {
+      console.error("Failed to delete classroom:", err);
+      Alert.alert("Error Deleting Classroom", err.message || "Failed to delete classroom from database.");
+      setIsDeletingClass(false);
+    }
   }
 
   // ── Data ───────────────────────────────────────────────────────────────────
@@ -371,25 +453,36 @@ export default function ClassroomScreen() {
           {schedule === "No Subject" ? title : schedule}
         </Text>
 
-        <TouchableOpacity
-          style={[styles.notifDot, { backgroundColor: cardColor }]}
-          onPress={handleOpenNotifModal}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="notifications" size={17} color="#FFFFFF" />
-          {classroomUnreadCount > 0 && (
-            <View
-              style={[
-                styles.topBarBadge,
-                { borderColor: darkMode ? "#1F2937" : "#FFFFFF" },
-              ]}
-            >
-              <Text style={styles.topBarBadgeText}>
-                {classroomUnreadCount > 9 ? "9+" : classroomUnreadCount}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.topBarRight}>
+          <TouchableOpacity
+            style={[styles.topBarActionBtn, { backgroundColor: darkMode ? "#374151" : "#FEE2E2" }]}
+            onPress={promptDeleteClassroom}
+            activeOpacity={0.8}
+            accessibilityLabel="Delete Classroom"
+          >
+            <Ionicons name="trash-outline" size={16} color="#EF4444" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.notifDot, { backgroundColor: cardColor }]}
+            onPress={handleOpenNotifModal}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="notifications" size={17} color="#FFFFFF" />
+            {classroomUnreadCount > 0 && (
+              <View
+                style={[
+                  styles.topBarBadge,
+                  { borderColor: darkMode ? "#1F2937" : "#FFFFFF" },
+                ]}
+              >
+                <Text style={styles.topBarBadgeText}>
+                  {classroomUnreadCount > 9 ? "9+" : classroomUnreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -615,6 +708,18 @@ export default function ClassroomScreen() {
                         </Text>
                         <Text style={[styles.statLabel, { color: textSub }]}>Attend</Text>
                       </View>
+                      <TouchableOpacity
+                        style={[styles.deleteStudentRowBtn, { backgroundColor: darkMode ? "#374151" : "#FEE2E2" }]}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          promptDeleteStudent(student);
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Remove student"
+                      >
+                        <Ionicons name="trash-outline" size={15} color="#EF4444" />
+                      </TouchableOpacity>
                       <Ionicons name="arrow-forward" size={16} color={textSub} />
                     </View>
                   </TouchableOpacity>
@@ -886,7 +991,16 @@ export default function ClassroomScreen() {
                     activeOpacity={0.8}
                   >
                     <Ionicons name="mail" size={16} color="#FFFFFF" />
-                    <Text style={styles.emailBtnText}>Email Student</Text>
+                    <Text style={styles.emailBtnText}>Email</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.removeStudentProfileBtn, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}
+                    onPress={() => promptDeleteStudent(selectedProfile)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                    <Text style={[styles.removeStudentProfileBtnText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>Remove</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -894,7 +1008,7 @@ export default function ClassroomScreen() {
                     onPress={() => setSelectedProfile(null)}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.closeProfileBtnText, { color: textSub }]}>Close Profile</Text>
+                    <Text style={[styles.closeProfileBtnText, { color: textSub }]}>Close</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -993,6 +1107,115 @@ export default function ClassroomScreen() {
                 ))}
               </ScrollView>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Remove Student Confirmation Modal ── */}
+      <Modal
+        visible={confirmDeleteStudentModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isDeletingStudent && setConfirmDeleteStudentModal(false)}
+      >
+        <View style={styles.confirmModalOverlay}>
+          <TouchableWithoutFeedback onPress={() => !isDeletingStudent && setConfirmDeleteStudentModal(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={styles.dangerIconWrap}>
+              <Ionicons name="person-remove" size={30} color="#EF4444" />
+            </View>
+
+            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Remove Student?</Text>
+            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
+              Are you sure you want to remove{" "}
+              <Text style={{ fontWeight: "700", color: textMain }}>"{studentToDelete?.full_name}"</Text>{" "}
+              from this classroom?
+              {"\n\n"}Their attendance, grades, and quiz evaluation records will be permanently deleted.
+            </Text>
+
+            <View style={styles.confirmModalActions}>
+              <TouchableOpacity
+                style={[styles.confirmCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
+                onPress={() => setConfirmDeleteStudentModal(false)}
+                disabled={isDeletingStudent}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmDeleteBtn, isDeletingStudent && styles.btnDisabled]}
+                onPress={handleConfirmDeleteStudent}
+                disabled={isDeletingStudent}
+                activeOpacity={0.8}
+              >
+                {isDeletingStudent ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.confirmDeleteBtnText}>Remove</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Delete Classroom Confirmation Modal ── */}
+      <Modal
+        visible={confirmDeleteClassModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isDeletingClass && setConfirmDeleteClassModal(false)}
+      >
+        <View style={styles.confirmModalOverlay}>
+          <TouchableWithoutFeedback onPress={() => !isDeletingClass && setConfirmDeleteClassModal(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={styles.dangerIconWrap}>
+              <Ionicons name="trash" size={30} color="#EF4444" />
+            </View>
+
+            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
+            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
+              Are you sure you want to permanently delete{" "}
+              <Text style={{ fontWeight: "700", color: textMain }}>"{title}"</Text>?
+              {"\n\n"}All enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted.
+            </Text>
+
+            <View style={styles.confirmModalActions}>
+              <TouchableOpacity
+                style={[styles.confirmCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
+                onPress={() => setConfirmDeleteClassModal(false)}
+                disabled={isDeletingClass}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmDeleteBtn, isDeletingClass && styles.btnDisabled]}
+                onPress={handleConfirmDeleteClassroom}
+                disabled={isDeletingClass}
+                activeOpacity={0.8}
+              >
+                {isDeletingClass ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.confirmDeleteBtnText}>Delete Class</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1854,5 +2077,113 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     color: "#EF4444",
+  },
+  topBarRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  topBarActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteStudentRowBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+  },
+  removeStudentProfileBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 23,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  removeStudentProfileBtnText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  confirmModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  confirmModalCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1.5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+    alignItems: "center",
+  },
+  dangerIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#FEE2E2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  confirmModalDesc: {
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  confirmModalActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCancelBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    backgroundColor: "#EF4444",
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  confirmDeleteBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
 });
