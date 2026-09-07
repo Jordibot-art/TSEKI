@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -15,10 +14,17 @@ import {
 } from "react-native";
 import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
 import {
+    detectDocType,
+    getDocBadgeInfo,
+    parseDocumentFile,
+    SupportedDocType,
+} from "../lib/documentParserService";
+import {
     GeneratedAssessment,
     generateScannableQuiz
 } from "../lib/quizGeneratorService";
 import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
+import { useTheme } from "../context/ThemeContext";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const SUBJECTS = [
@@ -92,21 +98,28 @@ function Dropdown({
     onSelect: (v: string) => void; accentColor: string;
 }) {
     const [open, setOpen] = useState(false);
+    const { darkMode } = useTheme();
+    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
+    const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+    const border = darkMode ? "#374151" : "#D1D5DB";
+    const inputBg = darkMode ? "#374151" : "#F9FAFB";
+
     return (
         <>
-            <Text style={styles.fieldLabel}>{label}</Text>
+            <Text style={[styles.fieldLabel, { color: textSub }]}>{label}</Text>
             <TouchableOpacity
-                style={styles.dropdownBtn}
+                style={[styles.dropdownBtn, { backgroundColor: inputBg, borderColor: border }]}
                 onPress={() => setOpen(true)}
                 activeOpacity={0.7}
             >
-                <Text style={styles.dropdownValue}>{value}</Text>
-                <Ionicons name="chevron-down" size={16} color="#6B7280" />
+                <Text style={[styles.dropdownValue, { color: textMain }]}>{value}</Text>
+                <Ionicons name="chevron-down" size={16} color={textSub} />
             </TouchableOpacity>
 
             <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
                 <TouchableOpacity style={styles.ddOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
-                    <View style={styles.ddSheet}>
+                    <View style={[styles.ddSheet, { backgroundColor: cardBg }]}>
                         <Text style={[styles.ddTitle, { color: accentColor }]}>{label}</Text>
                         <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
                             {options.map((opt) => (
@@ -114,12 +127,14 @@ function Dropdown({
                                     key={opt}
                                     style={[
                                         styles.ddItem,
+                                        { borderBottomColor: border },
                                         value === opt && { backgroundColor: accentColor + "18" },
                                     ]}
                                     onPress={() => { onSelect(opt); setOpen(false); }}
                                 >
                                     <Text style={[
                                         styles.ddItemText,
+                                        { color: textMain },
                                         value === opt && { color: accentColor, fontWeight: "700" },
                                     ]}>
                                         {opt}
@@ -147,6 +162,14 @@ type Props = {
 };
 
 export default function AIBuilderTab({ classroomId, classTitle, classSubject, accentColor, onQuizPublished }: Props) {
+    const { darkMode } = useTheme();
+    const bg = darkMode ? "#111827" : "#F9FAFB";
+    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
+    const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+    const border = darkMode ? "#374151" : "#D1D5DB";
+    const inputBg = darkMode ? "#374151" : "#F9FAFB";
+
     const resolvedSubject = classSubject && classSubject.trim().length > 0 ? classSubject.trim() : "General";
 
     // ── Form state ─────────────────────────────────────────────────────────────
@@ -162,7 +185,13 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [questionType, setQuestionType] = useState("Multiple Choice");
     const [questionCount, setQuestionCount] = useState("20 Questions");
     const [difficulty, setDifficulty] = useState<Difficulty>("Hard");
-    const [attachedFile, setAttachedFile] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
+    const [attachedFile, setAttachedFile] = useState<{
+        uri: string;
+        name: string;
+        mimeType: string;
+        type: SupportedDocType;
+        size?: number;
+    } | null>(null);
 
     // ── Generation state ───────────────────────────────────────────────────────
     const [generating, setGenerating] = useState(false);
@@ -177,18 +206,25 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     async function handleAttachFile() {
         try {
             const result = await DocumentPicker.getDocumentAsync({
-                type: ["application/pdf"],
+                type: [
+                    "application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/msword",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.ms-powerpoint",
+                    "text/plain",
+                ],
                 copyToCacheDirectory: true,
             });
             if (result.canceled === false && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
-                const mimeType = asset.mimeType && asset.mimeType.includes("pdf")
-                    ? asset.mimeType
-                    : "application/pdf";
+                const detectedType = detectDocType(asset.name, asset.mimeType);
                 setAttachedFile({
                     uri: asset.uri,
                     name: asset.name,
-                    mimeType,
+                    mimeType: asset.mimeType || "application/octet-stream",
+                    type: detectedType,
+                    size: asset.size,
                 });
             }
         } catch (error) {
@@ -206,10 +242,22 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
         try {
             let attachedPdfBase64: string | undefined;
+            let attachedFileText: string | undefined;
+            let attachedFileType: SupportedDocType | undefined;
+
             if (attachedFile) {
-                attachedPdfBase64 = await FileSystem.readAsStringAsync(attachedFile.uri, {
-                    encoding: "base64",
+                const parsed = await parseDocumentFile({
+                    uri: attachedFile.uri,
+                    name: attachedFile.name,
+                    mimeType: attachedFile.mimeType,
                 });
+
+                attachedFileType = parsed.type;
+                if (parsed.type === "pdf") {
+                    attachedPdfBase64 = parsed.base64;
+                } else {
+                    attachedFileText = parsed.text;
+                }
             }
 
             const count = parseInt(questionCount.split(" ")[0], 10) || 10;
@@ -222,6 +270,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 difficulty,
                 attachedPdfBase64,
                 attachedPdfName: attachedFile ? attachedFile.name : undefined,
+                attachedFileName: attachedFile ? attachedFile.name : undefined,
+                attachedFileType,
+                attachedFileText,
             });
 
             setGeneratedAssessment(assessment);
@@ -330,7 +381,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     return (
         <ScrollView
-            style={styles.root}
+            style={[styles.root, { backgroundColor: bg }]}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -341,25 +392,25 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     <Ionicons name="sparkles" size={20} color={accentColor} />
                 </View>
                 <View>
-                    <Text style={styles.headerTitle}>Tseki AI Assessment Suite</Text>
-                    <Text style={styles.headerSub}>Auto-generate quizzes for {classTitle}</Text>
+                    <Text style={[styles.headerTitle, { color: textMain }]}>Tseki AI Assessment Suite</Text>
+                    <Text style={[styles.headerSub, { color: textSub }]}>Auto-generate quizzes for {classTitle}</Text>
                 </View>
             </View>
 
             {!showResults ? (
                 <>
                     {/* ── Assessment Topic ── */}
-                    <Text style={styles.fieldLabel}>
-                        ASSESSMENT TOPIC {attachedFile ? <Text style={styles.optional}>(OPTIONAL WITH PDF)</Text> : <Text style={styles.required}>*</Text>}
+                    <Text style={[styles.fieldLabel, { color: textSub }]}>
+                        ASSESSMENT TOPIC {attachedFile ? <Text style={styles.optional}>(OPTIONAL WITH FILE)</Text> : <Text style={styles.required}>*</Text>}
                     </Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
                         placeholder={
                             attachedFile
-                                ? `e.g. Focus on specific chapter, or leave blank for whole document`
+                                ? `e.g. Focus on Chapter 3 of ${attachedFile.name}, or leave blank to cover whole file`
                                 : "e.g. Cold War, Photosynthesis, Quadratic Equations..."
                         }
-                        placeholderTextColor="#9CA3AF"
+                        placeholderTextColor={textSub}
                         value={topic}
                         onChangeText={setTopic}
                     />
@@ -367,12 +418,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     {/* ── Subject (Auto from Classroom) + Grade Level ── */}
                     <View style={styles.twoCol}>
                         <View style={styles.colHalf}>
-                            <Text style={styles.fieldLabel}>SUBJECT</Text>
-                            <View style={styles.autoSubjectBtn}>
-                                <Text style={styles.autoSubjectText} numberOfLines={1}>
+                            <Text style={[styles.fieldLabel, { color: textSub }]}>SUBJECT</Text>
+                            <View style={[styles.autoSubjectBtn, { backgroundColor: inputBg, borderColor: border }]}>
+                                <Text style={[styles.autoSubjectText, { color: textMain }]} numberOfLines={1}>
                                     {subject}
                                 </Text>
-                                <Ionicons name="lock-closed" size={14} color="#9CA3AF" />
+                                <Ionicons name="lock-closed" size={14} color={textSub} />
                             </View>
                         </View>
                         <View style={styles.colHalf}>
@@ -409,19 +460,21 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     </View>
 
                     {/* ── Difficulty Level ── */}
-                    <Text style={styles.fieldLabel}>DIFFICULTY LEVEL</Text>
+                    <Text style={[styles.fieldLabel, { color: textSub }]}>DIFFICULTY LEVEL</Text>
                     <View style={styles.difficultyRow}>
                         {(["Easy", "Medium", "Hard"] as Difficulty[]).map((d) => (
                             <TouchableOpacity
                                 key={d}
                                 style={[
                                     styles.diffBtn,
+                                    { backgroundColor: inputBg, borderColor: border },
                                     difficulty === d && { backgroundColor: accentColor, borderColor: accentColor },
                                 ]}
                                 onPress={() => setDifficulty(d)}
                             >
                                 <Text style={[
                                     styles.diffBtnText,
+                                    { color: textSub },
                                     difficulty === d && { color: "#FFFFFF" },
                                 ]}>
                                     {d}
@@ -431,20 +484,53 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     </View>
 
                     {/* ── Attached File ── */}
-                    <Text style={styles.fieldLabel}>ATTACH REFERENCE FILE <Text style={styles.optional}>(OPTIONAL)</Text></Text>
+                    <Text style={[styles.fieldLabel, { color: textSub }]}>ATTACH REFERENCE FILE <Text style={styles.optional}>(DOC, PPT, PDF - OPTIONAL)</Text></Text>
                     <TouchableOpacity
-                        style={styles.attachBtn}
+                        style={[
+                            styles.attachBtn,
+                            { backgroundColor: inputBg, borderColor: border },
+                            attachedFile && {
+                                borderColor: getDocBadgeInfo(attachedFile.type).color + "60",
+                                backgroundColor: getDocBadgeInfo(attachedFile.type).bgColor + (darkMode ? "22" : "40"),
+                                borderStyle: "solid",
+                            },
+                        ]}
                         onPress={handleAttachFile}
                         activeOpacity={0.7}
                     >
-                        <Ionicons name="document-attach-outline" size={20} color="#6B7280" />
-                        <Text style={styles.attachBtnText} numberOfLines={1}>
-                            {attachedFile ? attachedFile.name : "Tap to attach a file"}
-                        </Text>
-                        {attachedFile && (
-                            <TouchableOpacity onPress={() => setAttachedFile(null)} style={{ padding: 4 }}>
-                                <Ionicons name="close-circle" size={20} color="#EF4444" />
-                            </TouchableOpacity>
+                        {attachedFile ? (
+                            <>
+                                <View style={[styles.docBadge, { backgroundColor: getDocBadgeInfo(attachedFile.type).bgColor }]}>
+                                    <Ionicons
+                                        name={getDocBadgeInfo(attachedFile.type).icon as any}
+                                        size={16}
+                                        color={getDocBadgeInfo(attachedFile.type).color}
+                                    />
+                                    <Text style={[styles.docBadgeText, { color: getDocBadgeInfo(attachedFile.type).color }]}>
+                                        {getDocBadgeInfo(attachedFile.type).label}
+                                    </Text>
+                                </View>
+                                <Text style={[styles.attachBtnTextActive, { color: textMain }]} numberOfLines={1}>
+                                    {attachedFile.name}
+                                </Text>
+                                <TouchableOpacity
+                                    onPress={() => setAttachedFile(null)}
+                                    style={styles.attachRemoveBtn}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                    <Ionicons name="close-circle" size={20} color="#EF4444" />
+                                </TouchableOpacity>
+                            </>
+                        ) : (
+                            <>
+                                <Ionicons name="document-attach-outline" size={20} color={textSub} />
+                                <Text style={[styles.attachBtnText, { color: textSub }]} numberOfLines={1}>
+                                    Tap to attach file (DOC, PPT, PDF)
+                                </Text>
+                                <View style={[styles.formatPill, { backgroundColor: darkMode ? "#374151" : "#E5E7EB" }]}>
+                                    <Text style={[styles.formatPillText, { color: textSub }]}>Docs • PPT • PDF</Text>
+                                </View>
+                            </>
                         )}
                     </TouchableOpacity>
 
@@ -452,7 +538,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     <TouchableOpacity
                         style={[
                             styles.generateBtn,
-                            { backgroundColor: canGenerate ? accentColor : "#D1D5DB" },
+                            { backgroundColor: canGenerate ? accentColor : (darkMode ? "#4B5563" : "#D1D5DB") },
                         ]}
                         onPress={handleGenerate}
                         disabled={!canGenerate}
@@ -473,8 +559,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
                     {/* ── Info note ── */}
                     <View style={styles.infoNote}>
-                        <Ionicons name="information-circle-outline" size={15} color="#9CA3AF" />
-                        <Text style={styles.infoText}>
+                        <Ionicons name="information-circle-outline" size={15} color={textSub} />
+                        <Text style={[styles.infoText, { color: textSub }]}>
                             Questions are generated based on DepEd curriculum standards
                         </Text>
                     </View>
@@ -488,7 +574,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             <Text style={[styles.resultsBannerTitle, { color: accentColor }]} numberOfLines={1}>
                                 {generatedAssessment?.quizTitle || "Assessment Generated!"}
                             </Text>
-                            <Text style={styles.resultsBannerSub}>
+                            <Text style={[styles.resultsBannerSub, { color: textSub }]}>
                                 {generatedAssessment?.questions.length || questionCount} Questions • {difficulty} • Scannable Paper Layout
                             </Text>
                         </View>
@@ -505,7 +591,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         const typeLabel = q.type.replace(/_/g, " ").toUpperCase();
 
                         return (
-                            <View key={q.questionNumber} style={styles.questionCard}>
+                            <View key={q.questionNumber} style={[styles.questionCard, { backgroundColor: cardBg, borderColor: border }]}>
                                 <View style={styles.questionHeader}>
                                     <View style={[styles.questionNumber, { backgroundColor: accentColor }]}>
                                         <Text style={styles.questionNumberText}>{q.questionNumber}</Text>
@@ -521,7 +607,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                 </Text>
                                             </View>
                                         </View>
-                                        <Text style={styles.questionText} numberOfLines={4}>{q.questionText}</Text>
+                                        <Text style={[styles.questionText, { color: textMain }]} numberOfLines={4}>{q.questionText}</Text>
                                     </View>
                                 </View>
 
@@ -534,11 +620,13 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                     key={`${opt}_${cIdx}`}
                                                     style={[
                                                         styles.choiceItem,
+                                                        { backgroundColor: inputBg, borderColor: border },
                                                         isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
                                                     ]}
                                                 >
                                                     <Text style={[
                                                         styles.choiceText,
+                                                        { color: textMain },
                                                         isCorrect && { color: accentColor, fontWeight: "700" },
                                                     ]}>
                                                         {opt}
@@ -554,12 +642,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
                                 {/* Scannable Answer Boxes Preview */}
                                 <View style={styles.answerBoxesPreviewRow}>
-                                    <Ionicons name="create-outline" size={16} color="#6B7280" />
-                                    <Text style={styles.answerBoxLabel}>Student Answer Box{q.answerBoxesRequired > 1 ? "es" : ""}:</Text>
+                                    <Ionicons name="create-outline" size={16} color={textSub} />
+                                    <Text style={[styles.answerBoxLabel, { color: textSub }]}>Student Answer Box{q.answerBoxesRequired > 1 ? "es" : ""}:</Text>
                                     <View style={{ flexDirection: "row", gap: 6 }}>
                                         {Array.from({ length: Math.min(q.answerBoxesRequired, 5) }).map((_, bIdx) => (
-                                            <View key={bIdx} style={styles.answerBoxItem}>
-                                                <Text style={{ fontSize: 9, color: "#9CA3AF" }}>#{bIdx + 1}</Text>
+                                            <View key={bIdx} style={[styles.answerBoxItem, { backgroundColor: inputBg, borderColor: border }]}>
+                                                <Text style={{ fontSize: 9, color: textSub }}>#{bIdx + 1}</Text>
                                             </View>
                                         ))}
                                     </View>
@@ -802,7 +890,32 @@ const styles = StyleSheet.create({
         borderRadius: 12, paddingHorizontal: 14, flexDirection: "row", alignItems: "center",
         backgroundColor: "#F9FAFB", gap: 10,
     },
-    attachBtnText: { fontSize: 14, color: "#6B7280", flex: 1 },
+    attachBtnText: { fontSize: 13, color: "#6B7280", flex: 1 },
+    attachBtnTextActive: { fontSize: 13, color: "#1F2937", fontWeight: "600", flex: 1 },
+    attachRemoveBtn: { padding: 4 },
+    docBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        gap: 4,
+    },
+    docBadgeText: {
+        fontSize: 11,
+        fontWeight: "700",
+    },
+    formatPill: {
+        backgroundColor: "#E5E7EB",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    formatPillText: {
+        fontSize: 11,
+        color: "#6B7280",
+        fontWeight: "600",
+    },
 
     autoSubjectBtn: {
         height: 52, borderWidth: 1.5, borderColor: "#E5E7EB",

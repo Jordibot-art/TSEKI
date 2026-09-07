@@ -21,6 +21,7 @@ import {
 import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
 import TrackerTab from "../components/TrackerTab";
+import { useTheme } from "../context/ThemeContext";
 import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
@@ -232,21 +233,32 @@ export default function ClassroomScreen() {
 
   const tabs: Tab[] = ["Record", "AI Builder", "Grader", "Tracker"];
   const cardColor = color || "#6366F1";
+  const { darkMode } = useTheme();
+
+  // ── Dynamic theme colors ──────────────────────────────────────────────────
+  const bg = darkMode ? "#111827" : "#F9FAFB";
+  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
+  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+  const border = darkMode ? "#374151" : "#E5E7EB";
+  const subBorder = darkMode ? "#374151" : "#F3F4F6";
+  const inputBg = darkMode ? "#374151" : "#F9FAFB";
+  const btnSecondaryBg = darkMode ? "#374151" : "#F3F4F6";
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Top App Bar ── */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { backgroundColor: cardBg, borderBottomColor: border }]}>
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={20} color="#1F2937" />
-          <Text style={styles.backText}>Classrooms</Text>
+          <Ionicons name="chevron-back" size={20} color={textMain} />
+          <Text style={[styles.backText, { color: textMain }]}>Classrooms</Text>
         </TouchableOpacity>
 
-        <Text style={styles.topSubject} numberOfLines={1}>
+        <Text style={[styles.topSubject, { color: textMain }]} numberOfLines={1}>
           {schedule === "No Subject" ? title : schedule}
         </Text>
 
@@ -256,7 +268,7 @@ export default function ClassroomScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={[styles.scroll, { backgroundColor: bg }]}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -273,16 +285,20 @@ export default function ClassroomScreen() {
         </View>
 
         {/* ── Tab Bar ── */}
-        <View style={styles.tabBar}>
+        <View style={[styles.tabBar, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
           {tabs.map((tab) => (
             <TouchableOpacity
               key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
+              style={[
+                styles.tab,
+                { backgroundColor: activeTab === tab ? cardColor : (darkMode ? "#374151" : "#F3F4F6") },
+              ]}
               onPress={() => setActiveTab(tab)}
             >
               <Text
                 style={[
                   styles.tabText,
+                  { color: activeTab === tab ? "#FFFFFF" : textSub },
                   activeTab === tab && styles.tabTextActive,
                 ]}
               >
@@ -296,20 +312,20 @@ export default function ClassroomScreen() {
         {activeTab === "Record" && (
           <>
             {/* ── Action Row ── */}
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.importBtn}>
+            <View style={[styles.actionRow, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
+              <TouchableOpacity style={[styles.importBtn, { backgroundColor: cardColor }]}>
                 <Ionicons name="cloud-upload-outline" size={17} color="#FFFFFF" />
                 <Text style={styles.importBtnText}>Import Record</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.exportBtn}>
+              <TouchableOpacity style={[styles.exportBtn, { backgroundColor: btnSecondaryBg }]}>
                 <Ionicons
                   name="document-text-outline"
                   size={17}
-                  color="#4B5563"
+                  color={textSub}
                 />
-                <Text style={styles.exportBtnText}>Export CSV</Text>
+                <Text style={[styles.exportBtnText, { color: textSub }]}>Export CSV</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.fabSmall} onPress={openAddModal}>
+              <TouchableOpacity style={[styles.fabSmall, { backgroundColor: cardColor, shadowColor: cardColor }]} onPress={openAddModal}>
                 <Ionicons name="add" size={22} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
@@ -363,45 +379,45 @@ export default function ClassroomScreen() {
 
         {activeTab === "Record" && (
           <>
-            {/* \u2500\u2500 Search Bar \u2500\u2500 */}
-            <View style={styles.searchBar}>
-              <Ionicons name="search-outline" size={17} color="#9CA3AF" />
+            {/* ── Search Bar ── */}
+            <View style={[styles.searchBar, { backgroundColor: cardBg, borderColor: border }]}>
+              <Ionicons name="search-outline" size={17} color={textSub} />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, { color: textMain }]}
                 placeholder="Search students by name or email..."
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={textSub}
                 value={search}
                 onChangeText={setSearch}
               />
               {search.length > 0 && (
                 <TouchableOpacity onPress={() => setSearch("")}>
-                  <Ionicons name="close-circle" size={17} color="#9CA3AF" />
+                  <Ionicons name="close-circle" size={17} color={textSub} />
                 </TouchableOpacity>
               )}
             </View>
 
-            {/* \u2500\u2500 Roster Header \u2500\u2500 */}
+            {/* ── Roster Header ── */}
             <View style={styles.rosterHeader}>
-              <Text style={styles.rosterTitle}>
+              <Text style={[styles.rosterTitle, { color: textMain }]}>
                 Student Rosters ({filtered.length})
               </Text>
-              <Text style={styles.rosterHint}>Tap name to view details</Text>
+              <Text style={[styles.rosterHint, { color: textSub }]}>Tap name to view details</Text>
             </View>
 
-            {/* \u2500\u2500 Student List \u2500\u2500 */}
+            {/* ── Student List ── */}
             {loading ? (
               <ActivityIndicator
                 size="large"
-                color="#F97316"
+                color={cardColor}
                 style={{ marginVertical: 40 }}
               />
             ) : filtered.length === 0 ? (
               <View style={styles.emptyState}>
-                <Ionicons name="people-outline" size={52} color="#D1D5DB" />
-                <Text style={styles.emptyTitle}>No students yet</Text>
-                <Text style={styles.emptySub}>
+                <Ionicons name="people-outline" size={52} color={darkMode ? "#4B5563" : "#D1D5DB"} />
+                <Text style={[styles.emptyTitle, { color: textSub }]}>No students yet</Text>
+                <Text style={[styles.emptySub, { color: textSub }]}>
                   Tap the{" "}
-                  <Text style={{ color: "#F97316", fontWeight: "700" }}>+</Text>{" "}
+                  <Text style={{ color: cardColor, fontWeight: "700" }}>+</Text>{" "}
                   button to add your first student
                 </Text>
               </View>
@@ -416,7 +432,7 @@ export default function ClassroomScreen() {
                 return (
                   <TouchableOpacity
                     key={student.id}
-                    style={styles.studentRow}
+                    style={[styles.studentRow, { backgroundColor: cardBg, borderColor: subBorder }]}
                     onPress={() => setSelectedProfile(student)}
                     activeOpacity={0.7}
                   >
@@ -439,22 +455,22 @@ export default function ClassroomScreen() {
                     {/* Info */}
                     <View style={styles.studentInfo}>
                       <View style={styles.nameRow}>
-                        <Text style={styles.studentName} numberOfLines={1}>
+                        <Text style={[styles.studentName, { color: textMain }]} numberOfLines={1}>
                           {student.full_name}
                         </Text>
                         {isTop && (
-                          <View style={styles.topBadge}>
-                            <Text style={styles.topBadgeText}>Top</Text>
+                          <View style={[styles.topBadge, { backgroundColor: darkMode ? "#1E3A8A" : "#DBEAFE" }]}>
+                            <Text style={[styles.topBadgeText, { color: darkMode ? "#93C5FD" : "#2563EB" }]}>Top</Text>
                           </View>
                         )}
                         {isFlagged && (
-                          <View style={styles.flaggedBadge}>
-                            <Ionicons name="warning-outline" size={12} color="#DC2626" />
-                            <Text style={styles.flaggedBadgeText}>Flagged</Text>
+                          <View style={[styles.flaggedBadge, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}>
+                            <Ionicons name="warning-outline" size={12} color={darkMode ? "#FCA5A5" : "#DC2626"} />
+                            <Text style={[styles.flaggedBadgeText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>Flagged</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={styles.studentEmail} numberOfLines={1}>
+                      <Text style={[styles.studentEmail, { color: textSub }]} numberOfLines={1}>
                         {student.email ?? "No email"}
                       </Text>
                     </View>
@@ -462,17 +478,17 @@ export default function ClassroomScreen() {
                     {/* Stats */}
                     <View style={styles.studentStats}>
                       <View style={styles.statCol}>
-                        <Text style={styles.statValue}>{avg}%</Text>
-                        <Text style={styles.statLabel}>Average</Text>
+                        <Text style={[styles.statValue, { color: textMain }]}>{avg}%</Text>
+                        <Text style={[styles.statLabel, { color: textSub }]}>Average</Text>
                       </View>
-                      <View style={styles.statDivider} />
+                      <View style={[styles.statDivider, { backgroundColor: border }]} />
                       <View style={styles.statCol}>
-                        <Text style={styles.statValue}>
+                        <Text style={[styles.statValue, { color: textMain }]}>
                           {student.attendance ?? 0}%
                         </Text>
-                        <Text style={styles.statLabel}>Attend</Text>
+                        <Text style={[styles.statLabel, { color: textSub }]}>Attend</Text>
                       </View>
-                      <Ionicons name="arrow-forward" size={16} color="#CBD5E1" />
+                      <Ionicons name="arrow-forward" size={16} color={textSub} />
                     </View>
                   </TouchableOpacity>
                 );
@@ -493,36 +509,36 @@ export default function ClassroomScreen() {
           <TouchableWithoutFeedback onPress={handleCancel}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
-                <View style={styles.modalCard}>
+                <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
                   {/* Header */}
                   <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Add New Student</Text>
+                    <Text style={[styles.modalTitle, { color: textMain }]}>Add New Student</Text>
                     <TouchableOpacity
                       onPress={handleCancel}
-                      style={styles.modalCloseBtn}
+                      style={[styles.modalCloseBtn, { backgroundColor: btnSecondaryBg }]}
                     >
-                      <Ionicons name="close" size={22} color="#6B7280" />
+                      <Ionicons name="close" size={22} color={textSub} />
                     </TouchableOpacity>
                   </View>
 
                   {/* Full Name */}
-                  <Text style={styles.fieldLabel}>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
                     FULL NAME <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
                     placeholder="e.g. Liam Smith"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={textSub}
                     value={fullName}
                     onChangeText={setFullName}
                   />
 
                   {/* Email */}
-                  <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>EMAIL ADDRESS</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
                     placeholder="e.g. liam.smith@school.edu"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={textSub}
                     value={email}
                     onChangeText={setEmail}
                     keyboardType="email-address"
@@ -530,11 +546,11 @@ export default function ClassroomScreen() {
                   />
 
                   {/* Attendance */}
-                  <Text style={styles.fieldLabel}>ATTENDANCE (%)</Text>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>ATTENDANCE (%)</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
                     placeholder="e.g. 95"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={textSub}
                     value={attendance}
                     onChangeText={setAttendance}
                     keyboardType="numeric"
@@ -543,14 +559,15 @@ export default function ClassroomScreen() {
                   {/* Buttons */}
                   <View style={styles.modalActions}>
                     <TouchableOpacity
-                      style={styles.cancelBtn}
+                      style={[styles.cancelBtn, { borderColor: border, backgroundColor: btnSecondaryBg }]}
                       onPress={handleCancel}
                     >
-                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                      <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
                         styles.addBtn,
+                        { backgroundColor: cardColor, shadowColor: cardColor },
                         (!fullName.trim() || saving) && styles.addBtnDisabled,
                       ]}
                       onPress={handleAddStudent}
@@ -569,6 +586,7 @@ export default function ClassroomScreen() {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
+
       {/* ── Student Profile Modal (Popup) ── */}
       <Modal
         visible={selectedProfile !== null}
@@ -601,9 +619,9 @@ export default function ClassroomScreen() {
             const quizScore = Math.round((profileAvg / 100) * quizTotalPoints);
 
             return (
-              <View style={styles.profileModalCard}>
+              <View style={[styles.profileModalCard, { backgroundColor: cardBg }]}>
                 {/* Header (Pinned) */}
-                <View style={styles.profileHeader}>
+                <View style={[styles.profileHeader, { backgroundColor: cardColor }]}>
                   <View style={styles.profileHeaderLeft}>
                     {profileAvatar ? (
                       <Image source={{ uri: profileAvatar }} style={styles.profileAvatarImg} />
@@ -634,7 +652,7 @@ export default function ClassroomScreen() {
 
                 {/* Scrollable Body Content */}
                 <ScrollView
-                  style={styles.profileScroll}
+                  style={[styles.profileScroll, { backgroundColor: bg }]}
                   contentContainerStyle={styles.profileBody}
                   showsVerticalScrollIndicator={true}
                   keyboardShouldPersistTaps="handled"
@@ -642,27 +660,27 @@ export default function ClassroomScreen() {
                 >
                   {/* 3 Stats Row */}
                   <View style={styles.profileStatsRow}>
-                    <View style={styles.statBox}>
-                      <Text style={styles.statBoxLabel}>AVERAGE</Text>
-                      <Text style={styles.statBoxValue}>{profileAvg}%</Text>
+                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                      <Text style={[styles.statBoxLabel, { color: textSub }]}>AVERAGE</Text>
+                      <Text style={[styles.statBoxValue, { color: textMain }]}>{profileAvg}%</Text>
                     </View>
-                    <View style={styles.statBox}>
-                      <Text style={styles.statBoxLabel}>ATTENDANCE</Text>
-                      <Text style={styles.statBoxValue}>{selectedProfile.attendance ?? 0}%</Text>
+                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                      <Text style={[styles.statBoxLabel, { color: textSub }]}>ATTENDANCE</Text>
+                      <Text style={[styles.statBoxValue, { color: textMain }]}>{selectedProfile.attendance ?? 0}%</Text>
                     </View>
-                    <View style={styles.statBox}>
-                      <Text style={styles.statBoxLabel}>STATUS</Text>
+                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                      <Text style={[styles.statBoxLabel, { color: textSub }]}>STATUS</Text>
                       {profileIsTop ? (
-                        <View style={[styles.statusPill, { backgroundColor: "#EFF6FF" }]}>
-                          <Text style={[styles.statusPillText, { color: "#2563EB" }]}>TOP TIER</Text>
+                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#1E3A8A" : "#EFF6FF" }]}>
+                          <Text style={[styles.statusPillText, { color: darkMode ? "#93C5FD" : "#2563EB" }]}>TOP TIER</Text>
                         </View>
                       ) : profileIsFlagged ? (
-                        <View style={[styles.statusPill, { backgroundColor: "#FEE2E2" }]}>
-                          <Text style={[styles.statusPillText, { color: "#DC2626" }]}>AT RISK</Text>
+                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}>
+                          <Text style={[styles.statusPillText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>AT RISK</Text>
                         </View>
                       ) : (
-                        <View style={[styles.statusPill, { backgroundColor: "#ECFDF5" }]}>
-                          <Text style={[styles.statusPillText, { color: "#059669" }]}>ON TRACK</Text>
+                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#064E3B" : "#ECFDF5" }]}>
+                          <Text style={[styles.statusPillText, { color: darkMode ? "#6EE7B7" : "#059669" }]}>ON TRACK</Text>
                         </View>
                       )}
                     </View>
@@ -670,11 +688,11 @@ export default function ClassroomScreen() {
 
                   {/* At-Risk Warning Flag (Only if profileIsFlagged) */}
                   {profileIsFlagged && (
-                    <View style={styles.atRiskCard}>
-                      <Ionicons name="warning-outline" size={20} color="#DC2626" />
+                    <View style={[styles.atRiskCard, { backgroundColor: darkMode ? "#450A0A" : "#FEF2F2", borderColor: darkMode ? "#7F1D1D" : "#FECACA" }]}>
+                      <Ionicons name="warning-outline" size={20} color={darkMode ? "#FCA5A5" : "#DC2626"} />
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.atRiskTitle}>At-Risk Behavioral Flag</Text>
-                        <Text style={styles.atRiskSub}>
+                        <Text style={[styles.atRiskTitle, { color: darkMode ? "#FCA5A5" : "#991B1B" }]}>At-Risk Behavioral Flag</Text>
+                        <Text style={[styles.atRiskSub, { color: darkMode ? "#F87171" : "#DC2626" }]}>
                           {quizTitleDisplay} score below threshold
                         </Text>
                       </View>
@@ -684,19 +702,19 @@ export default function ClassroomScreen() {
                   {/* Quiz Grade Sheet */}
                   <View style={styles.quizSheetSection}>
                     <View style={styles.quizSheetHeader}>
-                      <Ionicons name="book-outline" size={14} color="#64748B" />
-                      <Text style={styles.quizSheetTitle}>QUIZ GRADE SHEET</Text>
+                      <Ionicons name="book-outline" size={14} color={textSub} />
+                      <Text style={[styles.quizSheetTitle, { color: textSub }]}>QUIZ GRADE SHEET</Text>
                     </View>
-                    <View style={styles.quizScoreCard}>
+                    <View style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.quizScoreName} numberOfLines={1}>
+                        <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={1}>
                           {quizTitleDisplay}
                         </Text>
-                        <Text style={styles.quizScoreSub}>Total weight: {quizTotalPoints} points</Text>
+                        <Text style={[styles.quizScoreSub, { color: textSub }]}>Total weight: {quizTotalPoints} points</Text>
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
                         <View style={styles.quizScoreNumRow}>
-                          <Text style={styles.quizScoreNum}>
+                          <Text style={[styles.quizScoreNum, { color: textMain }]}>
                             {quizScore} / {quizTotalPoints}
                           </Text>
                           <View
@@ -706,18 +724,18 @@ export default function ClassroomScreen() {
                             ]}
                           />
                         </View>
-                        <Text style={styles.quizScorePercent}>({profileAvg}%)</Text>
+                        <Text style={[styles.quizScorePercent, { color: textSub }]}>({profileAvg}%)</Text>
                       </View>
                     </View>
                   </View>
 
                   {/* Tseki Pedagogical Advice */}
-                  <View style={styles.pedagogicalCard}>
+                  <View style={[styles.pedagogicalCard, { backgroundColor: darkMode ? "#292524" : "#FFFBEB", borderColor: darkMode ? "#44403C" : "#FED7AA" }]}>
                     <View style={styles.pedagogicalHeader}>
-                      <Ionicons name="sparkles" size={15} color="#059669" />
-                      <Text style={styles.pedagogicalTitle}>TSEKI PEDAGOGICAL ADVICE</Text>
+                      <Ionicons name="sparkles" size={15} color={darkMode ? "#34D399" : "#059669"} />
+                      <Text style={[styles.pedagogicalTitle, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>TSEKI PEDAGOGICAL ADVICE</Text>
                     </View>
-                    <Text style={styles.pedagogicalText}>
+                    <Text style={[styles.pedagogicalText, { color: darkMode ? "#D6D3D1" : "#475569" }]}>
                       {profileIsTop
                         ? `${firstName} displays exemplary proficiency! Consider assigning them as a peer tutor or creating an advanced, harder-tier quiz to keep them engaged.`
                         : profileIsFlagged
@@ -728,9 +746,9 @@ export default function ClassroomScreen() {
                 </ScrollView>
 
                 {/* Fixed Footer Action Buttons (Always Visible at bottom!) */}
-                <View style={styles.profileFooter}>
+                <View style={[styles.profileFooter, { backgroundColor: cardBg, borderTopColor: border }]}>
                   <TouchableOpacity
-                    style={styles.emailBtn}
+                    style={[styles.emailBtn, { backgroundColor: cardColor }]}
                     onPress={() => {
                       if (selectedProfile.email) {
                         Linking.openURL(`mailto:${selectedProfile.email}`);
@@ -745,11 +763,11 @@ export default function ClassroomScreen() {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.closeProfileBtn}
+                    style={[styles.closeProfileBtn, { backgroundColor: btnSecondaryBg }]}
                     onPress={() => setSelectedProfile(null)}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.closeProfileBtnText}>Close Profile</Text>
+                    <Text style={[styles.closeProfileBtnText, { color: textSub }]}>Close Profile</Text>
                   </TouchableOpacity>
                 </View>
               </View>

@@ -32,6 +32,9 @@ export interface AssessmentGenerationParams {
     difficulty?: string;
     attachedPdfBase64?: string;
     attachedPdfName?: string;
+    attachedFileName?: string;
+    attachedFileType?: "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt";
+    attachedFileText?: string;
 }
 
 /**
@@ -78,6 +81,26 @@ CRITICAL DIFFICULTY GUIDELINES - HARD (Bloom's Level 5 & 6: Evaluation, Complex 
 CRITICAL DIFFICULTY GUIDELINES:
 - Calibrate the cognitive complexity, vocabulary, and distractor subtlety strictly to the requested "${diff}" level.`;
 
+    const docName = params.attachedFileName || params.attachedPdfName;
+    const isPdf = params.attachedFileType === "pdf" || Boolean(params.attachedPdfBase64);
+
+    let documentSourceInstruction = "";
+    if (docName) {
+        if (params.attachedFileText) {
+            documentSourceInstruction = `
+- Source Document: Attached document ("${docName}").
+STRICT ASSESSMENT SOURCE MATERIAL:
+The user has attached the reference document "${docName}". You MUST strictly base your questions, correct answers, and distractors on the provided content below. Do NOT generate questions on topics not mentioned in this document:
+
+--- BEGIN ATTACHED DOCUMENT CONTENT ("${docName}") ---
+${params.attachedFileText}
+--- END ATTACHED DOCUMENT CONTENT ---
+`;
+        } else if (isPdf) {
+            documentSourceInstruction = `- Source Document: Strictly derive questions and answers from the attached PDF document ("${docName}"). Do NOT ask general questions outside this document.`;
+        }
+    }
+
     let promptText = `
 You are an expert curriculum designer and psychometrician. Generate an educational assessment based on the requested topic and the STRICT cognitive difficulty guidelines below.
 
@@ -88,7 +111,7 @@ Assessment Parameters:
 - Question Type Preference: ${qType}
 - Number of Questions: ${count}
 - Selected Difficulty: ${diff.toUpperCase()}
-${params.attachedPdfName ? `- Source Document: Strictly derive questions and answers from the attached PDF document ("${params.attachedPdfName}"). Do NOT ask general questions outside this document.` : ""}
+${documentSourceInstruction}
 
 CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
 1. If Question Type Preference is "Multiple Choice":
@@ -143,7 +166,7 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
 `;
 
     const parts: any[] = [];
-    if (params.attachedPdfBase64) {
+    if (isPdf && params.attachedPdfBase64) {
         parts.push({
             inlineData: {
                 data: params.attachedPdfBase64,

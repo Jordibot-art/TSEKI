@@ -16,6 +16,7 @@ import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gra
 import { saveRosterAlert } from "../lib/alertStore";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
+import { useTheme } from "../context/ThemeContext";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
@@ -52,21 +53,28 @@ function Dropdown({
     label: string; value: string; options: string[];
     onSelect: (v: string) => void; accentColor: string;
 }) {
+    const { darkMode } = useTheme();
     const [open, setOpen] = useState(false);
     return (
         <View style={styles.dropdownContainer}>
             <TouchableOpacity
-                style={styles.dropdownBtn}
+                style={[
+                    styles.dropdownBtn,
+                    {
+                        backgroundColor: darkMode ? "#374151" : "#FFFFFF",
+                        borderColor: darkMode ? "#4B5563" : "#E5E7EB",
+                    },
+                ]}
                 onPress={() => setOpen(true)}
                 activeOpacity={0.7}
             >
-                <Text style={styles.dropdownValue}>{value}</Text>
-                <Ionicons name="chevron-down" size={16} color="#6B7280" />
+                <Text style={[styles.dropdownValue, { color: darkMode ? "#F9FAFB" : "#374151" }]}>{value}</Text>
+                <Ionicons name="chevron-down" size={16} color={darkMode ? "#9CA3AF" : "#6B7280"} />
             </TouchableOpacity>
 
             <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
                 <TouchableOpacity style={styles.ddOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
-                    <View style={styles.ddSheet}>
+                    <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
                         <Text style={[styles.ddTitle, { color: accentColor }]}>{label}</Text>
                         <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
                             {options.map((opt) => (
@@ -80,6 +88,7 @@ function Dropdown({
                                 >
                                     <Text style={[
                                         styles.ddItemText,
+                                        { color: darkMode ? "#F3F4F6" : "#374151" },
                                         value === opt && { color: accentColor, fontWeight: "700" },
                                     ]}>
                                         {opt}
@@ -131,6 +140,14 @@ export default function GraderTab({
     const [gradingResult, setGradingResult] = useState<GradingResponse | null>(null);
     const [savingScore, setSavingScore] = useState(false);
     const [isRecorded, setIsRecorded] = useState(false);
+    const { darkMode } = useTheme();
+
+    const bg = darkMode ? "#111827" : "#F9FAFB";
+    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
+    const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+    const border = darkMode ? "#374151" : "#E5E7EB";
+    const subBorder = darkMode ? "#374151" : "#F3F4F6";
 
     useEffect(() => {
         if (students && students.length > 0) {
@@ -410,7 +427,7 @@ export default function GraderTab({
 
     return (
         <ScrollView
-            style={styles.root}
+            style={[styles.root, { backgroundColor: bg }]}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -424,19 +441,19 @@ export default function GraderTab({
                     <View style={styles.actionButtonsRow}>
                         {/* Left: Scan Another Sheet */}
                         <TouchableOpacity
-                            style={styles.scanAnotherBtn}
+                            style={[styles.scanAnotherBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}
                             onPress={() => setSourceModalOpen(true)}
                             activeOpacity={0.7}
                         >
-                            <Ionicons name="sync-outline" size={18} color="#334155" />
-                            <Text style={styles.scanAnotherBtnText}>Scan Another Sheet</Text>
+                            <Ionicons name="sync-outline" size={18} color={darkMode ? "#F3F4F6" : "#334155"} />
+                            <Text style={[styles.scanAnotherBtnText, { color: darkMode ? "#F3F4F6" : "#334155" }]}>Scan Another Sheet</Text>
                         </TouchableOpacity>
 
                         {/* Right: Approve & Record OR Recorded to Class Record! */}
                         {isRecorded ? (
-                            <View style={styles.recordedBadge}>
-                                <Ionicons name="checkmark" size={18} color="#059669" />
-                                <Text style={styles.recordedBadgeText}>Recorded to Class Record!</Text>
+                            <View style={[styles.recordedBadge, darkMode && { backgroundColor: "#064E3B", borderColor: "#059669" }]}>
+                                <Ionicons name="checkmark" size={18} color={darkMode ? "#34D399" : "#059669"} />
+                                <Text style={[styles.recordedBadgeText, darkMode && { color: "#A7F3D0" }]}>Recorded to Class Record!</Text>
                             </View>
                         ) : (
                             <TouchableOpacity
@@ -459,19 +476,19 @@ export default function GraderTab({
 
                     {/* ── Roster Synchronized Successfully Banner (Visible after approval) ── */}
                     {isRecorded && (
-                        <View style={styles.syncBanner}>
-                            <Ionicons name="shield-checkmark-outline" size={24} color="#059669" />
+                        <View style={[styles.syncBanner, darkMode && { backgroundColor: "#064E3B", borderColor: "#059669" }]}>
+                            <Ionicons name="shield-checkmark-outline" size={24} color={darkMode ? "#34D399" : "#059669"} />
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.syncBannerTitle}>Roster Synchronized Successfully</Text>
-                                <Text style={styles.syncBannerSub}>Grades are mapped to the spreadsheet dynamically.</Text>
+                                <Text style={[styles.syncBannerTitle, darkMode && { color: "#A7F3D0" }]}>Roster Synchronized Successfully</Text>
+                                <Text style={[styles.syncBannerSub, darkMode && { color: "#6EE7B7" }]}>Grades are mapped to the spreadsheet dynamically.</Text>
                             </View>
                         </View>
                     )}
 
                     {/* ── Scanned Student Sheet Card ── */}
-                    <View style={styles.scannedCard}>
+                    <View style={[styles.scannedCard, { backgroundColor: cardBg, borderColor: border }]}>
                         {/* Dark Header Banner */}
-                        <View style={styles.darkCardHeader}>
+                        <View style={[styles.darkCardHeader, darkMode && { backgroundColor: "#111827" }]}>
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.cardHeaderSub}>SCANNED STUDENT SHEET</Text>
                                 <Text style={styles.cardStudentName} numberOfLines={1}>
@@ -487,7 +504,7 @@ export default function GraderTab({
 
                         {/* Interactive Grading Log Section */}
                         <View style={styles.cardBody}>
-                            <Text style={styles.gradingLogTitle}>INTERACTIVE GRADING LOG</Text>
+                            <Text style={[styles.gradingLogTitle, { color: textSub }]}>INTERACTIVE GRADING LOG</Text>
 
                             {/* List of Questions */}
                             {gradingResult.results.map((item) => (
@@ -495,7 +512,9 @@ export default function GraderTab({
                                     key={item.questionNumber}
                                     style={[
                                         styles.logCard,
-                                        item.isCorrect ? styles.logCardCorrect : styles.logCardWrong,
+                                        item.isCorrect
+                                            ? (darkMode ? { backgroundColor: "#064E3B20", borderColor: "#05966960" } : styles.logCardCorrect)
+                                            : (darkMode ? { backgroundColor: "#7F1D1D20", borderColor: "#DC262660" } : styles.logCardWrong),
                                     ]}
                                     onPress={() => handleToggleQuestion(item.questionNumber)}
                                     activeOpacity={0.7}
@@ -504,13 +523,17 @@ export default function GraderTab({
                                     <View
                                         style={[
                                             styles.qBadge,
-                                            item.isCorrect ? styles.qBadgeCorrect : styles.qBadgeWrong,
+                                            item.isCorrect
+                                                ? (darkMode ? { backgroundColor: "#064E3B60" } : styles.qBadgeCorrect)
+                                                : (darkMode ? { backgroundColor: "#7F1D1D60" } : styles.qBadgeWrong),
                                         ]}
                                     >
                                         <Text
                                             style={[
                                                 styles.qBadgeText,
-                                                item.isCorrect ? styles.qBadgeTextCorrect : styles.qBadgeTextWrong,
+                                                item.isCorrect
+                                                    ? (darkMode ? { color: "#6EE7B7" } : styles.qBadgeTextCorrect)
+                                                    : (darkMode ? { color: "#FCA5A5" } : styles.qBadgeTextWrong),
                                             ]}
                                         >
                                             Q{item.questionNumber}
@@ -519,7 +542,7 @@ export default function GraderTab({
 
                                     {/* Information */}
                                     <View style={styles.logCardInfo}>
-                                        <Text style={styles.logAnswerText}>
+                                        <Text style={[styles.logAnswerText, { color: textMain }]}>
                                             Answer:{" "}
                                             <Text
                                                 style={{
@@ -530,9 +553,9 @@ export default function GraderTab({
                                                 {item.studentAnswer || "(Empty)"}
                                             </Text>
                                         </Text>
-                                        <Text style={styles.logKeyText}>
+                                        <Text style={[styles.logKeyText, { color: textSub }]}>
                                             Key:{" "}
-                                            <Text style={{ fontWeight: "700", color: "#334155" }}>
+                                            <Text style={{ fontWeight: "700", color: textMain }}>
                                                 {item.correctAnswer}
                                             </Text>
                                         </Text>
@@ -548,15 +571,15 @@ export default function GraderTab({
                             ))}
 
                             {/* Tseki Approved Scan Banner */}
-                            <View style={styles.approvedScanCard}>
+                            <View style={[styles.approvedScanCard, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border }]}>
                                 <Image
                                     source={require("../assets/images/logo.png")}
                                     style={styles.approvedScanMascot}
                                     resizeMode="contain"
                                 />
                                 <View style={styles.approvedScanInfo}>
-                                    <Text style={styles.approvedScanTitle}>Tseki Approved Scan</Text>
-                                    <Text style={styles.approvedScanSub}>
+                                    <Text style={[styles.approvedScanTitle, { color: textMain }]}>Tseki Approved Scan</Text>
+                                    <Text style={[styles.approvedScanSub, { color: textSub }]}>
                                         This answer sheet has been verified against the standard {currentQuizValue || "assessment"}. Ready for class record update.
                                     </Text>
                                 </View>
@@ -568,22 +591,23 @@ export default function GraderTab({
                 /* ───────────────────────────────────────────────────────────────────
                     CASE 2: INITIAL SCAN LAUNCHER (Before scan)
                 ────────────────────────────────────────────────────────────────────── */
-                <View style={styles.launcherCard}>
+                <View style={[styles.launcherCard, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}>
                     <View style={styles.launcherHeader}>
                         <View style={[styles.launcherIconCircle, { backgroundColor: (accentColor || "#F97316") + "15" }]}>
                             <Ionicons name="camera" size={22} color={accentColor || "#F97316"} />
                         </View>
                         <View>
-                            <Text style={styles.launcherTitle}>Tseki Smart Vision Grader</Text>
-                            <Text style={styles.launcherSub}>Fast, AI-powered automatic quiz grading</Text>
+                            <Text style={[styles.launcherTitle, { color: textMain }]}>Tseki Smart Vision Grader</Text>
+                            <Text style={[styles.launcherSub, { color: textSub }]}>Fast, AI-powered automatic quiz grading</Text>
                         </View>
                     </View>
 
-                    <View style={styles.divider} />
+                    <View style={[styles.divider, { backgroundColor: subBorder }]}>
+                    </View>
 
                     {/* 1. GRADE AGAINST QUIZ */}
                     <View style={styles.fieldGroup}>
-                        <Text style={styles.fieldLabel}>1. GRADE AGAINST QUIZ</Text>
+                        <Text style={[styles.fieldLabel, { color: textSub }]}>1. GRADE AGAINST QUIZ</Text>
                         <Dropdown
                             label="GRADE AGAINST QUIZ"
                             value={currentQuizValue}
@@ -595,7 +619,7 @@ export default function GraderTab({
 
                     {/* 2. IDENTIFY STUDENT SHEET */}
                     <View style={styles.fieldGroup}>
-                        <Text style={styles.fieldLabel}>2. IDENTIFY STUDENT SHEET</Text>
+                        <Text style={[styles.fieldLabel, { color: textSub }]}>2. IDENTIFY STUDENT SHEET</Text>
                         <Dropdown
                             label="IDENTIFY STUDENT SHEET"
                             value={currentStudentValue}
@@ -629,14 +653,14 @@ export default function GraderTab({
                     activeOpacity={1}
                     onPress={() => setSourceModalOpen(false)}
                 >
-                    <View style={styles.actionSheet}>
+                    <View style={[styles.actionSheet, { backgroundColor: cardBg }]}>
                         <View style={styles.actionSheetHeader}>
-                            <Text style={styles.actionSheetTitle}>Scan Student Test Sheet</Text>
-                            <Text style={styles.actionSheetSub}>Choose how to provide the handwritten test paper</Text>
+                            <Text style={[styles.actionSheetTitle, { color: textMain }]}>Scan Student Test Sheet</Text>
+                            <Text style={[styles.actionSheetSub, { color: textSub }]}>Choose how to provide the handwritten test paper</Text>
                         </View>
 
                         <TouchableOpacity
-                            style={styles.sheetBtn}
+                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border }]}
                             onPress={handleOpenCamera}
                             activeOpacity={0.7}
                         >
@@ -644,14 +668,14 @@ export default function GraderTab({
                                 <Ionicons name="camera" size={20} color={accentColor || "#F97316"} />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.sheetBtnTitle}>Take Photo with Camera</Text>
-                                <Text style={styles.sheetBtnSub}>Snap a photo of the student's test sheet</Text>
+                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Take Photo with Camera</Text>
+                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Snap a photo of the student's test sheet</Text>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            style={styles.sheetBtn}
+                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border }]}
                             onPress={handlePickImage}
                             activeOpacity={0.7}
                         >
@@ -659,15 +683,15 @@ export default function GraderTab({
                                 <Ionicons name="images" size={20} color="#10B981" />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.sheetBtnTitle}>Choose from Photo Library</Text>
-                                <Text style={styles.sheetBtnSub}>Upload an existing photo from device</Text>
+                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Choose from Photo Library</Text>
+                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Upload an existing photo from device</Text>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                         </TouchableOpacity>
 
                         {/* Demo Sheet Option */}
                         <TouchableOpacity
-                            style={styles.sheetBtn}
+                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border }]}
                             onPress={handleLoadDemo}
                             activeOpacity={0.7}
                         >
@@ -675,8 +699,8 @@ export default function GraderTab({
                                 <Ionicons name="sparkles" size={20} color="#6366F1" />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.sheetBtnTitle}>Load Demo (Sarah Jenkins - 10/10)</Text>
-                                <Text style={styles.sheetBtnSub}>Instant test preview of the scanned quiz UI</Text>
+                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Load Demo (Sarah Jenkins - 10/10)</Text>
+                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Instant test preview of the scanned quiz UI</Text>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                         </TouchableOpacity>
@@ -686,7 +710,7 @@ export default function GraderTab({
                             onPress={() => setSourceModalOpen(false)}
                             activeOpacity={0.7}
                         >
-                            <Text style={styles.sheetCancelText}>Cancel</Text>
+                            <Text style={[styles.sheetCancelText, { color: textSub }]}>Cancel</Text>
                         </TouchableOpacity>
                     </View>
                 </TouchableOpacity>
@@ -701,15 +725,15 @@ export default function GraderTab({
                 onRequestClose={() => {}}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={styles.loadingCard}>
+                    <View style={[styles.loadingCard, { backgroundColor: cardBg }]}>
                         <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#F97316") + "22" }]}>
                             <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#F97316" }]}>
                                 <Ionicons name="scan-outline" size={28} color="#FFFFFF" />
                             </View>
                         </View>
 
-                        <Text style={styles.loadingTitle}>Grading Assessment...</Text>
-                        <Text style={styles.loadingSub}>
+                        <Text style={[styles.loadingTitle, { color: textMain }]}>Grading Assessment...</Text>
+                        <Text style={[styles.loadingSub, { color: textSub }]}>
                             Tseki AI Vision is reading handwritten answers from the sheet and matching against the answer key.
                         </Text>
 
@@ -717,15 +741,15 @@ export default function GraderTab({
                             <ActivityIndicator size="large" color={accentColor || "#F97316"} />
                         </View>
 
-                        <View style={styles.loadingMetaPill}>
-                            <Text style={styles.loadingMetaText} numberOfLines={1}>
+                        <View style={[styles.loadingMetaPill, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                            <Text style={[styles.loadingMetaText, { color: textMain }]} numberOfLines={1}>
                                 {currentQuizValue}
                             </Text>
                         </View>
 
                         <View style={styles.loadingNoticeRow}>
                             <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
-                            <Text style={styles.loadingNoticeText}>Please wait a moment while Tseki grades...</Text>
+                            <Text style={[styles.loadingNoticeText, { color: textSub }]}>Please wait a moment while Tseki grades...</Text>
                         </View>
                     </View>
                 </View>

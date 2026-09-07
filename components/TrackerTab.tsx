@@ -12,6 +12,7 @@ import {
   QuizPerformanceRecord,
   StoredQuiz,
 } from "../lib/quizStore";
+import { useTheme } from "../context/ThemeContext";
 
 export type TrackerStudent = {
   id: string;
@@ -69,6 +70,14 @@ export default function TrackerTab({
 }: TrackerTabProps) {
   const [chartWidth, setChartWidth] = useState(320);
   const [perfRecords, setPerfRecords] = useState<QuizPerformanceRecord[]>([]);
+  const { darkMode } = useTheme();
+
+  const bg = darkMode ? "#111827" : "#F9FAFB";
+  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
+  const textMain = darkMode ? "#F9FAFB" : "#0F172A";
+  const textSub = darkMode ? "#9CA3AF" : "#64748B";
+  const border = darkMode ? "#374151" : "#F1F5F9";
+  const subBorder = darkMode ? "#374151" : "#E2E8F0";
 
   // ── Load Real Quiz Performance History ───────────────────────────────────
   useEffect(() => {
@@ -198,12 +207,12 @@ export default function TrackerTab({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: bg }]}>
       {/* ── Section 1: 4 Key Metric Cards (2x2 Grid) ── */}
       <View style={styles.metricsGrid}>
         {/* Card 1: Class Average */}
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Class Average</Text>
+        <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.metricLabel, { color: textSub }]}>Class Average</Text>
           <Text style={[styles.metricValue, { color: "#2563EB" }]}>{classAvg}%</Text>
           <View style={styles.trendRow}>
             <Text style={[styles.trendText, { color: classAvg >= 75 ? "#16A34A" : "#DC2626" }]}>
@@ -213,23 +222,23 @@ export default function TrackerTab({
         </View>
 
         {/* Card 2: Pass Rate */}
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Pass Rate (≥75%)</Text>
+        <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.metricLabel, { color: textSub }]}>Pass Rate (≥75%)</Text>
           <Text style={[styles.metricValue, { color: "#EA580C" }]}>{passRate}%</Text>
-          <Text style={styles.metricSub}>Target 85%</Text>
+          <Text style={[styles.metricSub, { color: textSub }]}>Target 85%</Text>
         </View>
 
         {/* Card 3: Attendance Avg */}
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Attendance Avg</Text>
-          <Text style={[styles.metricValue, { color: "#0F172A" }]}>{attendanceAvg}%</Text>
+        <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.metricLabel, { color: textSub }]}>Attendance Avg</Text>
+          <Text style={[styles.metricValue, { color: textMain }]}>{attendanceAvg}%</Text>
           <View style={styles.trendRow}>
             <Text style={[styles.trendText, { color: "#16A34A" }]}>↗ Stable</Text>
           </View>
         </View>
 
         {/* Card 4: At-Risk Flags */}
-        <View style={[styles.metricCard, styles.atRiskMetricCard]}>
+        <View style={[styles.metricCard, styles.atRiskMetricCard, darkMode && { backgroundColor: "#450A0A50", borderColor: "#7F1D1D" }]}>
           <View style={styles.atRiskHeaderRow}>
             <Ionicons name="warning-outline" size={14} color="#DC2626" />
             <Text style={styles.atRiskMetricLabel}>At-Risk Flags</Text>
@@ -242,8 +251,8 @@ export default function TrackerTab({
       </View>
 
       {/* ── Section 2: Grade Distribution Histogram ── */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Grade Distribution</Text>
+      <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
+        <Text style={[styles.cardTitle, { color: textMain }]}>Grade Distribution</Text>
 
         <View style={styles.histogramContainer}>
           {gradeBuckets.map((bucket) => {
@@ -257,7 +266,7 @@ export default function TrackerTab({
                 {/* Count badge above bar */}
                 <View style={styles.countBadgeWrapper}>
                   {bucket.count > 0 ? (
-                    <Text style={styles.countBadgeText}>
+                    <Text style={[styles.countBadgeText, { color: textMain }]}>
                       {bucket.count} student{bucket.count > 1 ? "s" : ""}
                     </Text>
                   ) : (
@@ -280,42 +289,43 @@ export default function TrackerTab({
                 </View>
 
                 {/* Grade Label */}
-                <Text style={styles.gradeLetter}>{bucket.grade}</Text>
-                <Text style={styles.gradeRange}>{bucket.range}</Text>
+                <Text style={[styles.gradeLetter, { color: textMain }]}>{bucket.grade}</Text>
+                <Text style={[styles.gradeRange, { color: textSub }]}>{bucket.range}</Text>
               </View>
             );
           })}
         </View>
         {/* Baseline Axis */}
-        <View style={styles.baselineAxis} />
+        <View style={[styles.baselineAxis, { backgroundColor: subBorder }]}>
+        </View>
       </View>
 
       {/* ── Section 3: Class Performance Trend (Interactive & Fully Functional) ── */}
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
         <View style={styles.trendHeaderRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>Class Performance Trend</Text>
-            <Text style={styles.cardSub}>
+            <Text style={[styles.cardTitle, { color: textMain }]}>Class Performance Trend</Text>
+            <Text style={[styles.cardSub, { color: textSub }]}>
               Tracking overall score average over consecutive quizzes
             </Text>
           </View>
           {onNavigateToGrader && (
             <TouchableOpacity
-              style={styles.gradeQuizBtn}
+              style={[styles.gradeQuizBtn, darkMode && { backgroundColor: "#1E3A8A30", borderColor: "#1D4ED8" }]}
               onPress={onNavigateToGrader}
               activeOpacity={0.7}
             >
-              <Ionicons name="scan-outline" size={13} color="#2563EB" />
-              <Text style={styles.gradeQuizBtnText}>Grade Quiz</Text>
+              <Ionicons name="scan-outline" size={13} color={darkMode ? "#93C5FD" : "#2563EB"} />
+              <Text style={[styles.gradeQuizBtnText, darkMode && { color: "#93C5FD" }]}>Grade Quiz</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {trendPoints.length === 0 ? (
           <View style={styles.trendEmptyContainer}>
-            <Ionicons name="trending-up-outline" size={32} color="#CBD5E1" />
-            <Text style={styles.trendEmptyTitle}>No Assessment Records</Text>
-            <Text style={styles.trendEmptySub}>
+            <Ionicons name="trending-up-outline" size={32} color={darkMode ? "#4B5563" : "#CBD5E1"} />
+            <Text style={[styles.trendEmptyTitle, { color: textMain }]}>No Assessment Records</Text>
+            <Text style={[styles.trendEmptySub, { color: textSub }]}>
               Create a quiz or record student scores in Grader to begin tracking your class performance trend.
             </Text>
           </View>
@@ -323,15 +333,15 @@ export default function TrackerTab({
           <>
             {/* Interactive Selected Quiz Detail Banner */}
             {selectedPoint && (
-              <View style={styles.trendDetailBanner}>
+              <View style={[styles.trendDetailBanner, { backgroundColor: darkMode ? "#111827" : "#F8FAFC", borderColor: border }]}>
                 <View style={{ flex: 1 }}>
                   <View style={styles.trendDetailHeader}>
                     <Ionicons name="analytics" size={13} color="#2563EB" />
-                    <Text style={styles.trendDetailTitle} numberOfLines={1}>
+                    <Text style={[styles.trendDetailTitle, { color: textMain }]} numberOfLines={1}>
                       {selectedPoint.fullTitle || selectedPoint.label}
                     </Text>
                   </View>
-                  <Text style={styles.trendDetailSub}>
+                  <Text style={[styles.trendDetailSub, { color: textSub }]}>
                     {selectedPoint.submissions} student{selectedPoint.submissions !== 1 ? "s" : ""} recorded
                   </Text>
                 </View>
@@ -388,8 +398,8 @@ export default function TrackerTab({
                 const yPos = getY(level);
                 return (
                   <View key={level} style={[styles.gridLineRow, { top: yPos }]}>
-                    <Text style={styles.gridLabel}>{level}%</Text>
-                    <View style={styles.gridLine} />
+                    <Text style={[styles.gridLabel, { color: textSub }]}>{level}%</Text>
+                    <View style={[styles.gridLine, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]} />
                   </View>
                 );
               })}
@@ -466,6 +476,7 @@ export default function TrackerTab({
                           left: x - 6,
                           top: y - 6,
                           backgroundColor: isDrop ? "#EA580C" : "#2563EB",
+                          borderColor: darkMode ? "#1F2937" : "#FFFFFF",
                           transform: [{ scale: isSelected ? 1.25 : 1 }],
                         },
                       ]}
@@ -477,7 +488,7 @@ export default function TrackerTab({
               })}
 
               {/* Chart Baseline */}
-              <View style={[styles.chartBaseline, { left: leftPadding, width: plotWidth, top: plotHeight + 4 }]} />
+              <View style={[styles.chartBaseline, { left: leftPadding, width: plotWidth, top: plotHeight + 4, backgroundColor: subBorder }]} />
 
               {/* X-Axis Labels (Centered directly under dot, tap to select) */}
               <View style={[styles.xAxisRow, { top: plotHeight + 10, left: 0, right: 0 }]}>
@@ -499,6 +510,7 @@ export default function TrackerTab({
                       <Text
                         style={[
                           styles.xAxisLabel,
+                          { color: textSub },
                           isSelected && { color: "#2563EB", fontWeight: "800" },
                         ]}
                         numberOfLines={1}
@@ -512,9 +524,9 @@ export default function TrackerTab({
             </View>
 
             {/* Tip / helper below chart */}
-            <View style={styles.chartFooterHint}>
-              <Ionicons name="information-circle-outline" size={13} color="#94A3B8" />
-              <Text style={styles.chartFooterHintText}>
+            <View style={[styles.chartFooterHint, { borderTopColor: subBorder }]}>
+              <Ionicons name="information-circle-outline" size={13} color={textSub} />
+              <Text style={[styles.chartFooterHintText, { color: textSub }]}>
                 {trendPoints.length <= 1
                   ? "1 assessment recorded. Subsequent quizzes will form the trend line."
                   : "Tap any quiz point above to view detailed assessment metrics"}
@@ -525,14 +537,14 @@ export default function TrackerTab({
       </View>
 
       {/* ── Section 4: Flagged At-Risk Students ── */}
-      <View style={styles.flaggedSectionCard}>
+      <View style={[styles.flaggedSectionCard, darkMode && { backgroundColor: "#450A0A30", borderColor: "#7F1D1D" }]}>
         <View style={styles.flaggedHeaderRow}>
           <View style={styles.flaggedHeaderLeft}>
             <Ionicons name="warning-outline" size={17} color="#DC2626" />
-            <Text style={styles.flaggedHeaderTitle}>Flagged At-Risk Students</Text>
+            <Text style={[styles.flaggedHeaderTitle, darkMode && { color: "#FCA5A5" }]}>Flagged At-Risk Students</Text>
           </View>
-          <View style={styles.flaggedCountBadge}>
-            <Text style={styles.flaggedCountBadgeText}>
+          <View style={[styles.flaggedCountBadge, darkMode && { backgroundColor: "#7F1D1D" }]}>
+            <Text style={[styles.flaggedCountBadgeText, darkMode && { color: "#FCA5A5" }]}>
               {atRiskCount} Flagged
             </Text>
           </View>
@@ -546,22 +558,22 @@ export default function TrackerTab({
               return (
                 <TouchableOpacity
                   key={student.id}
-                  style={styles.flaggedStudentItem}
+                  style={[styles.flaggedStudentItem, darkMode && { backgroundColor: "#1F2937", borderColor: "#7F1D1D" }]}
                   onPress={() => onOpenStudentProfile(student)}
                   activeOpacity={0.75}
                 >
                   {avatar ? (
                     <Image source={{ uri: avatar }} style={styles.flaggedAvatar} />
                   ) : (
-                    <View style={styles.flaggedAvatarFallback}>
-                      <Text style={styles.flaggedAvatarFallbackText}>
+                    <View style={[styles.flaggedAvatarFallback, darkMode && { backgroundColor: "#7F1D1D" }]}>
+                      <Text style={[styles.flaggedAvatarFallbackText, darkMode && { color: "#FCA5A5" }]}>
                         {getInitials(student.full_name)}
                       </Text>
                     </View>
                   )}
 
                   <View style={styles.flaggedInfoCol}>
-                    <Text style={styles.flaggedName} numberOfLines={1}>
+                    <Text style={[styles.flaggedName, { color: textMain }]} numberOfLines={1}>
                       {student.full_name}
                     </Text>
                     <Text style={styles.flaggedSub} numberOfLines={1}>
@@ -570,7 +582,7 @@ export default function TrackerTab({
                   </View>
 
                   <View style={styles.flaggedScoreCol}>
-                    <Text style={styles.flaggedScoreText}>{student.average}% avg</Text>
+                    <Text style={[styles.flaggedScoreText, { color: textMain }]}>{student.average}% avg</Text>
                     <Text style={styles.flaggedTrendText}>↘ declining</Text>
                   </View>
                 </TouchableOpacity>
@@ -578,9 +590,9 @@ export default function TrackerTab({
             })}
           </View>
         ) : (
-          <View style={styles.allClearCard}>
-            <Ionicons name="checkmark-circle" size={24} color="#059669" />
-            <Text style={styles.allClearText}>
+          <View style={[styles.allClearCard, darkMode && { backgroundColor: "#064E3B30", borderColor: "#059669" }]}>
+            <Ionicons name="checkmark-circle" size={24} color={darkMode ? "#34D399" : "#059669"} />
+            <Text style={[styles.allClearText, darkMode && { color: "#6EE7B7" }]}>
               No students currently flagged as at-risk. Great performance!
             </Text>
           </View>
@@ -588,15 +600,15 @@ export default function TrackerTab({
       </View>
 
       {/* ── Section 5: Tseki's Recommendation ── */}
-      <View style={styles.recommendationCard}>
+      <View style={[styles.recommendationCard, darkMode && { backgroundColor: "#451A0340", borderColor: "#78350F" }]}>
         <Image
           source={require("../assets/images/logo.png")}
           style={styles.mascotImg}
           resizeMode="contain"
         />
         <View style={styles.recommendationInfo}>
-          <Text style={styles.recommendationTitle}>Tseki's Recommendation</Text>
-          <Text style={styles.recommendationText}>
+          <Text style={[styles.recommendationTitle, darkMode && { color: "#FDBA74" }]}>Tseki's Recommendation</Text>
+          <Text style={[styles.recommendationText, darkMode && { color: "#E2E8F0" }]}>
             {atRiskCount > 0
               ? `You have ${atRiskCount} student${atRiskCount > 1 ? "s" : ""} showing signs of difficulty. Click "Create remedial quiz" to automatically generate custom, easier homework for them!`
               : "All students are performing on track! Consider creating an advanced challenge quiz using AI Builder to keep top performers engaged."}

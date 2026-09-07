@@ -6,29 +6,29 @@ import { GeneratedAssessment, ScannableQuestion } from "./quizGeneratorService";
 export type BondPaperSize = "short" | "long";
 
 export interface ExportPaperOptions {
-    assessment: GeneratedAssessment;
-    classTitle?: string;
-    subject?: string;
-    includeAnswerKey?: boolean;
-    paperSize?: BondPaperSize; // "short" (8.5x11") or "long" (8.5x13")
+  assessment: GeneratedAssessment;
+  classTitle?: string;
+  subject?: string;
+  includeAnswerKey?: boolean;
+  paperSize?: BondPaperSize; // "short" (8.5x11") or "long" (8.5x13")
 }
 
 type NormalizedQuestionType = "multiple_choice" | "true_false" | "identification" | "enumeration";
 
 function normalizeQuestionType(type: string): NormalizedQuestionType {
-    const t = (type || "").toLowerCase().trim();
-    if (t.includes("true") || t.includes("false") || t === "tf") return "true_false";
-    if (t.includes("ident") || t.includes("fill") || t.includes("blank")) return "identification";
-    if (t.includes("enum")) return "enumeration";
-    return "multiple_choice";
+  const t = (type || "").toLowerCase().trim();
+  if (t.includes("true") || t.includes("false") || t === "tf") return "true_false";
+  if (t.includes("ident") || t.includes("fill") || t.includes("blank")) return "identification";
+  if (t.includes("enum")) return "enumeration";
+  return "multiple_choice";
 }
 
 function getTypeBadgeLabel(type: string): string {
-    const norm = normalizeQuestionType(type);
-    if (norm === "true_false") return "TRUE / FALSE";
-    if (norm === "identification") return "IDENTIFICATION";
-    if (norm === "enumeration") return "ENUMERATION";
-    return "MULTIPLE CHOICE";
+  const norm = normalizeQuestionType(type);
+  if (norm === "true_false") return "TRUE / FALSE";
+  if (norm === "identification") return "IDENTIFICATION";
+  if (norm === "enumeration") return "ENUMERATION";
+  return "MULTIPLE CHOICE";
 }
 
 /**
@@ -36,43 +36,43 @@ function getTypeBadgeLabel(type: string): string {
  * (Multiple Choice, True/False, Identification, Enumeration) or a Mixed Assessment.
  */
 function buildInstructionsHtml(questions: ScannableQuestion[]): string {
-    const rawTypes = questions.map((q) => normalizeQuestionType(q.type));
-    const uniqueTypes = Array.from(new Set(rawTypes));
+  const rawTypes = questions.map((q) => normalizeQuestionType(q.type));
+  const uniqueTypes = Array.from(new Set(rawTypes));
 
-    // Single-type assessments
-    if (uniqueTypes.length === 1) {
-        const type = uniqueTypes[0];
-        if (type === "true_false") {
-            return `
+  // Single-type assessments
+  if (uniqueTypes.length === 1) {
+    const type = uniqueTypes[0];
+    if (type === "true_false") {
+      return `
         <div class="instructions-strip">
           <strong>Instructions (True or False):</strong> Read each statement carefully. Write <strong>T</strong> if the statement is True and <strong>F</strong> if False clearly inside the answer box on the right.
         </div>
       `;
-        }
-        if (type === "identification") {
-            return `
+    }
+    if (type === "identification") {
+      return `
         <div class="instructions-strip">
           <strong>Instructions (Identification):</strong> Read each statement or question carefully. Identify the correct term or concept and write your answer clearly inside the answer box on the right.
         </div>
       `;
-        }
-        if (type === "enumeration") {
-            return `
+    }
+    if (type === "enumeration") {
+      return `
         <div class="instructions-strip">
           <strong>Instructions (Enumeration):</strong> Enumerate or list the required items for each question. Write each item clearly inside its corresponding numbered box (#1, #2, ...) on the right.
         </div>
       `;
-        }
-        // Default: multiple_choice
-        return `
+    }
+    // Default: multiple_choice
+    return `
       <div class="instructions-strip">
         <strong>Instructions (Multiple Choice):</strong> Read each question and choices carefully. Write the letter of your chosen answer (A, B, C, or D) clearly inside the answer box on the right.
       </div>
     `;
-    }
+  }
 
-    // Mixed Assessment: provide tailored instructions for each question type present
-    return `
+  // Mixed Assessment: provide tailored instructions for each question type present
+  return `
     <div class="instructions-strip">
       <div class="instruction-heading"><strong>General Instructions (Mixed Assessment):</strong> Read each question carefully and write your answers inside the designated box(es) on the right:</div>
       <div class="mixed-instructions-inline">
@@ -91,103 +91,103 @@ function buildInstructionsHtml(questions: ScannableQuestion[]): string {
  * for single-shot camera scanning by the Tseki Vision Grader.
  */
 export function buildPaperSheetHtml({
-    assessment,
-    classTitle = "Classroom Assessment",
-    subject = "General Subject",
-    includeAnswerKey = false,
-    paperSize = "short",
+  assessment,
+  classTitle = "Classroom Assessment",
+  subject = "General Subject",
+  includeAnswerKey = false,
+  paperSize = "short",
 }: ExportPaperOptions): string {
-    const totalPoints = assessment.answerKey.reduce((sum, k) => sum + (k.points || 1), 0);
-    const currentDate = new Date().toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-    });
+  const totalPoints = assessment.answerKey.reduce((sum, k) => sum + (k.points || 1), 0);
+  const currentDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
-    const isLongPaper = paperSize === "long";
-    const pageSizeCss = isLongPaper ? "8.5in 13in" : "8.5in 11in";
-    const paperName = isLongPaper ? "Long Bond Paper (8.5\" × 13\")" : "Short Bond Paper (8.5\" × 11\")";
+  const isLongPaper = paperSize === "long";
+  const pageSizeCss = isLongPaper ? "8.5in 13in" : "8.5in 11in";
+  const paperName = isLongPaper ? "Long Bond Paper (8.5\" × 13\")" : "Short Bond Paper (8.5\" × 11\")";
 
-    const questionCount = assessment.questions.length;
-    // Use 2 columns if more than 5 questions so everything fits on 1 sheet of bond paper
-    const isTwoColumn = questionCount > 5;
+  const questionCount = assessment.questions.length;
+  // Use 2 columns if more than 5 questions so everything fits on 1 sheet of bond paper
+  const isTwoColumn = questionCount > 5;
 
-    const rawTypes = assessment.questions.map((q) => normalizeQuestionType(q.type));
-    const isMixed = new Set(rawTypes).size > 1;
+  const rawTypes = assessment.questions.map((q) => normalizeQuestionType(q.type));
+  const isMixed = new Set(rawTypes).size > 1;
 
-    const instructionsHtml = buildInstructionsHtml(assessment.questions);
+  const instructionsHtml = buildInstructionsHtml(assessment.questions);
 
-    const questionsHtml = assessment.questions
-        .map((q) => {
-            const answerObj = assessment.answerKey.find((k) => k.questionNumber === q.questionNumber);
-            const rawCorrectAnswer = answerObj ? answerObj.correctAnswer : "";
-            const points = answerObj ? answerObj.points : 1;
+  const questionsHtml = assessment.questions
+    .map((q) => {
+      const answerObj = assessment.answerKey.find((k) => k.questionNumber === q.questionNumber);
+      const rawCorrectAnswer = answerObj ? answerObj.correctAnswer : "";
+      const points = answerObj ? answerObj.points : 1;
 
-            const normType = normalizeQuestionType(q.type);
-            const boxCount = Math.max(1, q.answerBoxesRequired || 1);
-            const isTextFill = normType === "identification";
-            const isEnum = normType === "enumeration";
+      const normType = normalizeQuestionType(q.type);
+      const boxCount = Math.max(1, q.answerBoxesRequired || 1);
+      const isTextFill = normType === "identification";
+      const isEnum = normType === "enumeration";
 
-            // Format answer for answer key
-            let formattedAnswer = rawCorrectAnswer;
-            if (normType === "true_false") {
-                const lower = rawCorrectAnswer.trim().toLowerCase();
-                if (lower === "true" || lower === "t") formattedAnswer = "T";
-                else if (lower === "false" || lower === "f") formattedAnswer = "F";
-            }
+      // Format answer for answer key
+      let formattedAnswer = rawCorrectAnswer;
+      if (normType === "true_false") {
+        const lower = rawCorrectAnswer.trim().toLowerCase();
+        if (lower === "true" || lower === "t") formattedAnswer = "T";
+        else if (lower === "false" || lower === "f") formattedAnswer = "F";
+      }
 
-            // Options row (for multiple choice or true/false)
-            let optionsHtml = "";
-            if (q.options && q.options.length > 0) {
-                optionsHtml = `
+      // Options row (for multiple choice or true/false)
+      let optionsHtml = "";
+      if (q.options && q.options.length > 0) {
+        optionsHtml = `
           <div class="options-row">
             ${q.options
-                .map((opt) => `<span class="option-text">${escapeHtml(opt)}</span>`)
-                .join("")}
+            .map((opt) => `<span class="option-text">${escapeHtml(opt)}</span>`)
+            .join("")}
           </div>
         `;
-            }
+      }
 
-            // Parse enumeration items if answer key is included
-            let enumItems: string[] = [];
-            if (includeAnswerKey && isEnum) {
-                enumItems = rawCorrectAnswer
-                    .split(/(?:^|\s*)[,\n;]+(?:\s*)|(?:\d+[\.\)]\s*)/g)
-                    .map((s) => s.trim())
-                    .filter((s) => s.length > 0);
-                if (enumItems.length === 0 && rawCorrectAnswer) {
-                    enumItems = [rawCorrectAnswer];
-                }
-            }
+      // Parse enumeration items if answer key is included
+      let enumItems: string[] = [];
+      if (includeAnswerKey && isEnum) {
+        enumItems = rawCorrectAnswer
+          .split(/(?:^|\s*)[,\n;]+(?:\s*)|(?:\d+[\.\)]\s*)/g)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (enumItems.length === 0 && rawCorrectAnswer) {
+          enumItems = [rawCorrectAnswer];
+        }
+      }
 
-            const boxesHtml = `
+      const boxesHtml = `
         <div class="boxes-cluster ${isEnum && boxCount > 1 ? "boxes-vertical" : ""}">
           ${Array.from({ length: boxCount })
-                .map((_, idx) => {
-                    let filledText = "";
-                    if (includeAnswerKey) {
-                        if (isEnum) {
-                            filledText = enumItems[idx] || (idx === 0 ? rawCorrectAnswer : "");
-                        } else if (idx === 0) {
-                            filledText = formattedAnswer;
-                        }
-                    }
+          .map((_, idx) => {
+            let filledText = "";
+            if (includeAnswerKey) {
+              if (isEnum) {
+                filledText = enumItems[idx] || (idx === 0 ? rawCorrectAnswer : "");
+              } else if (idx === 0) {
+                filledText = formattedAnswer;
+              }
+            }
 
-                    const boxClass = isTextFill ? "box-wide" : isEnum ? "box-enum" : "box-square";
-                    const watermark = isEnum && boxCount > 1 && !filledText ? `<span class="box-watermark">#${idx + 1}</span>` : "";
+            const boxClass = isTextFill ? "box-wide" : isEnum ? "box-enum" : "box-square";
+            const watermark = isEnum && boxCount > 1 && !filledText ? `<span class="box-watermark">#${idx + 1}</span>` : "";
 
-                    return `
+            return `
               <div class="answer-box ${boxClass}">
                 ${watermark}
                 ${filledText ? `<span class="answer-key-text">${escapeHtml(filledText)}</span>` : ""}
               </div>
             `;
-                })
-                .join("")}
+          })
+          .join("")}
         </div>
       `;
 
-            return `
+      return `
         <div class="question-row">
           <div class="q-body">
             <div class="q-statement">
@@ -203,10 +203,10 @@ export function buildPaperSheetHtml({
           </div>
         </div>
       `;
-        })
-        .join("");
+    })
+    .join("");
 
-    return `
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -526,13 +526,13 @@ export function buildPaperSheetHtml({
 }
 
 function escapeHtml(str: string): string {
-    if (!str) return "";
-    return str
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 /**
@@ -540,25 +540,25 @@ function escapeHtml(str: string): string {
  * and launches the system print / share / save sheet.
  */
 export async function exportPaperSheet(options: ExportPaperOptions): Promise<string> {
-    const html = buildPaperSheetHtml(options);
+  const html = buildPaperSheetHtml(options);
 
-    if (Platform.OS === "web") {
-        await Print.printAsync({ html });
-        return "";
-    }
+  if (Platform.OS === "web") {
+    await Print.printAsync({ html });
+    return "";
+  }
 
-    const { uri } = await Print.printToFileAsync({
-        html,
-        base64: false,
-    });
+  const { uri } = await Print.printToFileAsync({
+    html,
+    base64: false,
+  });
 
-    const paperLabel = options.paperSize === "long" ? "Long Bond Paper" : "Short Bond Paper";
+  const paperLabel = options.paperSize === "long" ? "Long Bond Paper" : "Short Bond Paper";
 
-    await shareAsync(uri, {
-        UTI: ".pdf",
-        mimeType: "application/pdf",
-        dialogTitle: `Export ${options.assessment.quizTitle} (${paperLabel})`,
-    });
+  await shareAsync(uri, {
+    UTI: ".pdf",
+    mimeType: "application/pdf",
+    dialogTitle: `Export ${options.assessment.quizTitle} (${paperLabel})`,
+  });
 
-    return uri;
+  return uri;
 }
