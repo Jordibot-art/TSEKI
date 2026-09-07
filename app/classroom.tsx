@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,14 @@ import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
 import TrackerTab from "../components/TrackerTab";
 import { useTheme } from "../context/ThemeContext";
+import {
+  clearAllAlerts,
+  getClearedAlertIds,
+  getPersistedAlerts,
+  getReadAlertIds,
+  markAlertsAsRead,
+  RosterAlert,
+} from "../lib/alertStore";
 import { getPublishedQuizzes, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
@@ -113,6 +121,120 @@ export default function ClassroomScreen() {
   // Student Profile Detail Modal
   const [selectedProfile, setSelectedProfile] = useState<Student | null>(null);
 
+  // Notification Alert state for this classroom
+  const [classroomAlerts, setClassroomAlerts] = useState<RosterAlert[]>([]);
+  const [classroomUnreadCount, setClassroomUnreadCount] = useState<number>(0);
+  const [notifModalVisible, setNotifModalVisible] = useState<boolean>(false);
+
+  const loadClassroomAlerts = useCallback(async () => {
+    if (!id) return;
+    try {
+      const [persisted, clearedIds, readIds] = await Promise.all([
+        getPersistedAlerts(),
+        getClearedAlertIds(),
+        getReadAlertIds(),
+      ]);
+
+      const activeAlerts: RosterAlert[] = [];
+
+      // 1. From real students with a recorded average between 1% and 50%
+      for (const s of students) {
+        if (s.average !== null && s.average !== undefined && s.average > 0 && s.average <= 50) {
+          const alertId = `flag_${s.id}`;
+          if (!clearedIds.includes(alertId) && !clearedIds.includes(s.id)) {
+            activeAlerts.push({
+              id: alertId,
+              studentId: s.id,
+              studentName: s.full_name || "Student",
+              classroomId: id,
+              classroomTitle: (title as string) || "Classroom",
+              classroomSchedule: (schedule as string) || "",
+              classroomRoom: (room as string) || "",
+              classroomColor: color || "#3B82F6",
+              scorePercentage: s.average,
+              alertType: s.average <= 40 ? "HIGH RISK" : "URGENT REVIEW",
+              message: `${s.full_name || "Student"} has dropped to an average of ${s.average}%. Performance Flagged: At-Risk.`,
+              createdAt: new Date().toISOString(),
+              timeLabel: "Today",
+              isRead:
+                readIds.includes(alertId) ||
+                readIds.includes(s.id) ||
+                readIds.includes(`alert_${s.id}`),
+            });
+          }
+        }
+      }
+
+      // 2. From persisted alerts specifically for this classroom
+      for (const p of persisted) {
+        if (
+          p.classroomId === id &&
+          !clearedIds.includes(p.id) &&
+          !clearedIds.includes(p.studentId)
+        ) {
+          const isRead =
+            readIds.includes(p.id) ||
+            readIds.includes(p.studentId) ||
+            readIds.includes(`flag_${p.studentId}`);
+          const existingIdx = activeAlerts.findIndex((a) => a.studentId === p.studentId);
+          if (existingIdx === -1) {
+            activeAlerts.push({
+              ...p,
+              isRead,
+            });
+          } else {
+            activeAlerts[existingIdx] = {
+              ...p,
+              isRead,
+            };
+          }
+        }
+      }
+
+      setClassroomAlerts(activeAlerts);
+      setClassroomUnreadCount(activeAlerts.filter((a) => !a.isRead).length);
+    } catch (err) {
+      console.error("Failed to load classroom alerts:", err);
+    }
+  }, [id, title, schedule, room, color, students]);
+
+  useEffect(() => {
+    loadClassroomAlerts();
+  }, [loadClassroomAlerts]);
+
+  // ── Classroom Notification Handlers ────────────────────────────────────────
+  function handleOpenNotifModal() {
+    setNotifModalVisible(true);
+  }
+
+  async function handleClassroomAlertPress(alert: RosterAlert) {
+    await markAlertsAsRead([alert.id, alert.studentId, `flag_${alert.studentId}`]);
+    setClassroomAlerts((prev) =>
+      prev.map((a) =>
+        a.id === alert.id || a.studentId === alert.studentId ? { ...a, isRead: true } : a
+      )
+    );
+    setClassroomUnreadCount((prev) => Math.max(0, prev - 1));
+    setNotifModalVisible(false);
+
+    // Switch to Tracker tab and open student profile
+    setActiveTab("Tracker");
+    const match = students.find(
+      (s) =>
+        s.id === alert.studentId ||
+        s.full_name.toLowerCase() === alert.studentName.toLowerCase()
+    );
+    if (match) {
+      setSelectedProfile(match);
+    }
+  }
+
+  async function handleClearAllClassroomAlerts() {
+    await clearAllAlerts(classroomAlerts);
+    setClassroomAlerts([]);
+    setClassroomUnreadCount(0);
+  }
+
   // ── Data ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     loadStudents();
@@ -135,9 +257,19 @@ export default function ClassroomScreen() {
       );
       if (match) {
         setSelectedProfile(match);
+        // Automatically mark as read when viewed
+        const toMark = [
+          match.id,
+          `flag_${match.id}`,
+          `alert_${match.id}`,
+          ...(openStudentId ? [openStudentId, `flag_${openStudentId}`, `alert_${openStudentId}`] : []),
+        ];
+        markAlertsAsRead(toMark).then(() => {
+          loadClassroomAlerts();
+        });
       }
     }
-  }, [students, openStudentId, openStudentName]);
+  }, [students, openStudentId, openStudentName, loadClassroomAlerts]);
 
   useEffect(() => {
     if (id) {
@@ -239,9 +371,25 @@ export default function ClassroomScreen() {
           {schedule === "No Subject" ? title : schedule}
         </Text>
 
-        <View style={[styles.notifDot, { backgroundColor: cardColor }]}>
-          <Ionicons name="notifications" size={16} color="#FFFFFF" />
-        </View>
+        <TouchableOpacity
+          style={[styles.notifDot, { backgroundColor: cardColor }]}
+          onPress={handleOpenNotifModal}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="notifications" size={17} color="#FFFFFF" />
+          {classroomUnreadCount > 0 && (
+            <View
+              style={[
+                styles.topBarBadge,
+                { borderColor: darkMode ? "#1F2937" : "#FFFFFF" },
+              ]}
+            >
+              <Text style={styles.topBarBadgeText}>
+                {classroomUnreadCount > 9 ? "9+" : classroomUnreadCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -333,9 +481,11 @@ export default function ClassroomScreen() {
               setStudents((prev) =>
                 prev.map((s) => (s.id === studentId ? { ...s, average: newAvg } : s))
               );
+              loadClassroomAlerts();
             }}
             onStudentCreated={(newStudent) => {
               setStudents((prev) => [...prev, newStudent]);
+              loadClassroomAlerts();
             }}
           />
         )}
@@ -750,6 +900,100 @@ export default function ClassroomScreen() {
               </View>
             );
           })()}
+        </View>
+      </Modal>
+
+      {/* ── Classroom Active Roster Alerts Modal ── */}
+      <Modal
+        visible={notifModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNotifModalVisible(false)}
+      >
+        <View style={styles.alertsModalOverlay}>
+          <TouchableWithoutFeedback onPress={() => setNotifModalVisible(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          <View
+            style={[
+              styles.alertsCard,
+              {
+                backgroundColor: cardBg,
+                borderColor: darkMode ? "#4B5563" : "#0F172A",
+              },
+            ]}
+          >
+            {/* Header */}
+            <View style={styles.alertsHeader}>
+              <View style={styles.alertsHeaderLeft}>
+                <Ionicons name="notifications" size={18} color="#F97316" />
+                <Text style={[styles.alertsTitle, { color: textMain }]}>Classroom Alerts</Text>
+              </View>
+              {classroomAlerts.length > 0 && (
+                <TouchableOpacity onPress={handleClearAllClassroomAlerts} activeOpacity={0.7}>
+                  <Text style={styles.alertsClearBtn}>Clear all</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Content */}
+            {classroomAlerts.length === 0 ? (
+              <View style={styles.alertsEmptyState}>
+                <Ionicons name="shield-checkmark-outline" size={32} color="#10B981" />
+                <Text style={[styles.alertsEmptyTitle, { color: textMain }]}>All Clear</Text>
+                <Text style={[styles.alertsEmptySub, { color: textSub }]}>
+                  No students currently flagged as at-risk in this classroom.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.alertsList} showsVerticalScrollIndicator={false}>
+                {classroomAlerts.map((alert) => (
+                  <TouchableOpacity
+                    key={alert.id}
+                    style={[
+                      styles.alertCard,
+                      {
+                        backgroundColor: darkMode ? "#374151" : "#FFFFFF",
+                        borderColor: alert.isRead ? (darkMode ? "#4B5563" : "#E5E7EB") : "#F97316",
+                      },
+                    ]}
+                    onPress={() => handleClassroomAlertPress(alert)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.alertCardHeader}>
+                      <View style={styles.alertCardTag}>
+                        <Ionicons name="warning-outline" size={12} color="#DC2626" />
+                        <Text style={styles.alertCardTagText}>{alert.alertType}</Text>
+                      </View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        {alert.isRead ? (
+                          <View style={styles.readBadge}>
+                            <Ionicons name="checkmark-done" size={11} color="#10B981" />
+                            <Text style={styles.readBadgeText}>READ</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.newBadge}>
+                            <Text style={styles.newBadgeText}>NEW</Text>
+                          </View>
+                        )}
+                        <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.alertCardMessage, { color: textMain }]}>
+                      {alert.message}
+                    </Text>
+                    <View style={styles.alertCardActionRow}>
+                      <Text style={styles.alertCardActionText} numberOfLines={1}>
+                        Tap to view student in Tracker & profile
+                      </Text>
+                      <Ionicons name="arrow-forward" size={12} color="#2563EB" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
         </View>
       </Modal>
     </View>
@@ -1453,5 +1697,162 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     fontWeight: "700",
     color: "#334155",
+  },
+  topBarBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "#EF4444",
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  topBarBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9.5,
+    fontWeight: "800",
+  },
+  alertsModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  alertsCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: "#0F172A",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 14,
+    elevation: 8,
+    maxHeight: 480,
+  },
+  alertsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  alertsHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  alertsTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  alertsClearBtn: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+  alertsEmptyState: {
+    paddingVertical: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  alertsEmptyTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  alertsEmptySub: {
+    fontSize: 12,
+    textAlign: "center",
+    paddingHorizontal: 20,
+    lineHeight: 18,
+  },
+  alertsList: {
+    maxHeight: 390,
+  },
+  alertCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#0F172A",
+    padding: 12,
+    marginBottom: 10,
+  },
+  alertCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  alertCardTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  alertCardTagText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#DC2626",
+    letterSpacing: 0.3,
+  },
+  alertCardTime: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  alertCardMessage: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#1E293B",
+    lineHeight: 18,
+  },
+  alertCardActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  alertCardActionText: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: "#2563EB",
+    flex: 1,
+  },
+  readBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  readBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#10B981",
+  },
+  newBadge: {
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  newBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#EF4444",
   },
 });

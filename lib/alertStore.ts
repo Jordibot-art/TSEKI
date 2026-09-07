@@ -15,10 +15,12 @@ export interface RosterAlert {
   message: string;
   createdAt: string;
   timeLabel: string;
+  isRead?: boolean;
 }
 
 const ALERTS_STORAGE_KEY = "tseki_roster_alerts";
 const CLEARED_KEY = "tseki_cleared_alert_ids";
+const READ_KEY = "tseki_read_alert_ids";
 
 /**
  * Retrieves persisted roster alerts from storage.
@@ -44,6 +46,7 @@ export async function saveRosterAlert(
     id: `alert_${alert.studentId}_${Date.now()}`,
     createdAt: new Date().toISOString(),
     timeLabel: "Today",
+    isRead: false,
   };
 
   try {
@@ -56,6 +59,13 @@ export async function saveRosterAlert(
     const cleared = await getClearedAlertIds();
     const updatedCleared = cleared.filter((id) => id !== newAlert.id && id !== alert.studentId);
     await AsyncStorage.setItem(CLEARED_KEY, JSON.stringify(updatedCleared));
+
+    // Remove from read list so the newly triggered alert is marked unread
+    const read = await getReadAlertIds();
+    const updatedRead = read.filter(
+      (id) => id !== newAlert.id && id !== alert.studentId && id !== `flag_${alert.studentId}`
+    );
+    await AsyncStorage.setItem(READ_KEY, JSON.stringify(updatedRead));
 
     return newAlert;
   } catch (err) {
@@ -90,6 +100,32 @@ export async function markAlertsCleared(alertIds: string[]): Promise<void> {
 }
 
 /**
+ * Retrieves IDs of alerts that the teacher has viewed/read.
+ */
+export async function getReadAlertIds(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(READ_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Marks alert IDs as read.
+ */
+export async function markAlertsAsRead(alertIds: string[]): Promise<void> {
+  try {
+    if (!alertIds || alertIds.length === 0) return;
+    const existing = await getReadAlertIds();
+    const merged = Array.from(new Set([...existing, ...alertIds]));
+    await AsyncStorage.setItem(READ_KEY, JSON.stringify(merged));
+  } catch (err) {
+    console.error("Failed to mark alerts as read:", err);
+  }
+}
+
+/**
  * Clears all active alerts.
  */
 export async function clearAllAlerts(currentAlerts: RosterAlert[]): Promise<void> {
@@ -99,5 +135,36 @@ export async function clearAllAlerts(currentAlerts: RosterAlert[]): Promise<void
     await markAlertsCleared([...ids, ...studentIds]);
   } catch (err) {
     console.error("Failed to clear all alerts:", err);
+  }
+}
+
+/**
+ * Retrieves active alerts specifically for a classroom.
+ */
+export async function getClassroomAlerts(classroomId: string): Promise<RosterAlert[]> {
+  try {
+    const [persisted, clearedIds, readIds] = await Promise.all([
+      getPersistedAlerts(),
+      getClearedAlertIds(),
+      getReadAlertIds(),
+    ]);
+
+    return persisted
+      .filter(
+        (a) =>
+          a.classroomId === classroomId &&
+          !clearedIds.includes(a.id) &&
+          !clearedIds.includes(a.studentId)
+      )
+      .map((a) => ({
+        ...a,
+        isRead:
+          readIds.includes(a.id) ||
+          readIds.includes(a.studentId) ||
+          readIds.includes(`flag_${a.studentId}`),
+      }));
+  } catch (err) {
+    console.error("Failed to load classroom alerts:", err);
+    return [];
   }
 }

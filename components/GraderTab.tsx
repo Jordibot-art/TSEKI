@@ -27,34 +27,20 @@ export type Student = {
     attendance: number;
 };
 
-// ── Quiz Presets & Answer Keys ────────────────────────────────────────────────
-const QUIZ_PRESETS: { title: string; answerKey: any[] }[] = [
-    {
-        title: "Standard Assessment (10 Questions)",
-        answerKey: [
-            { questionNumber: 1, correctAnswer: "A" },
-            { questionNumber: 2, correctAnswer: "B" },
-            { questionNumber: 3, correctAnswer: "C" },
-            { questionNumber: 4, correctAnswer: "A" },
-            { questionNumber: 5, correctAnswer: "D" },
-            { questionNumber: 6, correctAnswer: "B" },
-            { questionNumber: 7, correctAnswer: "C" },
-            { questionNumber: 8, correctAnswer: "A" },
-            { questionNumber: 9, correctAnswer: "D" },
-            { questionNumber: 10, correctAnswer: "B" },
-        ],
-    },
-];
-
 // ── Reusable Dropdown ─────────────────────────────────────────────────────────
 function Dropdown({
-    label, value, options, onSelect, accentColor,
+    label, value, options, onSelect, accentColor, placeholder,
 }: {
     label: string; value: string; options: string[];
     onSelect: (v: string) => void; accentColor: string;
+    placeholder?: string;
 }) {
     const { darkMode } = useTheme();
     const [open, setOpen] = useState(false);
+    const hasValue = Boolean(value && value.trim().length > 0);
+    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+    const textMain = darkMode ? "#F9FAFB" : "#374151";
+
     return (
         <View style={styles.dropdownContainer}>
             <TouchableOpacity
@@ -68,37 +54,51 @@ function Dropdown({
                 onPress={() => setOpen(true)}
                 activeOpacity={0.7}
             >
-                <Text style={[styles.dropdownValue, { color: darkMode ? "#F9FAFB" : "#374151" }]}>{value}</Text>
-                <Ionicons name="chevron-down" size={16} color={darkMode ? "#9CA3AF" : "#6B7280"} />
+                <Text style={[styles.dropdownValue, { color: hasValue ? textMain : textSub }]}>
+                    {hasValue ? value : (placeholder || "Select option")}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={textSub} />
             </TouchableOpacity>
 
             <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
                 <TouchableOpacity style={styles.ddOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
                     <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
                         <Text style={[styles.ddTitle, { color: accentColor }]}>{label}</Text>
-                        <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
-                            {options.map((opt) => (
-                                <TouchableOpacity
-                                    key={opt}
-                                    style={[
-                                        styles.ddItem,
-                                        value === opt && { backgroundColor: accentColor + "18" },
-                                    ]}
-                                    onPress={() => { onSelect(opt); setOpen(false); }}
-                                >
-                                    <Text style={[
-                                        styles.ddItemText,
-                                        { color: darkMode ? "#F3F4F6" : "#374151" },
-                                        value === opt && { color: accentColor, fontWeight: "700" },
-                                    ]}>
-                                        {opt}
-                                    </Text>
-                                    {value === opt && (
-                                        <Ionicons name="checkmark" size={16} color={accentColor} />
-                                    )}
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
+                        {options.length === 0 ? (
+                            <View style={{ paddingVertical: 24, alignItems: "center" }}>
+                                <Ionicons name="document-text-outline" size={32} color={textSub} style={{ marginBottom: 8 }} />
+                                <Text style={{ color: textMain, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
+                                    No Quizzes Created Yet
+                                </Text>
+                                <Text style={{ color: textSub, fontSize: 12.5, textAlign: "center", marginTop: 4, paddingHorizontal: 16, lineHeight: 18 }}>
+                                    Create and publish a quiz in the AI Builder tab to grade against it.
+                                </Text>
+                            </View>
+                        ) : (
+                            <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+                                {options.map((opt) => (
+                                    <TouchableOpacity
+                                        key={opt}
+                                        style={[
+                                            styles.ddItem,
+                                            value === opt && { backgroundColor: accentColor + "18" },
+                                        ]}
+                                        onPress={() => { onSelect(opt); setOpen(false); }}
+                                    >
+                                        <Text style={[
+                                            styles.ddItemText,
+                                            { color: textMain },
+                                            value === opt && { color: accentColor, fontWeight: "700" },
+                                        ]}>
+                                            {opt}
+                                        </Text>
+                                        {value === opt && (
+                                            <Ionicons name="checkmark" size={16} color={accentColor} />
+                                        )}
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        )}
                     </View>
                 </TouchableOpacity>
             </Modal>
@@ -172,18 +172,20 @@ export default function GraderTab({
         if (!classroomId) return;
         const stored = await getPublishedQuizzes(classroomId);
         setPublishedQuizzes(stored);
-        if (defaultSelectedQuiz) {
+        if (defaultSelectedQuiz && stored.some((q) => q.quizTitle === defaultSelectedQuiz)) {
             setSelectedQuiz(defaultSelectedQuiz);
         } else if (stored.length > 0) {
             setSelectedQuiz(stored[0].quizTitle);
+        } else {
+            setSelectedQuiz("");
         }
     }
 
-    const quizOptions = publishedQuizzes.length > 0
-        ? publishedQuizzes.map((q) => q.quizTitle)
-        : ["Standard Assessment (10 Questions)"];
+    const quizOptions = publishedQuizzes.map((q) => q.quizTitle);
 
-    const currentQuizValue = selectedQuiz || (publishedQuizzes.length > 0 ? publishedQuizzes[0].quizTitle : quizOptions[0]);
+    const currentQuizValue = selectedQuiz && quizOptions.includes(selectedQuiz)
+        ? selectedQuiz
+        : (quizOptions.length > 0 ? quizOptions[0] : "");
 
     const studentOptions = [
         "Auto-Detect from Test Paper",
@@ -282,8 +284,11 @@ export default function GraderTab({
         try {
             const activeQuizTitle = selectedQuiz || currentQuizValue;
             const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
-            const preset = QUIZ_PRESETS.find((q) => q.title === selectedQuiz) || QUIZ_PRESETS[0];
-            const activeAnswerKey = published ? published.answerKey : preset.answerKey;
+            if (!published) {
+                Alert.alert("No Quiz Selected", "Please select or create a quiz in the AI Builder tab first.");
+                return;
+            }
+            const activeAnswerKey = published.answerKey;
 
             const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType);
             setGradingResult(result);
@@ -367,7 +372,7 @@ export default function GraderTab({
                 // Student not yet in roster, create new student record
                 const newName = gradingResult.studentName && gradingResult.studentName !== "Unknown"
                     ? gradingResult.studentName
-                    : "Sarah Jenkins";
+                    : `Student ${roster.length + 1}`;
 
                 const { data, error } = await supabase
                     .from("students")
@@ -611,6 +616,7 @@ export default function GraderTab({
                         <Dropdown
                             label="GRADE AGAINST QUIZ"
                             value={currentQuizValue}
+                            placeholder="No quizzes created yet"
                             options={quizOptions}
                             onSelect={setSelectedQuiz}
                             accentColor={accentColor}
@@ -632,7 +638,16 @@ export default function GraderTab({
                     {/* Primary Scan Button */}
                     <TouchableOpacity
                         style={[styles.primaryScanBtn, { backgroundColor: accentColor || "#F97316" }]}
-                        onPress={() => setSourceModalOpen(true)}
+                        onPress={() => {
+                            if (publishedQuizzes.length === 0) {
+                                Alert.alert(
+                                    "No Quizzes Available",
+                                    "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
+                                );
+                                return;
+                            }
+                            setSourceModalOpen(true);
+                        }}
                         activeOpacity={0.8}
                     >
                         <Ionicons name="camera-outline" size={20} color="#FFFFFF" />

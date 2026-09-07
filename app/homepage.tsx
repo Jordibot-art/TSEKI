@@ -17,7 +17,14 @@ import {
   View
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
-import { clearAllAlerts, getClearedAlertIds, getPersistedAlerts, RosterAlert } from "../lib/alertStore";
+import {
+  clearAllAlerts,
+  getClearedAlertIds,
+  getPersistedAlerts,
+  getReadAlertIds,
+  markAlertsAsRead,
+  RosterAlert,
+} from "../lib/alertStore";
 import { getPublishedQuizzes, getQuizPerformanceRecords } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
@@ -33,31 +40,7 @@ type ClassCard = {
   flagged: number;
 };
 
-// ── Seed data (the two existing cards) ────────────────────────────────────────
 const CARD_COLORS = ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EF4444", "#EC4899"];
-
-const initialCards: ClassCard[] = [
-  {
-    id: "1",
-    schedule: "A - Destiny",
-    title: "Grade 10 - Newton",
-    room: "Room 301",
-    color: "#3B82F6",
-    students: 3,
-    quizzes: 2,
-    flagged: 1,
-  },
-  {
-    id: "2",
-    schedule: "MWF 12:30 - 1:30",
-    title: "Grade 10 - Einstein",
-    room: "Room 302",
-    color: "#F59E0B",
-    students: 2,
-    quizzes: 2,
-    flagged: 1,
-  },
-];
 
 export default function HomePage() {
   const router = useRouter();
@@ -115,13 +98,17 @@ export default function HomePage() {
           .select("id, classroom_id, full_name, average")
           .in("classroom_id", classroomIds);
 
-        const clearedIds = await getClearedAlertIds();
+        const [clearedIds, readIds, persisted] = await Promise.all([
+          getClearedAlertIds(),
+          getReadAlertIds(),
+          getPersistedAlerts(),
+        ]);
 
         if (studentsData) {
           for (const s of studentsData) {
             studentCounts[s.classroom_id] = (studentCounts[s.classroom_id] || 0) + 1;
-            // Student is flagged by the system if average is 50% or below
-            if ((s.average ?? 0) <= 50) {
+            // Student is flagged by the system if they have taken a quiz and have average > 0 and <= 50
+            if (s.average !== null && s.average !== undefined && s.average > 0 && s.average <= 50) {
               flaggedCounts[s.classroom_id] = (flaggedCounts[s.classroom_id] || 0) + 1;
 
               const cIdx = classrooms.findIndex((c: any) => c.id === s.classroom_id);
@@ -138,23 +125,42 @@ export default function HomePage() {
                   classroomSchedule: c ? (c.subject || "No Subject") : "",
                   classroomRoom: c ? (c.room ? `Room ${c.room}` : c.section || "No Room") : "",
                   classroomColor: CARD_COLORS[cIdx >= 0 ? cIdx % CARD_COLORS.length : 0],
-                  scorePercentage: s.average ?? 0,
-                  alertType: (s.average ?? 0) <= 45 ? "HIGH RISK" : "URGENT REVIEW",
-                  message: `${s.full_name || "Student"} has dropped to an average of ${s.average ?? 0}%. Performance Flagged: At-Risk.`,
+                  scorePercentage: s.average,
+                  alertType: s.average <= 40 ? "HIGH RISK" : "URGENT REVIEW",
+                  message: `${s.full_name || "Student"} has dropped to an average of ${s.average}%. Performance Flagged: At-Risk.`,
                   createdAt: new Date().toISOString(),
                   timeLabel: "Today",
+                  isRead: readIds.includes(alertId) || readIds.includes(s.id),
                 });
               }
             }
           }
         }
 
-        // Incorporate any persisted alerts from GraderTab
-        const persisted = await getPersistedAlerts();
+        // Incorporate any persisted alerts from GraderTab (strictly for the teacher's active classrooms)
         for (const p of persisted) {
-          if (!clearedIds.includes(p.id) && !clearedIds.includes(p.studentId)) {
-            if (!activeAlerts.some((a) => a.studentId === p.studentId)) {
-              activeAlerts.push(p);
+          if (
+            classroomIds.includes(p.classroomId) &&
+            !clearedIds.includes(p.id) &&
+            !clearedIds.includes(p.studentId)
+          ) {
+            const isRead =
+              readIds.includes(p.id) ||
+              readIds.includes(p.studentId) ||
+              readIds.includes(`flag_${p.studentId}`);
+
+            const existingIdx = activeAlerts.findIndex((a) => a.studentId === p.studentId);
+            if (existingIdx === -1) {
+              activeAlerts.push({
+                ...p,
+                isRead,
+              });
+              flaggedCounts[p.classroomId] = (flaggedCounts[p.classroomId] || 0) + 1;
+            } else {
+              activeAlerts[existingIdx] = {
+                ...p,
+                isRead,
+              };
             }
           }
         }
@@ -208,8 +214,21 @@ export default function HomePage() {
     setLoading(false);
   }
 
+  const unreadAlertsCount = alerts.filter((a) => !a.isRead).length;
+
   // ── Notification Alerts Handlers ─────────────────────────────────────────
+  function handleOpenNotif() {
+    setNotifOpen(true);
+  }
+
   async function handleAlertPress(alert: RosterAlert) {
+    // Automatically mark this alert as READ
+    await markAlertsAsRead([alert.id, alert.studentId, `flag_${alert.studentId}`]);
+    setAlerts((prev) =>
+      prev.map((a) =>
+        a.id === alert.id || a.studentId === alert.studentId ? { ...a, isRead: true } : a
+      )
+    );
     setNotifOpen(false);
     router.push({
       pathname: "/classroom",
@@ -306,14 +325,14 @@ export default function HomePage() {
         </View>
         <TouchableOpacity
           style={styles.notifBtn}
-          onPress={() => setNotifOpen(true)}
+          onPress={handleOpenNotif}
           activeOpacity={0.7}
         >
           <Ionicons name="notifications-outline" size={24} color={textSub} />
-          {alerts.length > 0 && (
+          {unreadAlertsCount > 0 && (
             <View style={styles.notifBadge}>
               <Text style={styles.notifBadgeText}>
-                {alerts.length > 9 ? "9+" : alerts.length}
+                {unreadAlertsCount > 9 ? "9+" : unreadAlertsCount}
               </Text>
             </View>
           )}
@@ -571,7 +590,13 @@ export default function HomePage() {
                 {alerts.map((alert) => (
                   <TouchableOpacity
                     key={alert.id}
-                    style={[styles.alertCard, { backgroundColor: darkMode ? "#374151" : "#FFFFFF" }]}
+                    style={[
+                      styles.alertCard,
+                      {
+                        backgroundColor: darkMode ? "#374151" : "#FFFFFF",
+                        borderColor: alert.isRead ? (darkMode ? "#4B5563" : "#E5E7EB") : "#F97316",
+                      },
+                    ]}
                     onPress={() => handleAlertPress(alert)}
                     activeOpacity={0.75}
                   >
@@ -580,7 +605,19 @@ export default function HomePage() {
                         <Ionicons name="warning-outline" size={12} color="#DC2626" />
                         <Text style={styles.alertCardTagText}>{alert.alertType}</Text>
                       </View>
-                      <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        {alert.isRead ? (
+                          <View style={styles.readBadge}>
+                            <Ionicons name="checkmark-done" size={11} color="#10B981" />
+                            <Text style={styles.readBadgeText}>READ</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.newBadge}>
+                            <Text style={styles.newBadgeText}>NEW</Text>
+                          </View>
+                        )}
+                        <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
+                      </View>
                     </View>
                     <Text style={[styles.alertCardMessage, { color: textMain }]}>
                       {alert.message}
@@ -1077,5 +1114,30 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#2563EB",
     flex: 1,
+  },
+  readBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  readBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#10B981",
+  },
+  newBadge: {
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  newBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#EF4444",
   },
 });
