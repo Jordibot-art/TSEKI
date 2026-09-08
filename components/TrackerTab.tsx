@@ -19,7 +19,7 @@ export type TrackerStudent = {
   full_name: string;
   email: string | null;
   average: number;
-  attendance: number;
+  attendance?: number;
 };
 
 type TrackerTabProps = {
@@ -93,9 +93,6 @@ export default function TrackerTab({
 
   const passingCount = students.filter((s) => (s.average ?? 0) >= 75).length;
   const passRate = hasStudents ? Math.round((passingCount / students.length) * 100) : 0;
-
-  const totalAtt = students.reduce((acc, s) => acc + (s.attendance ?? 0), 0);
-  const attendanceAvg = hasStudents ? Math.round(totalAtt / students.length) : 0;
 
   const flaggedStudents = students.filter((s) => (s.average ?? 0) <= 50);
   const atRiskCount = flaggedStudents.length;
@@ -227,13 +224,11 @@ export default function TrackerTab({
           <Text style={[styles.metricSub, { color: textSub }]}>Target 85%</Text>
         </View>
 
-        {/* Card 3: Attendance Avg */}
+        {/* Card 3: Total Enrolled */}
         <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: border }]}>
-          <Text style={[styles.metricLabel, { color: textSub }]}>Attendance Avg</Text>
-          <Text style={[styles.metricValue, { color: textMain }]}>{attendanceAvg}%</Text>
-          <View style={styles.trendRow}>
-            <Text style={[styles.trendText, { color: "#16A34A" }]}>↗ Stable</Text>
-          </View>
+          <Text style={[styles.metricLabel, { color: textSub }]}>Total Enrolled</Text>
+          <Text style={[styles.metricValue, { color: "#10B981" }]}>{students.length}</Text>
+          <Text style={[styles.metricSub, { color: textSub }]}>Active Roster</Text>
         </View>
 
         {/* Card 4: At-Risk Flags */}

@@ -45,7 +45,7 @@ type Student = {
   full_name: string;
   email: string | null;
   average: number;
-  attendance: number;
+  attendance?: number;
 };
 
 type Tab = "Record" | "AI Builder" | "Grader" | "Tracker";
@@ -121,7 +121,6 @@ export default function ClassroomScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [attendance, setAttendance] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Student Profile Detail Modal
@@ -379,7 +378,6 @@ export default function ClassroomScreen() {
   function openAddModal() {
     setFullName("");
     setEmail("");
-    setAttendance("");
     setModalVisible(true);
   }
 
@@ -398,7 +396,7 @@ export default function ClassroomScreen() {
         classroom_id: id,
         full_name: fullName.trim(),
         email: email.trim() || null,
-        attendance: parseFloat(attendance) || 0,
+        attendance: 100,
         average: 0,
       })
       .select()
@@ -701,13 +699,6 @@ export default function ClassroomScreen() {
                         <Text style={[styles.statValue, { color: textMain }]}>{avg}%</Text>
                         <Text style={[styles.statLabel, { color: textSub }]}>Average</Text>
                       </View>
-                      <View style={[styles.statDivider, { backgroundColor: border }]} />
-                      <View style={styles.statCol}>
-                        <Text style={[styles.statValue, { color: textMain }]}>
-                          {student.attendance ?? 0}%
-                        </Text>
-                        <Text style={[styles.statLabel, { color: textSub }]}>Attend</Text>
-                      </View>
                       <TouchableOpacity
                         style={[styles.deleteStudentRowBtn, { backgroundColor: darkMode ? "#374151" : "#FEE2E2" }]}
                         onPress={(e) => {
@@ -775,17 +766,6 @@ export default function ClassroomScreen() {
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
-                  />
-
-                  {/* Attendance */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>ATTENDANCE (%)</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. 95"
-                    placeholderTextColor={textSub}
-                    value={attendance}
-                    onChangeText={setAttendance}
-                    keyboardType="numeric"
                   />
 
                   {/* Buttons */}
@@ -890,15 +870,11 @@ export default function ClassroomScreen() {
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled={true}
                 >
-                  {/* 3 Stats Row */}
+                  {/* Stats Row */}
                   <View style={styles.profileStatsRow}>
                     <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
                       <Text style={[styles.statBoxLabel, { color: textSub }]}>AVERAGE</Text>
                       <Text style={[styles.statBoxValue, { color: textMain }]}>{profileAvg}%</Text>
-                    </View>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                      <Text style={[styles.statBoxLabel, { color: textSub }]}>ATTENDANCE</Text>
-                      <Text style={[styles.statBoxValue, { color: textMain }]}>{selectedProfile.attendance ?? 0}%</Text>
                     </View>
                     <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
                       <Text style={[styles.statBoxLabel, { color: textSub }]}>STATUS</Text>
@@ -1133,7 +1109,7 @@ export default function ClassroomScreen() {
               Are you sure you want to remove{" "}
               <Text style={{ fontWeight: "700", color: textMain }}>"{studentToDelete?.full_name}"</Text>{" "}
               from this classroom?
-              {"\n\n"}Their attendance, grades, and quiz evaluation records will be permanently deleted.
+              {"\n\n"}Their grades and quiz evaluation records will be permanently deleted.
             </Text>
 
             <View style={styles.confirmModalActions}>

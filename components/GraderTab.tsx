@@ -24,7 +24,7 @@ export type Student = {
     full_name: string;
     email: string | null;
     average: number;
-    attendance: number;
+    attendance?: number;
 };
 
 // ── Reusable Dropdown ─────────────────────────────────────────────────────────
