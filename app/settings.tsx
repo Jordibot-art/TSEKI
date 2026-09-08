@@ -21,6 +21,7 @@ import {
   enrichQuizzesWithClassrooms,
   getAllDraftQuizzes,
   getAllPublishedQuizzes,
+  getDraftTimeRemaining,
   publishDraftQuiz,
   StoredQuiz,
 } from "../lib/quizStore";
@@ -689,7 +690,7 @@ export default function SettingsScreen() {
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Draft Assessments</Text>
                   <Text style={[styles.hubEmptySub, { color: textSub }]}>
-                    When you generate a quiz in the Tseki AI Builder and select "Save as Draft", it will appear here for review and publishing.
+                    Drafts are cached only on this device and automatically delete after 7 days (like Instagram). Generate a quiz in AI Builder and tap "Save as Draft" to store one here.
                   </Text>
                 </View>
               ) : (
@@ -707,8 +708,35 @@ export default function SettingsScreen() {
                           </Text>
                         </View>
                       </View>
-                      <View style={styles.draftBadge}>
-                        <Text style={styles.draftBadgeText}>DRAFT</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        {(() => {
+                          const timeInfo = getDraftTimeRemaining(draft);
+                          return (
+                            <View
+                              style={[
+                                styles.draftTimerBadge,
+                                timeInfo.isExpiringSoon && styles.draftTimerExpiringBadge,
+                              ]}
+                            >
+                              <Ionicons
+                                name="time-outline"
+                                size={11}
+                                color={timeInfo.isExpiringSoon ? "#DC2626" : "#D97706"}
+                              />
+                              <Text
+                                style={[
+                                  styles.draftTimerText,
+                                  timeInfo.isExpiringSoon && styles.draftTimerExpiringText,
+                                ]}
+                              >
+                                {timeInfo.text}
+                              </Text>
+                            </View>
+                          );
+                        })()}
+                        <View style={styles.draftBadge}>
+                          <Text style={styles.draftBadgeText}>DRAFT</Text>
+                        </View>
                       </View>
                     </View>
 
@@ -766,7 +794,7 @@ export default function SettingsScreen() {
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Archived Assessments</Text>
                   <Text style={[styles.hubEmptySub, { color: textSub }]}>
-                    Assessments published to your classrooms are automatically preserved here in your archive for reference, printing, and grading.
+                    Assessments published to your classrooms are saved in your database cloud archive and accessible across all your devices.
                   </Text>
                 </View>
               ) : (
@@ -784,8 +812,14 @@ export default function SettingsScreen() {
                           </Text>
                         </View>
                       </View>
-                      <View style={styles.archiveBadge}>
-                        <Text style={styles.archiveBadgeText}>ARCHIVE</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <View style={styles.cloudSyncBadge}>
+                          <Ionicons name="cloud-done-outline" size={11} color="#059669" />
+                          <Text style={styles.cloudSyncBadgeText}>CLOUD</Text>
+                        </View>
+                        <View style={styles.archiveBadge}>
+                          <Text style={styles.archiveBadgeText}>ARCHIVE</Text>
+                        </View>
                       </View>
                     </View>
 
@@ -1166,6 +1200,48 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.6,
+  },
+
+  draftTimerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  draftTimerExpiringBadge: {
+    backgroundColor: "#FEE2E2",
+    borderColor: "#FECACA",
+  },
+  draftTimerText: {
+    color: "#B45309",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  draftTimerExpiringText: {
+    color: "#DC2626",
+  },
+
+  cloudSyncBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+  },
+  cloudSyncBadgeText: {
+    color: "#047857",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
 
   colorPickerWrap: { paddingBottom: 16 },

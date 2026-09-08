@@ -334,7 +334,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
             Alert.alert(
                 "Quiz Published!",
-                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and archived in Settings under "Archive". It is ready for camera grading in the Grader tab!`,
+                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your cloud database archive. It is ready for camera grading in the Grader tab and synced across all your devices!`,
                 [
                     {
                         text: "Go to Grader to Scan",
@@ -367,7 +367,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             await saveDraftQuiz(classroomId, draftWithMeta, classTitle);
             Alert.alert(
                 "Assessment Saved as Draft",
-                `"${generatedAssessment.quizTitle}" has been saved as DRAFT.\n\nYou can view, inspect, or publish it anytime in Settings under "DRAFT".`,
+                `"${generatedAssessment.quizTitle}" has been saved to device drafts.\n\nDrafts are cached on this device and automatically delete after 7 days (like Instagram). You can inspect or publish it to your cloud archive anytime in Settings under "Drafts"!`,
                 [{ text: "OK" }]
             );
         } catch (err: any) {
