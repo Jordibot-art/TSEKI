@@ -27,9 +27,15 @@ import {
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
+// ── Theme Constants ───────────────────────────────────────────────────────────
+const ORANGE = "#FF6B00";
+const ORANGE_LIGHT = "#FFF7ED";
+const ORANGE_BORDER = "#FFEDD5";
+const TEXT_DARK = "#181920";
+
 // ── Theme accent colors ────────────────────────────────────────────────────────
 const THEME_COLORS = [
-  { label: "Orange",  value: "#F97316" },
+  { label: "Orange",  value: "#FF6B00" },
   { label: "Blue",    value: "#3B82F6" },
   { label: "Purple",  value: "#8B5CF6" },
   { label: "Emerald", value: "#10B981" },
@@ -336,9 +342,15 @@ export default function SettingsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { backgroundColor: card, borderBottomColor: border }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color={textMain} />
+      <View style={[styles.header, { backgroundColor: card, borderBottomColor: darkMode ? border : "#F3F4F6" }]}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT }]}>
+            <Ionicons name="chevron-back" size={18} color={ORANGE} />
+          </View>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: textMain }]}>Settings</Text>
         <View style={{ width: 40 }} />
@@ -350,24 +362,30 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Profile Card ── */}
-        <View style={[styles.profileCard, { backgroundColor: themeColor }]}>
+        <View style={[styles.profileCard, { backgroundColor: themeColor, shadowColor: themeColor }]}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>{fullName || "Teacher"}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={styles.profileName}>{fullName || "Teacher"}</Text>
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="shield-checkmark" size={11} color="#FFFFFF" />
+              </View>
+            </View>
             <Text style={styles.profileEmail}>{email}</Text>
           </View>
           <TouchableOpacity
             style={styles.editProfileBtn}
             onPress={() => { setDraftName(fullName); setEditVisible(true); }}
+            activeOpacity={0.8}
           >
             <Ionicons name="pencil" size={16} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
         {/* ── Account ── */}
-        <Text style={[styles.sectionLabel, { color: textSub }]}>ACCOUNT</Text>
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>ACCOUNT</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <SettingsRow
             icon="person-outline"
@@ -389,7 +407,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Assessments (Drafts & Archive) ── */}
-        <Text style={[styles.sectionLabel, { color: textSub }]}>ASSESSMENTS</Text>
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>ASSESSMENTS</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           {/* Draft Assessments */}
           <TouchableOpacity
@@ -443,7 +461,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Appearance ── */}
-        <Text style={[styles.sectionLabel, { color: textSub }]}>APPEARANCE</Text>
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>APPEARANCE</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           {/* Dark Mode */}
           <View style={styles.rowBase}>
@@ -490,7 +508,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Session ── */}
-        <Text style={[styles.sectionLabel, { color: textSub }]}>SESSION</Text>
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>SESSION</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <TouchableOpacity style={styles.rowBase} onPress={handleLogout}>
             <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
@@ -1114,8 +1132,8 @@ function SettingsRow({
   textMain: string; textSub: string; accentColor: string;
 }) {
   return (
-    <TouchableOpacity style={styles.rowBase} onPress={onPress}>
-      <View style={[styles.iconWrap, { backgroundColor: accentColor + "22" }]}>
+    <TouchableOpacity style={styles.rowBase} onPress={onPress} activeOpacity={0.7}>
+      <View style={[styles.iconWrap, { backgroundColor: accentColor + "18" }]}>
         <Ionicons name={icon} size={20} color={accentColor} />
       </View>
       <Text style={[styles.rowLabel, { color: textMain }]}>{label}</Text>
@@ -1133,8 +1151,15 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingTop: 60, paddingBottom: 16, paddingHorizontal: 16, borderBottomWidth: 1,
   },
-  backBtn:     { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { fontSize: 18, fontWeight: "700" },
+  backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  backIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
 
   scrollContent: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 60 },
 
@@ -1152,13 +1177,21 @@ const styles = StyleSheet.create({
   avatarText:    { fontSize: 22, fontWeight: "800", color: "#FFFFFF" },
   profileName:   { fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginBottom: 2 },
   profileEmail:  { fontSize: 12, color: "rgba(255,255,255,0.8)" },
+  verifiedBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   editProfileBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center", justifyContent: "center",
   },
 
-  sectionLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 1, marginBottom: 8, marginLeft: 4 },
+  sectionLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
 
   card: {
     borderRadius: 16, marginBottom: 24, borderWidth: 1, overflow: "hidden",
@@ -1269,7 +1302,7 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 16, fontWeight: "600" },
   saveBtn: {
     flex: 1, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+    shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
   },
   saveBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
 

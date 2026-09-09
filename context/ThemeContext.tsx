@@ -10,7 +10,7 @@ type ThemeContextType = {
 };
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
-const DEFAULT_THEME_COLOR = "#F97316";
+const DEFAULT_THEME_COLOR = "#FF6B00";
 
 const ThemeContext = createContext<ThemeContextType>({
   darkMode: false,

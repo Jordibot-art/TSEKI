@@ -8,6 +8,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +18,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { AnimatedTsekiLogo } from "../components/AnimatedTsekiLogo";
 import { useTheme } from "../context/ThemeContext";
 import {
   clearAllAlerts,
@@ -37,27 +39,51 @@ import { supabase } from "../supabase";
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ClassCard = {
   id: string;
-  schedule: string;
   title: string;
+  subject: string;
+  section: string;
   room: string;
+  schedule: string;
   color: string;
   students: number;
   quizzes: number;
   flagged: number;
 };
 
-const CARD_COLORS = ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EF4444", "#EC4899"];
+const CARD_COLORS = ["#FF6B00", "#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#EC4899"];
+
+// ── Orange & White Theme Palette ────────────────────────────────
+const ORANGE = "#FF6B00";
+const ORANGE_LIGHT = "#FFF7ED";
+
+/** Capitalizes the first letter of each word/token (after spaces, hyphens, slashes, or parentheses) */
+function capitalizeWords(text: string): string {
+  if (!text) return "";
+  return text.replace(/(?:^|[\s\-_/()])[a-z]/g, (match) => match.toUpperCase());
+}
+
+/** Formats the greeting with the teacher's username/name */
+function getTeacherGreeting(name: string): string {
+  if (!name || !name.trim()) {
+    return "Hi Teacher! I'm Tseki 👋";
+  }
+  const clean = name.trim();
+  if (/^teacher\b/i.test(clean)) {
+    return `Hi ${clean}! I'm Tseki 👋`;
+  }
+  return `Hi Teacher ${clean}! I'm Tseki 👋`;
+}
 
 export default function HomePage() {
   const router = useRouter();
   const { darkMode, themeColor } = useTheme();
 
   // ── Dynamic colors ──────────────────────────────────────────────────────────
-  const bg = darkMode ? "#111827" : "#F9FAFB";
+  const bg = darkMode ? "#111827" : "#FFFFFF";
   const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+  const textMain = darkMode ? "#F9FAFB" : "#181920";
   const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-  const border = darkMode ? "#374151" : "#E5E7EB";
+  const border = darkMode ? "#374151" : "#F3F4F6";
 
 
   const [cards, setCards] = useState<ClassCard[]>([]);
@@ -77,6 +103,8 @@ export default function HomePage() {
   const [subject, setSubject] = useState("");
   const [section, setSection] = useState("");
   const [room, setRoom] = useState("");
+  const [schedule, setSchedule] = useState("");
+  const [userName, setUserName] = useState("");
 
   // ── Load classrooms from Supabase ─────────────────────────────────────────
   useFocusEffect(
@@ -88,6 +116,14 @@ export default function HomePage() {
   async function loadClassrooms() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
+
+    const teacherName =
+      user.user_metadata?.full_name ||
+      user.user_metadata?.username ||
+      user.user_metadata?.name ||
+      user.email?.split("@")[0] ||
+      "";
+    setUserName(teacherName);
 
     const { data: classrooms, error } = await supabase
       .from("classrooms")
@@ -126,6 +162,14 @@ export default function HomePage() {
               const c = classrooms[cIdx];
               const alertId = `flag_${s.id}`;
 
+              let cSection = c?.section || "";
+              let cSchedule = "";
+              if (cSection.includes(" || ")) {
+                const parts = cSection.split(" || ");
+                cSection = parts[0] || "";
+                cSchedule = parts[1] || "";
+              }
+
               if (!clearedIds.includes(alertId) && !clearedIds.includes(s.id)) {
                 activeAlerts.push({
                   id: alertId,
@@ -133,8 +177,8 @@ export default function HomePage() {
                   studentName: s.full_name || "Student",
                   classroomId: s.classroom_id,
                   classroomTitle: c ? c.title : "Classroom",
-                  classroomSchedule: c ? (c.subject || "No Subject") : "",
-                  classroomRoom: c ? (c.room ? `Room ${c.room}` : c.section || "No Room") : "",
+                  classroomSchedule: cSchedule || (c ? (c.subject || "No Subject") : ""),
+                  classroomRoom: c ? (c.room ? `Room ${c.room}` : cSection || "No Room") : "",
                   classroomColor: CARD_COLORS[cIdx >= 0 ? cIdx % CARD_COLORS.length : 0],
                   scorePercentage: s.average,
                   alertType: s.average <= 40 ? "HIGH RISK" : "URGENT REVIEW",
@@ -209,11 +253,21 @@ export default function HomePage() {
           const displayFlagged = realFlaggedCount !== undefined ? realFlaggedCount : (row.flagged_count ?? 0);
           const displayQuizzes = realQuizCount !== undefined ? realQuizCount : (row.quiz_count ?? 0);
 
+          let parsedSection = (row.section || "").toUpperCase();
+          let parsedSchedule = "";
+          if (parsedSection.includes(" || ")) {
+            const parts = parsedSection.split(" || ");
+            parsedSection = (parts[0] || "").toUpperCase();
+            parsedSchedule = (parts[1] || "").toUpperCase();
+          }
+
           return {
             id: row.id,
-            schedule: row.subject || "No Subject",
-            title: row.title,
-            room: row.room ? `Room ${row.room}` : row.section || "No Room",
+            title: (row.title || "").toUpperCase(),
+            subject: (row.subject || "").toUpperCase(),
+            section: parsedSection,
+            room: (row.room || "").toUpperCase(),
+            schedule: parsedSchedule,
             color: CARD_COLORS[i % CARD_COLORS.length],
             students: displayStudents,
             quizzes: displayQuizzes,
@@ -313,6 +367,7 @@ export default function HomePage() {
     setSubject("");
     setSection("");
     setRoom("");
+    setSchedule("");
     setModalVisible(true);
   }
 
@@ -328,14 +383,25 @@ export default function HomePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSaving(false); return; }
 
+    const finalTitle = classTitle.trim().toUpperCase();
+    const finalSubject = subject.trim() ? subject.trim().toUpperCase() : "";
+    const finalSection = section.trim() ? section.trim().toUpperCase() : "";
+    const finalRoom = room.trim() ? room.trim().toUpperCase() : "";
+    const finalSchedule = schedule.trim() ? schedule.trim().toUpperCase() : "";
+
+    let encodedSection = finalSection;
+    if (finalSchedule) {
+      encodedSection = encodedSection ? `${encodedSection} || ${finalSchedule}` : `|| ${finalSchedule}`;
+    }
+
     const { data, error } = await supabase
       .from("classrooms")
       .insert({
         teacher_id: user.id,
-        title: classTitle.trim(),
-        subject: subject.trim() || null,
-        section: section.trim() || null,
-        room: room.trim() || null,
+        title: finalTitle,
+        subject: finalSubject || null,
+        section: encodedSection || null,
+        room: finalRoom || null,
       })
       .select()
       .single();
@@ -343,9 +409,11 @@ export default function HomePage() {
     if (!error && data) {
       const newCard: ClassCard = {
         id: data.id,
-        schedule: data.subject || "No Subject",
         title: data.title,
-        room: data.room ? `Room ${data.room}` : data.section || "No Room",
+        subject: data.subject || "",
+        section: finalSection,
+        room: data.room || "",
+        schedule: finalSchedule,
         color: CARD_COLORS[cards.length % CARD_COLORS.length],
         students: 0,
         quizzes: 0,
@@ -364,22 +432,18 @@ export default function HomePage() {
     <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Top App Bar ── */}
       <View style={[styles.appBar, { backgroundColor: cardBg, borderBottomColor: border }]}>
-        <View style={styles.logoRow}>
-          <View style={[styles.logoIconBg, { backgroundColor: themeColor + "22" }]}>
-            <Image
-              source={require("../assets/images/logo.png")}
-              style={styles.smallLogo}
-              resizeMode="contain"
-            />
+        <View style={styles.topBrandRow}>
+          <View style={styles.brandMarkCircle}>
+            <View style={styles.brandMarkInnerDot} />
           </View>
-          <Text style={[styles.appTitle, { color: textMain }]}>Tseki</Text>
+          <Text style={styles.brandMarkText}>TSEKI</Text>
         </View>
         <TouchableOpacity
           style={styles.notifBtn}
           onPress={handleOpenNotif}
           activeOpacity={0.7}
         >
-          <Ionicons name="notifications-outline" size={24} color={textSub} />
+          <Ionicons name="notifications-outline" size={21} color={ORANGE} />
           {unreadAlertsCount > 0 && (
             <View style={styles.notifBadge}>
               <Text style={styles.notifBadgeText}>
@@ -398,13 +462,20 @@ export default function HomePage() {
         {/* ── Section Header ── */}
         <View style={styles.sectionHeader}>
           <View style={styles.headerTextWrap}>
-            <Text style={[styles.sectionTitle, { color: textSub }]}>Your Classroom</Text>
+            <Text style={[styles.sectionTitle, { color: textMain }]}>Your Classrooms</Text>
             <Text style={[styles.sectionSubtitle, { color: textSub }]}>
               Select a course to manage quizzes &amp; scorecards
             </Text>
           </View>
-          <Pressable style={[styles.addBtn, { backgroundColor: themeColor, shadowColor: themeColor }]} onPress={openModal}>
-            <Ionicons name="add" size={24} color="#FFFFFF" />
+          <Pressable
+            style={({ pressed }) => [
+              styles.addBtn,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+            ]}
+            onPress={openModal}
+          >
+            <Ionicons name="add" size={20} color="#FFFFFF" />
+            <Text style={styles.addBtnText}>New Class</Text>
           </Pressable>
         </View>
 
@@ -428,9 +499,10 @@ export default function HomePage() {
                 params: {
                   id: card.id,
                   title: card.title,
-                  schedule: card.schedule,
-                  subject: card.schedule !== "No Subject" ? card.schedule : "",
+                  subject: card.subject,
+                  section: card.section,
                   room: card.room,
+                  schedule: card.schedule,
                   color: card.color,
                 },
               })
@@ -438,7 +510,17 @@ export default function HomePage() {
           >
             <View style={[styles.cardTop, { backgroundColor: card.color }]}>
               <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardSchedule}>{card.schedule}</Text>
+                {card.subject ? (
+                  <View style={styles.cardSubjectBadge}>
+                    <Text style={styles.cardSubjectText} numberOfLines={1}>
+                      {card.subject.toUpperCase()}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.cardSubjectBadge}>
+                    <Text style={styles.cardSubjectText}>GENERAL</Text>
+                  </View>
+                )}
                 <TouchableOpacity
                   style={styles.cardDeleteBtn}
                   onPress={(e) => {
@@ -452,9 +534,41 @@ export default function HomePage() {
                   <Ionicons name="trash-outline" size={15} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
-              <Text style={styles.cardTitle}>{card.title}</Text>
-              <Text style={styles.cardRoom}>{card.room}</Text>
+
+              <Text style={styles.cardTitle} numberOfLines={1}>{card.title.toUpperCase()}</Text>
+
+              {/* Section & Room */}
+              {(card.section || card.room) ? (
+                <View style={styles.cardMetaRow}>
+                  {card.section ? (
+                    <View style={styles.cardMetaItem}>
+                      <Ionicons name="people-outline" size={13} color="rgba(255,255,255,0.9)" />
+                      <Text style={styles.cardMetaText}>{card.section.toUpperCase()}</Text>
+                    </View>
+                  ) : null}
+                  {(card.section && card.room) ? (
+                    <Text style={styles.cardMetaDot}>•</Text>
+                  ) : null}
+                  {card.room ? (
+                    <View style={styles.cardMetaItem}>
+                      <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.9)" />
+                      <Text style={styles.cardMetaText}>
+                        {card.room.toUpperCase().startsWith("ROOM") ? card.room.toUpperCase() : `ROOM ${card.room.toUpperCase()}`}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Schedule */}
+              {card.schedule ? (
+                <View style={styles.cardScheduleRow}>
+                  <Ionicons name="time-outline" size={13} color="rgba(255,255,255,0.95)" />
+                  <Text style={styles.cardScheduleText}>{card.schedule.toUpperCase()}</Text>
+                </View>
+              ) : null}
             </View>
+
             <View style={[styles.cardBottom, { backgroundColor: cardBg }]}>
               <View style={styles.statItem}>
                 <Ionicons name="people-outline" size={16} color={textSub} />
@@ -485,17 +599,13 @@ export default function HomePage() {
 
         {/* ── Info Banner ── */}
         <View style={styles.infoBanner}>
-          <Image
-            source={require("../assets/images/logo.png")}
-            style={styles.bannerMascot}
-            resizeMode="contain"
-          />
+          <View style={styles.bannerMascotWrap}>
+            <AnimatedTsekiLogo size={64} />
+          </View>
           <View style={styles.bannerTextContent}>
-            <Text style={styles.bannerTitle}>Hi Teacher! I'm Tseki</Text>
+            <Text style={styles.bannerTitle}>{getTeacherGreeting(userName)}</Text>
             <Text style={styles.bannerBody}>
-              I'm here to automate grading and flag struggling students!
-              Open a class, tap the camera tab to grade sheets instantly,
-              or use the AI Generator to build standard-based quizzes.
+              I'm here to automate grading and flag struggling students! Open a class, tap the camera tab to grade sheets instantly, or use the AI Generator to build standard-based quizzes.
             </Text>
           </View>
         </View>
@@ -503,13 +613,13 @@ export default function HomePage() {
 
       {/* ── Bottom Navigation ── */}
       <View style={[styles.bottomNav, { backgroundColor: cardBg, borderTopColor: border }]}>
-        <Pressable style={[styles.navItem, styles.navItemActive, { backgroundColor: themeColor + "22" }]}>
-          <Ionicons name="school" size={26} color={themeColor} />
-          <Text style={[styles.navTextActive, { color: themeColor }]}>My Classes</Text>
+        <Pressable style={[styles.navItem, styles.navItemActive]}>
+          <Ionicons name="school" size={22} color={ORANGE} />
+          <Text style={styles.navTextActive}>My Classes</Text>
         </Pressable>
         {/* Settings nav */}
         <Pressable style={styles.navItem} onPress={() => router.push("/settings" as any)}>
-          <Ionicons name="settings" size={26} color={textSub} />
+          <Ionicons name="settings-outline" size={22} color={textSub} />
           <Text style={[styles.navText, { color: textSub }]}>Settings</Text>
         </Pressable>
       </View>
@@ -517,102 +627,182 @@ export default function HomePage() {
       {/* ── Build Classroom Modal ── */}
       <Modal
         visible={modalVisible}
-        transparent
         animationType="slide"
+        presentationStyle="pageSheet"
         onRequestClose={handleCancel}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior="padding"
-        >
-          <TouchableWithoutFeedback onPress={handleCancel}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback>
-                <View style={styles.modalCard}>
-                  {/* Header */}
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Build Classroom</Text>
-                    <TouchableOpacity onPress={handleCancel} style={styles.modalCloseBtn}>
-                      <Ionicons name="close" size={24} color="#6B7280" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* CLASS TITLE */}
-                  <Text style={styles.fieldLabel}>
-                    CLASS TITLE <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Grade 10 - Mathematics"
-                    placeholderTextColor="#9CA3AF"
-                    value={classTitle}
-                    onChangeText={setClassTitle}
-                  />
-
-                  {/* SUBJECT */}
-                  <Text style={styles.fieldLabel}>
-                    SUBJECT <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Mathematics"
-                    placeholderTextColor="#9CA3AF"
-                    value={subject}
-                    onChangeText={setSubject}
-                  />
-
-                  {/* SECTION + ROOM (side by side) */}
-                  <View style={styles.rowFields}>
-                    <View style={styles.halfField}>
-                      <Text style={styles.fieldLabel}>SECTION</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="e.g. Section 5"
-                        placeholderTextColor="#9CA3AF"
-                        value={section}
-                        onChangeText={setSection}
-                      />
-                    </View>
-                    <View style={styles.halfField}>
-                      <Text style={styles.fieldLabel}>ROOM</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="e.g. CL1"
-                        placeholderTextColor="#9CA3AF"
-                        value={room}
-                        onChangeText={setRoom}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Action Buttons */}
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity
-                      style={styles.cancelBtn}
-                      onPress={handleCancel}
-                    >
-                      <Text style={styles.cancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.buildBtn,
-                        (!classTitle.trim() || saving) && styles.buildBtnDisabled,
-                      ]}
-                      onPress={handleBuildClass}
-                      disabled={!classTitle.trim() || saving}
-                    >
-                      {saving ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text style={styles.buildBtnText}>Build Class</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
+        <View style={[styles.modalFullScreen, { backgroundColor: cardBg }]}>
+          {/* Header */}
+          <View
+            style={[
+              styles.modalFullScreenHeader,
+              { borderBottomColor: border, backgroundColor: cardBg },
+            ]}
+          >
+            <View style={styles.modalHeaderInfo}>
+              <View style={styles.modalHeaderTag}>
+                <Ionicons name="add-circle" size={16} color={ORANGE} />
+                <Text style={styles.modalHeaderTagText}>NEW CLASSROOM</Text>
+              </View>
+              <Text style={[styles.modalTitle, { color: textMain }]}>Build Classroom</Text>
+              <Text style={[styles.modalSubtitle, { color: textSub }]}>
+                Set up course information &amp; schedule
+              </Text>
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
+            <TouchableOpacity
+              onPress={handleCancel}
+              style={[
+                styles.modalCloseBtn,
+                { backgroundColor: darkMode ? "#374151" : "#F3F4F6" },
+              ]}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Close modal"
+            >
+              <Ionicons name="close" size={22} color={textMain} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Form with KeyboardAvoidingView + ScrollView */}
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}
+              bounces={false}
+            >
+              {/* CLASS TITLE */}
+              <Text style={[styles.fieldLabel, { color: textMain }]}>
+                CLASS TITLE <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: darkMode ? "#374151" : "#FAFAFA",
+                    borderColor: border,
+                    color: textMain,
+                  },
+                ]}
+                placeholder="e.g. Grade 10 - Mathematics"
+                placeholderTextColor={textSub}
+                value={classTitle}
+                autoCapitalize="words"
+                onChangeText={setClassTitle}
+              />
+
+              {/* SUBJECT */}
+              <Text style={[styles.fieldLabel, { color: textMain }]}>
+                SUBJECT <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: darkMode ? "#374151" : "#FAFAFA",
+                    borderColor: border,
+                    color: textMain,
+                  },
+                ]}
+                placeholder="e.g. Mathematics"
+                placeholderTextColor={textSub}
+                value={subject}
+                autoCapitalize="words"
+                onChangeText={setSubject}
+              />
+
+              {/* SECTION + ROOM (side by side) */}
+              <View style={styles.rowFields}>
+                <View style={styles.halfField}>
+                  <Text style={[styles.fieldLabel, { color: textMain }]}>SECTION</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: darkMode ? "#374151" : "#FAFAFA",
+                        borderColor: border,
+                        color: textMain,
+                      },
+                    ]}
+                    placeholder="e.g. Section 5"
+                    placeholderTextColor={textSub}
+                    value={section}
+                    autoCapitalize="words"
+                    onChangeText={setSection}
+                  />
+                </View>
+                <View style={styles.halfField}>
+                  <Text style={[styles.fieldLabel, { color: textMain }]}>ROOM</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: darkMode ? "#374151" : "#FAFAFA",
+                        borderColor: border,
+                        color: textMain,
+                      },
+                    ]}
+                    placeholder="e.g. CL1"
+                    placeholderTextColor={textSub}
+                    value={room}
+                    autoCapitalize="characters"
+                    onChangeText={setRoom}
+                  />
+                </View>
+              </View>
+
+              {/* SCHEDULE */}
+              <Text style={[styles.fieldLabel, { color: textMain }]}>SCHEDULE</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: darkMode ? "#374151" : "#FAFAFA",
+                    borderColor: border,
+                    color: textMain,
+                  },
+                ]}
+                placeholder="e.g. MWF 9:00 - 10:30 AM"
+                placeholderTextColor={textSub}
+                value={schedule}
+                autoCapitalize="characters"
+                onChangeText={setSchedule}
+              />
+
+              {/* Action Buttons */}
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[
+                    styles.cancelBtn,
+                    { borderColor: border, backgroundColor: cardBg },
+                  ]}
+                  onPress={handleCancel}
+                >
+                  <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.buildBtn,
+                    (!classTitle.trim() || saving) && styles.buildBtnDisabled,
+                  ]}
+                  onPress={handleBuildClass}
+                  disabled={!classTitle.trim() || saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="add-circle" size={18} color="#FFFFFF" />
+                      <Text style={styles.buildBtnText}>Build Class</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* ── Active Roster Alerts Modal (Image 2) ── */}
@@ -770,33 +960,65 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
+    paddingTop: Platform.OS === "ios" ? 54 : 44,
+    paddingBottom: 14,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: "#F3F4F6",
   },
-  logoRow: {
+  topBrandRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  logoIconBg: {
-    width: 36,
-    height: 36,
-    backgroundColor: "#FEF3C7",
-    borderRadius: 8,
+  brandMarkCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2.2,
+    borderColor: ORANGE,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 8,
   },
-  smallLogo: {
-    width: 24,
-    height: 24,
+  brandMarkInnerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: ORANGE,
   },
-  appTitle: {
-    fontSize: 20,
+  brandMarkText: {
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 2.5,
+    color: "#181920",
+  },
+  notifBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: ORANGE_LIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  notifBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    backgroundColor: ORANGE,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  notifBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
     fontWeight: "800",
-    color: "#1F2937",
   },
 
   /* ── Scroll Area ── */
@@ -821,70 +1043,121 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#4B5563",
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#181920",
+    letterSpacing: -0.5,
     marginBottom: 4,
   },
   sectionSubtitle: {
-    fontSize: 12,
+    fontSize: 13,
     color: "#6B7280",
   },
   addBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "#F97316",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#F97316",
-    shadowOffset: { width: 0, height: 2 },
+    gap: 6,
+    paddingHorizontal: 16,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: ORANGE,
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  addBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.4,
   },
 
   /* ── Class Cards ── */
   classCard: {
-    borderRadius: 16,
+    borderRadius: 18,
     marginBottom: 16,
     backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#F3F4F6",
   },
   cardTop: {
     padding: 16,
-    paddingBottom: 24,
+    paddingBottom: 18,
   },
-  cardSchedule: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-    fontWeight: "600",
-    marginBottom: 4,
+  cardSubjectBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  cardSubjectText: {
+    color: "#FFFFFF",
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.6,
   },
   cardTitle: {
     color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 19,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    marginTop: 8,
     marginBottom: 2,
   },
-  cardRoom: {
-    color: "rgba(255,255,255,0.9)",
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+    flexWrap: "wrap",
+  },
+  cardMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  cardMetaText: {
+    color: "rgba(255, 255, 255, 0.92)",
     fontSize: 12,
+    fontWeight: "600",
+  },
+  cardMetaDot: {
+    color: "rgba(255, 255, 255, 0.6)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  cardScheduleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+  },
+  cardScheduleText: {
+    color: "rgba(255, 255, 255, 0.95)",
+    fontSize: 11.5,
+    fontWeight: "600",
   },
   cardBottom: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 12,
+    padding: 14,
     paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
+  },
+  cardStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
   },
   statItem: {
     flexDirection: "row",
@@ -894,13 +1167,13 @@ const styles = StyleSheet.create({
   statText: {
     fontSize: 12,
     color: "#4B5563",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   flaggedBadge: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FEE2E2",
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 12,
     gap: 4,
@@ -908,13 +1181,13 @@ const styles = StyleSheet.create({
   flaggedText: {
     fontSize: 10,
     color: "#EF4444",
-    fontWeight: "700",
+    fontWeight: "800",
   },
   allClearBadge: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#ECFDF5",
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 12,
     gap: 4,
@@ -922,205 +1195,193 @@ const styles = StyleSheet.create({
   allClearBadgeText: {
     fontSize: 10,
     color: "#10B981",
-    fontWeight: "700",
+    fontWeight: "800",
   },
 
   /* ── Info Banner ── */
   infoBanner: {
     flexDirection: "row",
-    backgroundColor: "#FFFBEB",
-    borderRadius: 16,
+    backgroundColor: ORANGE_LIGHT,
+    borderRadius: 20,
     padding: 16,
-    marginTop: 8,
+    marginTop: 12,
     alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFEDD5",
   },
-  bannerMascot: {
-    width: 60,
-    height: 80,
-    marginRight: 16,
+  bannerMascotWrap: {
+    width: 68,
+    height: 68,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
   bannerTextContent: {
     flex: 1,
   },
   bannerTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1F2937",
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#181920",
     marginBottom: 4,
   },
   bannerBody: {
-    fontSize: 11,
-    color: "#4B5563",
-    lineHeight: 16,
+    fontSize: 12,
+    color: "#6B7280",
+    lineHeight: 18,
   },
 
   /* ── Bottom Navigation ── */
   bottomNav: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
-    paddingBottom: 30,
-    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 28 : 16,
+    paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: "#F3F4F6",
+    paddingHorizontal: 20,
+    gap: 16,
   },
   navItem: {
     flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    paddingVertical: 8,
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 14,
   },
   navItemActive: {
-    backgroundColor: "#FEF3C7",
-    marginHorizontal: 16,
-    borderRadius: 12,
+    backgroundColor: ORANGE_LIGHT,
   },
   navText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
-    color: "#4B5563",
+    color: "#6B7280",
   },
   navTextActive: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#111827",
+    fontSize: 13,
+    fontWeight: "800",
+    color: ORANGE,
   },
 
   /* ── Modal ── */
-  modalOverlay: {
+  modalFullScreen: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",   // slide up from bottom like a bottom sheet
-    alignItems: "center",
-    paddingHorizontal: 0,
   },
-  modalCard: {
-    width: "100%",
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 28,
-    paddingTop: 28,
-    paddingBottom: 40,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 16,
-  },
-  modalHeader: {
+  modalFullScreenHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 24,
+    justifyContent: "space-between",
+    paddingTop: Platform.OS === "ios" ? 54 : 44,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+  },
+  modalHeaderInfo: {
+    flex: 1,
+  },
+  modalHeaderTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 4,
+  },
+  modalHeaderTagText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: ORANGE,
+    letterSpacing: 0.8,
   },
   modalTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#1F2937",
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.4,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: 2,
   },
   modalCloseBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: 12,
+  },
+  modalScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 40,
   },
   fieldLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#6B7280",
-    letterSpacing: 0.6,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
     marginBottom: 8,
     marginTop: 16,
   },
   required: {
-    color: "#EF4444",
+    color: ORANGE,
   },
   input: {
-    height: 56,
+    height: 52,
     borderWidth: 1.5,
-    borderColor: "#D1D5DB",
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 16,
-    fontSize: 17,
-    color: "#1F2937",
-    backgroundColor: "#F9FAFB",
+    fontSize: 16,
   },
   rowFields: {
     flexDirection: "row",
-    gap: 14,
+    gap: 12,
   },
   halfField: {
     flex: 1,
   },
   modalActions: {
     flexDirection: "row",
-    gap: 14,
-    marginTop: 30,
+    gap: 12,
+    marginTop: 28,
   },
   cancelBtn: {
     flex: 1,
-    height: 58,
+    height: 52,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#D1D5DB",
     alignItems: "center",
     justifyContent: "center",
   },
   cancelBtnText: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#4B5563",
+    fontSize: 15,
+    fontWeight: "700",
   },
   buildBtn: {
-    flex: 1,
-    height: 58,
+    flex: 1.4,
+    height: 52,
     borderRadius: 14,
-    backgroundColor: "#F97316",
+    backgroundColor: ORANGE,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#F97316",
+    flexDirection: "row",
+    gap: 6,
+    shadowColor: ORANGE,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 4,
   },
   buildBtnDisabled: {
-    backgroundColor: "#FCD9B6",
+    backgroundColor: "#FED7AA",
     shadowOpacity: 0,
     elevation: 0,
   },
   buildBtnText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-
-  /* ── Notification Bell & Badge (Image 1) ── */
-  notifBtn: {
-    position: "relative",
-    padding: 6,
-  },
-  notifBadge: {
-    position: "absolute",
-    top: 2,
-    right: 2,
-    backgroundColor: "#EF4444",
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-  },
-  notifBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
+    fontSize: 15,
     fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.3,
   },
 
   /* ── Active Roster Alerts Popup (Image 2) ── */
