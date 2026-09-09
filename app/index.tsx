@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -16,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../supabase";
+import { AnimatedTsekiLogo } from "../components/AnimatedTsekiLogo";
 
 type AuthView = "welcome" | "login" | "register" | "otp";
 
@@ -300,11 +300,7 @@ export default function AuthScreen() {
 
               {/* Logo Mascot Presentation */}
               <View style={styles.heroLogoContainer}>
-                <Image
-                  source={require("../assets/images/logo.png")}
-                  style={styles.heroLogoImage}
-                  resizeMode="contain"
-                />
+                <AnimatedTsekiLogo size={210} />
               </View>
 
               {/* Title & Subtitle */}
