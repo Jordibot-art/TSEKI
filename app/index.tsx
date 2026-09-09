@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,34 +17,79 @@ import {
 } from "react-native";
 import { supabase } from "../supabase";
 
-export default function LoginScreen() {
+type AuthView = "welcome" | "login" | "register" | "otp";
+
+// ── Orange & White Theme Palette ────────────────────────────────
+const ORANGE = "#FF6B00";
+const ORANGE_LIGHT = "#FFF7ED";
+
+export default function AuthScreen() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState<"login" | "register">("login");
+
+  // Navigation State
+  const [currentView, setCurrentView] = useState<AuthView>("welcome");
+
+  // Common State
   const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
-  // Register fields
-  const [fullName, setFullName] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showConfirm, setShowConfirm] = useState(false);
+  // Login Form
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
-  // OTP Verification state
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  // Register Form
+  const [registerName, setRegisterName] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [registerConfirm, setRegisterConfirm] = useState("");
+  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
+
+  // OTP Form (Single unified 6-digit master token)
   const [otpToken, setOtpToken] = useState("");
+  const [isOtpFocused, setIsOtpFocused] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(60);
+  const hiddenOtpInputRef = useRef<TextInput | null>(null);
 
-  // ── Handle Login ──
+  // Forgot Password Modal
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  // Check existing session on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        router.replace("/homepage");
+      }
+    });
+  }, [router]);
+
+  // Countdown timer for OTP resend
+  useEffect(() => {
+    let timer: any = null;
+    if (currentView === "otp" && resendCountdown > 0) {
+      timer = setInterval(() => {
+        setResendCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [currentView, resendCountdown]);
+
+  // ── Handle Login ──────────────────────────────────────────────
   async function handleLogin() {
-    if (!email.trim() || !password) {
-      Alert.alert("Missing fields", "Please enter both your email and password.");
+    if (!loginEmail.trim() || !loginPassword) {
+      Alert.alert("Missing Fields", "Please enter both your email and password.");
       return;
     }
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+        email: loginEmail.trim(),
+        password: loginPassword,
       });
 
       if (error) {
@@ -61,31 +107,36 @@ export default function LoginScreen() {
     }
   }
 
-  // ── Handle Register ──
+  // ── Handle Register ───────────────────────────────────────────
   async function handleRegister() {
-    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
-      Alert.alert("Missing fields", "Please fill in all fields.");
+    if (
+      !registerName.trim() ||
+      !registerEmail.trim() ||
+      !registerPassword ||
+      !registerConfirm
+    ) {
+      Alert.alert("Missing Fields", "Please fill in all fields to create your account.");
       return;
     }
 
-    if (password !== confirmPassword) {
-      Alert.alert("Password Mismatch", "Passwords do not match. Please check and try again.");
+    if (registerPassword !== registerConfirm) {
+      Alert.alert("Password Mismatch", "Passwords do not match. Please verify and try again.");
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert("Weak Password", "Password should be at least 6 characters long.");
+    if (registerPassword.length < 6) {
+      Alert.alert("Weak Password", "Password must be at least 6 characters long.");
       return;
     }
 
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
+        email: registerEmail.trim(),
+        password: registerPassword,
         options: {
           data: {
-            full_name: fullName.trim(),
+            full_name: registerName.trim(),
           },
         },
       });
@@ -95,16 +146,17 @@ export default function LoginScreen() {
         return;
       }
 
-      // If user is already logged in (e.g., email confirm is disabled in Supabase)
       if (data.session) {
-        Alert.alert("Welcome!", "Account created successfully.");
+        Alert.alert("Welcome to TSEKI! 🎉", "Your account has been created.");
         router.replace("/homepage");
       } else {
-        // User created and requires OTP code verification
-        setIsVerifyingOtp(true);
+        // Verification OTP required
+        setOtpToken("");
+        setResendCountdown(60);
+        setCurrentView("otp");
         Alert.alert(
-          "Verification Code Sent! 📩",
-          `We sent a 6-digit OTP code to ${email.trim()}. Please enter it below to confirm your account.`
+          "Verification Code Sent 📩",
+          `A 6-digit OTP has been sent to ${registerEmail.trim()}. Enter it below to confirm your account.`
         );
       }
     } catch (err: any) {
@@ -114,27 +166,28 @@ export default function LoginScreen() {
     }
   }
 
-  // ── Handle Verify OTP ──
+  // ── Handle Verify OTP ─────────────────────────────────────────
   async function handleVerifyOtp() {
-    if (!otpToken.trim()) {
-      Alert.alert("Enter Code", "Please enter the 6-digit code sent to your email.");
+    const token = otpToken.trim();
+    const targetEmail = registerEmail.trim() || loginEmail.trim();
+
+    if (token.length < 6) {
+      Alert.alert("Enter Code", "Please enter the complete 6-digit verification code.");
       return;
     }
 
     setLoading(true);
     try {
-      // Try verifying with signup type
       let { data, error } = await supabase.auth.verifyOtp({
-        email: email.trim(),
-        token: otpToken.trim(),
+        email: targetEmail,
+        token,
         type: "signup",
       });
 
-      // Fallback to email type if signup type fails
       if (error) {
         const fallback = await supabase.auth.verifyOtp({
-          email: email.trim(),
-          token: otpToken.trim(),
+          email: targetEmail,
+          token,
           type: "email",
         });
         data = fallback.data;
@@ -146,8 +199,7 @@ export default function LoginScreen() {
         return;
       }
 
-      Alert.alert("Verified! 🎉", "Your email has been confirmed. Welcome to Tseki!");
-      setIsVerifyingOtp(false);
+      Alert.alert("Verified! 🎉", "Your account is active. Welcome to Tseki!");
       router.replace("/homepage");
     } catch (err: any) {
       Alert.alert("Error", err.message || "An error occurred during verification.");
@@ -156,25 +208,69 @@ export default function LoginScreen() {
     }
   }
 
-  // ── Handle Resend OTP ──
+  // ── Handle Resend OTP ─────────────────────────────────────────
   async function handleResendOtp() {
+    if (resendCountdown > 0) return;
+    const targetEmail = registerEmail.trim() || loginEmail.trim();
+    if (!targetEmail) {
+      Alert.alert("Error", "No email address found for resending.");
+      return;
+    }
+
     setLoading(true);
     try {
       const { error } = await supabase.auth.resend({
         type: "signup",
-        email: email.trim(),
+        email: targetEmail,
       });
 
       if (error) {
         Alert.alert("Resend Failed", error.message);
       } else {
-        Alert.alert("Code Resent 📩", "A new OTP verification code has been sent to your email.");
+        setOtpToken("");
+        setResendCountdown(60);
+        Alert.alert("Code Resent 📩", `A new OTP has been sent to ${targetEmail}.`);
       }
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Could not resend verification code.");
+      Alert.alert("Error", err.message || "Could not resend code.");
     } finally {
       setLoading(false);
     }
+  }
+
+  // ── Handle Forgot Password ────────────────────────────────────
+  async function handleForgotPasswordSubmit() {
+    if (!forgotEmail.trim()) {
+      Alert.alert("Missing Email", "Please enter your registered email address.");
+      return;
+    }
+
+    setForgotLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim());
+      if (error) {
+        Alert.alert("Request Failed", error.message);
+      } else {
+        Alert.alert(
+          "Check Your Email 📩",
+          `Instructions to reset your password have been sent to ${forgotEmail.trim()}.`
+        );
+        setForgotModalVisible(false);
+        setForgotEmail("");
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "An unexpected error occurred.");
+    } finally {
+      setForgotLoading(false);
+    }
+  }
+
+  // ── Social Login Handler ──────────────────────────────────────
+  function handleSocialLogin(provider: string) {
+    Alert.alert(
+      "Social Sign In",
+      `${provider.charAt(0).toUpperCase() + provider.slice(1)} login can be configured via Supabase OAuth in your dashboard settings.`
+    );
   }
 
   return (
@@ -184,275 +280,598 @@ export default function LoginScreen() {
     >
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Logo / Brand ── */}
-        <View style={styles.brandBlock}>
-          <View style={styles.logoWrapper}>
-            <Image
-              source={require("../assets/images/logo.png")}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          </View>
-          <Text style={styles.brandName}>Tseki</Text>
-          <Text style={styles.brandTagline}>Smart grading for Filipino classrooms</Text>
+        <View style={styles.cardContainer}>
+          {/* ══════════════════════════════════════════════════════
+              SCREEN 1: WELCOME / INTRO ("Hello !")
+             ══════════════════════════════════════════════════════ */}
+          {currentView === "welcome" && (
+            <View style={styles.welcomeView}>
+              {/* Brand mark top left */}
+              <View style={styles.topBrandRow}>
+                <View style={styles.brandMarkCircle}>
+                  <View style={styles.brandMarkInnerDot} />
+                </View>
+                <Text style={styles.brandMarkText}>TSEKI</Text>
+              </View>
+
+              {/* Logo Mascot Presentation */}
+              <View style={styles.heroLogoContainer}>
+                <Image
+                  source={require("../assets/images/logo.png")}
+                  style={styles.heroLogoImage}
+                  resizeMode="contain"
+                />
+              </View>
+
+              {/* Title & Subtitle */}
+              <View style={styles.welcomeTextContainer}>
+                <Text style={styles.helloTitle}>Hello !</Text>
+                <Text style={styles.helloSubtitle}>
+                  Best place to grade, manage classrooms and share your learning experiences
+                </Text>
+              </View>
+
+              {/* Action Buttons (Orange & White combination) */}
+              <View style={styles.welcomeActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.primarySolidBtn,
+                    pressed && styles.btnPressed,
+                  ]}
+                  onPress={() => setCurrentView("login")}
+                >
+                  <Text style={styles.primarySolidBtnText}>LOGIN</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.secondaryOutlineBtn,
+                    pressed && styles.btnPressed,
+                  ]}
+                  onPress={() => setCurrentView("register")}
+                >
+                  <Text style={styles.secondaryOutlineBtnText}>SIGNUP</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {/* ══════════════════════════════════════════════════════
+              SCREEN 2: LOGIN ("Welcome!")
+             ══════════════════════════════════════════════════════ */}
+          {currentView === "login" && (
+            <View style={styles.screenInner}>
+              {/* Back Arrow */}
+              <Pressable
+                style={styles.backButton}
+                onPress={() => setCurrentView("welcome")}
+                hitSlop={12}
+              >
+                <Ionicons name="arrow-back" size={26} color="#181920" />
+              </Pressable>
+
+              {/* Header */}
+              <View style={styles.headerBlock}>
+                <Text style={styles.screenTitle}>Welcome!</Text>
+                <Text style={styles.screenSubtitle}>Sign in to continue</Text>
+              </View>
+
+              {/* Underline Inputs */}
+              <View style={styles.inputsBlock}>
+                {/* Email */}
+                <View
+                  style={[
+                    styles.underlineWrapper,
+                    focusedField === "loginEmail" && styles.underlineWrapperFocused,
+                  ]}
+                >
+                  <TextInput
+                    style={styles.underlineInput}
+                    placeholder="amishkr@gmail.com"
+                    placeholderTextColor="#9EA0B4"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={loginEmail}
+                    onChangeText={setLoginEmail}
+                    onFocus={() => setFocusedField("loginEmail")}
+                    onBlur={() => setFocusedField(null)}
+                    editable={!loading}
+                  />
+                </View>
+
+                {/* Password */}
+                <View
+                  style={[
+                    styles.underlineWrapper,
+                    styles.passwordUnderlineWrapper,
+                    focusedField === "loginPassword" && styles.underlineWrapperFocused,
+                  ]}
+                >
+                  <TextInput
+                    style={[styles.underlineInput, styles.passwordFlexInput]}
+                    placeholder="••••••••"
+                    placeholderTextColor="#9EA0B4"
+                    secureTextEntry={!showLoginPassword}
+                    value={loginPassword}
+                    onChangeText={setLoginPassword}
+                    onFocus={() => setFocusedField("loginPassword")}
+                    onBlur={() => setFocusedField(null)}
+                    editable={!loading}
+                  />
+                  <Pressable
+                    style={styles.eyeToggleBtn}
+                    onPress={() => setShowLoginPassword(!showLoginPassword)}
+                    hitSlop={10}
+                  >
+                    <Ionicons
+                      name={showLoginPassword ? "eye-off-outline" : "eye-outline"}
+                      size={20}
+                      color="#8E8EA8"
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Action Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.primarySolidBtn,
+                  styles.actionSubmitBtn,
+                  pressed && styles.btnPressed,
+                  loading && styles.btnDisabled,
+                ]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primarySolidBtnText}>LOGIN</Text>
+                )}
+              </Pressable>
+
+              {/* Forgot Password */}
+              <Pressable
+                style={styles.forgotPassBtn}
+                onPress={() => {
+                  setForgotEmail(loginEmail);
+                  setForgotModalVisible(true);
+                }}
+              >
+                <Text style={styles.forgotPassText}>Forgot Password?</Text>
+              </Pressable>
+
+              {/* "or" Divider */}
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerLabel}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Social Media Login */}
+              <View style={styles.socialSection}>
+                <Text style={styles.socialHeading}>Social Media Login</Text>
+                <View style={styles.socialButtonsRow}>
+                  {/* Google */}
+                  <Pressable
+                    style={styles.socialCircleBtn}
+                    onPress={() => handleSocialLogin("Google")}
+                  >
+                    <View style={styles.googleCircleInner}>
+                      <Ionicons name="logo-google" size={22} color="#EA4335" />
+                    </View>
+                  </Pressable>
+
+                  {/* Facebook */}
+                  <Pressable
+                    style={[styles.socialCircleBtn, styles.facebookCircleBtn]}
+                    onPress={() => handleSocialLogin("Facebook")}
+                  >
+                    <Ionicons name="logo-facebook" size={24} color="#FFFFFF" />
+                  </Pressable>
+
+                  {/* Apple */}
+                  <Pressable
+                    style={[styles.socialCircleBtn, styles.appleCircleBtn]}
+                    onPress={() => handleSocialLogin("Apple")}
+                  >
+                    <Ionicons name="logo-apple" size={24} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Footer switch to Sign up */}
+              <View style={styles.footerSwitchRow}>
+                <Text style={styles.footerSwitchText}>Don't have an account? </Text>
+                <Pressable onPress={() => setCurrentView("register")}>
+                  <Text style={styles.footerSwitchLink}>Sign up</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {/* ══════════════════════════════════════════════════════
+              SCREEN 3: REGISTER ("Hi!")
+             ══════════════════════════════════════════════════════ */}
+          {currentView === "register" && (
+            <View style={styles.screenInner}>
+              {/* Back Arrow */}
+              <Pressable
+                style={styles.backButton}
+                onPress={() => setCurrentView("welcome")}
+                hitSlop={12}
+              >
+                <Ionicons name="arrow-back" size={26} color="#181920" />
+              </Pressable>
+
+              {/* Header */}
+              <View style={styles.headerBlock}>
+                <Text style={styles.screenTitle}>Hi!</Text>
+                <Text style={styles.screenSubtitle}>Create a new account</Text>
+              </View>
+
+              {/* Underline Inputs */}
+              <View style={styles.inputsBlock}>
+                {/* Username / Full Name */}
+                <View
+                  style={[
+                    styles.underlineWrapper,
+                    focusedField === "regName" && styles.underlineWrapperFocused,
+                  ]}
+                >
+                  <TextInput
+                    style={styles.underlineInput}
+                    placeholder="Amish567"
+                    placeholderTextColor="#9EA0B4"
+                    autoCapitalize="words"
+                    value={registerName}
+                    onChangeText={setRegisterName}
+                    onFocus={() => setFocusedField("regName")}
+                    onBlur={() => setFocusedField(null)}
+                    editable={!loading}
+                  />
+                </View>
+
+                {/* Email */}
+                <View
+                  style={[
+                    styles.underlineWrapper,
+                    focusedField === "regEmail" && styles.underlineWrapperFocused,
+                  ]}
+                >
+                  <TextInput
+                    style={styles.underlineInput}
+                    placeholder="amishkr@gmail.com"
+                    placeholderTextColor="#9EA0B4"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={registerEmail}
+                    onChangeText={setRegisterEmail}
+                    onFocus={() => setFocusedField("regEmail")}
+                    onBlur={() => setFocusedField(null)}
+                    editable={!loading}
+                  />
+                </View>
+
+                {/* Password */}
+                <View
+                  style={[
+                    styles.underlineWrapper,
+                    styles.passwordUnderlineWrapper,
+                    focusedField === "regPassword" && styles.underlineWrapperFocused,
+                  ]}
+                >
+                  <TextInput
+                    style={[styles.underlineInput, styles.passwordFlexInput]}
+                    placeholder="••••••••"
+                    placeholderTextColor="#9EA0B4"
+                    secureTextEntry={!showRegisterPassword}
+                    value={registerPassword}
+                    onChangeText={setRegisterPassword}
+                    onFocus={() => setFocusedField("regPassword")}
+                    onBlur={() => setFocusedField(null)}
+                    editable={!loading}
+                  />
+                  <Pressable
+                    style={styles.eyeToggleBtn}
+                    onPress={() => setShowRegisterPassword(!showRegisterPassword)}
+                    hitSlop={10}
+                  >
+                    <Ionicons
+                      name={showRegisterPassword ? "eye-off-outline" : "eye-outline"}
+                      size={20}
+                      color="#8E8EA8"
+                    />
+                  </Pressable>
+                </View>
+
+                {/* Confirm Password */}
+                <View
+                  style={[
+                    styles.underlineWrapper,
+                    styles.passwordUnderlineWrapper,
+                    focusedField === "regConfirm" && styles.underlineWrapperFocused,
+                  ]}
+                >
+                  <TextInput
+                    style={[styles.underlineInput, styles.passwordFlexInput]}
+                    placeholder="Confirm password"
+                    placeholderTextColor="#9EA0B4"
+                    secureTextEntry={!showRegisterConfirm}
+                    value={registerConfirm}
+                    onChangeText={setRegisterConfirm}
+                    onFocus={() => setFocusedField("regConfirm")}
+                    onBlur={() => setFocusedField(null)}
+                    editable={!loading}
+                  />
+                  <Pressable
+                    style={styles.eyeToggleBtn}
+                    onPress={() => setShowRegisterConfirm(!showRegisterConfirm)}
+                    hitSlop={10}
+                  >
+                    <Ionicons
+                      name={showRegisterConfirm ? "eye-off-outline" : "eye-outline"}
+                      size={20}
+                      color="#8E8EA8"
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Action Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.primarySolidBtn,
+                  styles.actionSubmitBtn,
+                  pressed && styles.btnPressed,
+                  loading && styles.btnDisabled,
+                ]}
+                onPress={handleRegister}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primarySolidBtnText}>SIGN UP</Text>
+                )}
+              </Pressable>
+
+              {/* "or" Divider */}
+              <View style={[styles.dividerRow, { marginTop: 22 }]}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerLabel}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Social Media Signup */}
+              <View style={styles.socialSection}>
+                <Text style={styles.socialHeading}>Social Media Signup</Text>
+                <View style={styles.socialButtonsRow}>
+                  {/* Google */}
+                  <Pressable
+                    style={styles.socialCircleBtn}
+                    onPress={() => handleSocialLogin("Google")}
+                  >
+                    <View style={styles.googleCircleInner}>
+                      <Ionicons name="logo-google" size={22} color="#EA4335" />
+                    </View>
+                  </Pressable>
+
+                  {/* Facebook */}
+                  <Pressable
+                    style={[styles.socialCircleBtn, styles.facebookCircleBtn]}
+                    onPress={() => handleSocialLogin("Facebook")}
+                  >
+                    <Ionicons name="logo-facebook" size={24} color="#FFFFFF" />
+                  </Pressable>
+
+                  {/* Apple */}
+                  <Pressable
+                    style={[styles.socialCircleBtn, styles.appleCircleBtn]}
+                    onPress={() => handleSocialLogin("Apple")}
+                  >
+                    <Ionicons name="logo-apple" size={24} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Footer switch to Sign in */}
+              <View style={styles.footerSwitchRow}>
+                <Text style={styles.footerSwitchText}>Already have an account? </Text>
+                <Pressable onPress={() => setCurrentView("login")}>
+                  <Text style={styles.footerSwitchLink}>Sign in</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {/* ══════════════════════════════════════════════════════
+              SCREEN 4: OTP VERIFICATION ("Verification")
+             ══════════════════════════════════════════════════════ */}
+          {currentView === "otp" && (
+            <View style={styles.screenInner}>
+              {/* Back Arrow */}
+              <Pressable
+                style={styles.backButton}
+                onPress={() => setCurrentView("register")}
+                hitSlop={12}
+              >
+                <Ionicons name="arrow-back" size={26} color="#181920" />
+              </Pressable>
+
+              {/* Header */}
+              <View style={styles.headerBlock}>
+                <Text style={styles.screenTitle}>Verification</Text>
+                <Text style={styles.screenSubtitle}>
+                  Enter the 6-digit code sent to{"\n"}
+                  <Text style={styles.highlightEmail}>
+                    {registerEmail.trim() || loginEmail.trim()}
+                  </Text>
+                </Text>
+              </View>
+
+              {/* ── Single Master Input with 6 Display Cells ── */}
+              <View style={styles.otpInputContainer}>
+                {/* Single invisible master input handling all inputs, backspaces, pastes, and autofills */}
+                <TextInput
+                  ref={hiddenOtpInputRef}
+                  style={styles.hiddenOtpInput}
+                  value={otpToken}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9]/g, "").slice(0, 6);
+                    setOtpToken(cleaned);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  textContentType="oneTimeCode"
+                  autoComplete="one-time-code"
+                  autoFocus={false}
+                  caretHidden={true}
+                  onFocus={() => setIsOtpFocused(true)}
+                  onBlur={() => setIsOtpFocused(false)}
+                  editable={!loading}
+                />
+
+                {/* 6 Visual Display Cells */}
+                <Pressable
+                  style={styles.otpGridRow}
+                  onPress={() => hiddenOtpInputRef.current?.focus()}
+                >
+                  {[0, 1, 2, 3, 4, 5].map((idx) => {
+                    const digit = otpToken[idx] || "";
+                    const isCurrent =
+                      isOtpFocused &&
+                      (otpToken.length === idx || (idx === 5 && otpToken.length === 6));
+                    const isFilled = digit.length > 0;
+
+                    return (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.otpCellBox,
+                          isCurrent && styles.otpCellBoxFocused,
+                          isFilled && styles.otpCellBoxFilled,
+                        ]}
+                      >
+                        <Text style={styles.otpCellText}>{digit}</Text>
+                        {isCurrent && otpToken.length < 6 && (
+                          <View style={styles.otpCursorBar} />
+                        )}
+                      </View>
+                    );
+                  })}
+                </Pressable>
+              </View>
+
+              {/* Action Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.primarySolidBtn,
+                  styles.actionSubmitBtn,
+                  pressed && styles.btnPressed,
+                  loading && styles.btnDisabled,
+                ]}
+                onPress={handleVerifyOtp}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primarySolidBtnText}>VERIFY</Text>
+                )}
+              </Pressable>
+
+              {/* Resend Section */}
+              <View style={styles.resendSection}>
+                <Text style={styles.resendNoticeText}>Didn't receive the code?</Text>
+                {resendCountdown > 0 ? (
+                  <Text style={styles.resendTimerText}>
+                    Resend OTP in{" "}
+                    <Text style={styles.resendTimerHighlight}>{resendCountdown}s</Text>
+                  </Text>
+                ) : (
+                  <Pressable onPress={handleResendOtp} disabled={loading}>
+                    <Text style={styles.resendActiveBtnText}>Resend OTP</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Switch / Back link */}
+              <View style={[styles.footerSwitchRow, { marginTop: 32 }]}>
+                <Pressable onPress={() => setCurrentView("login")}>
+                  <Text style={styles.footerSwitchLink}>Back to Login</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
         </View>
 
-        {/* ── Main Auth Card or OTP Card ── */}
-        {isVerifyingOtp ? (
-          /* ── OTP Verification View ── */
-          <View style={styles.card}>
-            <View style={styles.otpHeader}>
-              <Ionicons name="mail-open-outline" size={48} color="#3B82F6" />
-              <Text style={styles.otpTitle}>Verify Your Email</Text>
-              <Text style={styles.otpSubtext}>
-                Enter the 6-digit verification code sent to{"\n"}
-                <Text style={styles.otpEmail}>{email}</Text>
+        {/* ── Forgot Password Modal ── */}
+        <Modal
+          visible={forgotModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setForgotModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>Reset Password</Text>
+                <Pressable
+                  onPress={() => setForgotModalVisible(false)}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={24} color="#6B7280" />
+                </Pressable>
+              </View>
+
+              <Text style={styles.modalSubtitle}>
+                Enter the email address associated with your account and we'll send you a password reset link.
               </Text>
-            </View>
 
-            <Text style={styles.label}>Verification Code (OTP)</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="key-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="123456"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="number-pad"
-                maxLength={6}
-                value={otpToken}
-                onChangeText={setOtpToken}
-                editable={!loading}
-              />
-            </View>
+              <View
+                style={[
+                  styles.underlineWrapper,
+                  focusedField === "forgotEmail" && styles.underlineWrapperFocused,
+                  { marginBottom: 24 },
+                ]}
+              >
+                <TextInput
+                  style={styles.underlineInput}
+                  placeholder="amishkr@gmail.com"
+                  placeholderTextColor="#9EA0B4"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={forgotEmail}
+                  onChangeText={setForgotEmail}
+                  onFocus={() => setFocusedField("forgotEmail")}
+                  onBlur={() => setFocusedField(null)}
+                  editable={!forgotLoading}
+                />
+              </View>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                pressed ? styles.btnPressed : null,
-                loading ? styles.btnDisabled : null,
-              ]}
-              onPress={handleVerifyOtp}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.primaryBtnText}>Confirm Code & Continue</Text>
-              )}
-            </Pressable>
-
-            <View style={styles.otpFooterRow}>
-              <Pressable onPress={handleResendOtp} disabled={loading}>
-                <Text style={styles.resendLink}>Resend Code</Text>
-              </Pressable>
-              <Text style={styles.bulletDivider}>•</Text>
-              <Pressable onPress={() => setIsVerifyingOtp(false)}>
-                <Text style={styles.backLink}>Back to Register</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.primarySolidBtn,
+                  pressed && styles.btnPressed,
+                  forgotLoading && styles.btnDisabled,
+                ]}
+                onPress={handleForgotPasswordSubmit}
+                disabled={forgotLoading}
+              >
+                {forgotLoading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primarySolidBtnText}>SEND RESET LINK</Text>
+                )}
               </Pressable>
             </View>
           </View>
-        ) : (
-          /* ── Normal Login / Register Tabs ── */
-          <>
-            {/* ── Tab Toggle ── */}
-            <View style={styles.tabBar}>
-              <Pressable
-                style={[styles.tab, activeTab === "login" ? styles.tabActive : null]}
-                onPress={() => setActiveTab("login")}
-              >
-                <Text style={[styles.tabText, activeTab === "login" ? styles.tabTextActive : null]}>
-                  Log In
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.tab, activeTab === "register" ? styles.tabActive : null]}
-                onPress={() => setActiveTab("register")}
-              >
-                <Text style={[styles.tabText, activeTab === "register" ? styles.tabTextActive : null]}>
-                  Register
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* ── Form Card ── */}
-            <View style={styles.card}>
-              {activeTab === "login" ? (
-                <>
-                  {/* EMAIL */}
-                  <Text style={styles.label}>Email</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="mail-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="you@school.edu.ph"
-                      placeholderTextColor="#9CA3AF"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      value={email}
-                      onChangeText={setEmail}
-                      editable={!loading}
-                    />
-                  </View>
-
-                  {/* PASSWORD */}
-                  <Text style={styles.label}>Password</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="lock-closed-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-                    <TextInput
-                      style={[styles.input, styles.inputFlex]}
-                      placeholder="••••••••"
-                      placeholderTextColor="#9CA3AF"
-                      secureTextEntry={!showPassword}
-                      value={password}
-                      onChangeText={setPassword}
-                      editable={!loading}
-                    />
-                    <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                      <Ionicons
-                        name={showPassword ? "eye-off-outline" : "eye-outline"}
-                        size={18}
-                        color="#9CA3AF"
-                      />
-                    </Pressable>
-                  </View>
-
-                  {/* FORGOT */}
-                  <Pressable style={styles.forgotRow}>
-                    <Text style={styles.forgotText}>Forgot password?</Text>
-                  </Pressable>
-
-                  {/* LOG IN BUTTON */}
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      pressed ? styles.btnPressed : null,
-                      loading ? styles.btnDisabled : null,
-                    ]}
-                    onPress={handleLogin}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>Log In</Text>
-                    )}
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  {/* FULL NAME */}
-                  <Text style={styles.label}>Full Name</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="person-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Juan dela Cruz"
-                      placeholderTextColor="#9CA3AF"
-                      autoCapitalize="words"
-                      value={fullName}
-                      onChangeText={setFullName}
-                      editable={!loading}
-                    />
-                  </View>
-
-                  {/* EMAIL */}
-                  <Text style={styles.label}>Email</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="mail-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="you@school.edu.ph"
-                      placeholderTextColor="#9CA3AF"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      value={email}
-                      onChangeText={setEmail}
-                      editable={!loading}
-                    />
-                  </View>
-
-                  {/* PASSWORD */}
-                  <Text style={styles.label}>Password</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="lock-closed-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-                    <TextInput
-                      style={[styles.input, styles.inputFlex]}
-                      placeholder="••••••••"
-                      placeholderTextColor="#9CA3AF"
-                      secureTextEntry={!showPassword}
-                      value={password}
-                      onChangeText={setPassword}
-                      editable={!loading}
-                    />
-                    <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                      <Ionicons
-                        name={showPassword ? "eye-off-outline" : "eye-outline"}
-                        size={18}
-                        color="#9CA3AF"
-                      />
-                    </Pressable>
-                  </View>
-
-                  {/* CONFIRM PASSWORD */}
-                  <Text style={styles.label}>Confirm Password</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="lock-closed-outline" size={18} color="#9CA3AF" style={styles.inputIcon} />
-                    <TextInput
-                      style={[styles.input, styles.inputFlex]}
-                      placeholder="••••••••"
-                      placeholderTextColor="#9CA3AF"
-                      secureTextEntry={!showConfirm}
-                      value={confirmPassword}
-                      onChangeText={setConfirmPassword}
-                      editable={!loading}
-                    />
-                    <Pressable onPress={() => setShowConfirm(!showConfirm)} style={styles.eyeBtn}>
-                      <Ionicons
-                        name={showConfirm ? "eye-off-outline" : "eye-outline"}
-                        size={18}
-                        color="#9CA3AF"
-                      />
-                    </Pressable>
-                  </View>
-
-                  {/* REGISTER BUTTON */}
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      styles.registerBtn,
-                      pressed ? styles.btnPressed : null,
-                      loading ? styles.btnDisabled : null,
-                    ]}
-                    onPress={handleRegister}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>Create Account</Text>
-                    )}
-                  </Pressable>
-                </>
-              )}
-            </View>
-
-            {/* ── Switch prompt ── */}
-            <View style={styles.switchRow}>
-              <Text style={styles.switchText}>
-                {activeTab === "login" ? "Don't have an account? " : "Already have an account? "}
-              </Text>
-              <Pressable onPress={() => setActiveTab(activeTab === "login" ? "register" : "login")}>
-                <Text style={styles.switchLink}>
-                  {activeTab === "login" ? "Register" : "Log In"}
-                </Text>
-              </Pressable>
-            </View>
-          </>
-        )}
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -461,236 +880,427 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     width: "100%",
     minHeight: Platform.OS === "web" ? ("100vh" as any) : "100%",
   },
   scrollView: {
     flex: 1,
     width: "100%",
+    backgroundColor: "#FFFFFF",
   },
-  scroll: {
+  scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 48,
-    paddingBottom: 40,
     alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Platform.OS === "web" ? 36 : 24,
+    paddingHorizontal: 20,
+    backgroundColor: "#FFFFFF",
+  },
+  cardContainer: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    alignSelf: "center",
+  },
+
+  /* ══════════════════════════════════════════════════════════════
+     SCREEN 1: WELCOME SCREEN STYLES
+     ══════════════════════════════════════════════════════════════ */
+  welcomeView: {
+    width: "100%",
+    paddingTop: Platform.OS === "web" ? 10 : 20,
+    paddingBottom: 24,
+  },
+  topBrandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  brandMarkCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: ORANGE,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  brandMarkInnerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: ORANGE,
+  },
+  brandMarkText: {
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 2,
+    color: "#181920",
+  },
+  heroLogoContainer: {
+    width: "100%",
+    height: 240,
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 14,
+  },
+  heroLogoImage: {
+    width: 210,
+    height: 210,
+  },
+  welcomeTextContainer: {
+    alignItems: "center",
+    marginTop: 18,
+    marginBottom: 32,
+    paddingHorizontal: 16,
+  },
+  helloTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#181920",
+    letterSpacing: -0.5,
+    marginBottom: 10,
+  },
+  helloSubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#8E8EA8",
+    textAlign: "center",
+    maxWidth: 290,
+  },
+  welcomeActions: {
+    width: "100%",
+    gap: 14,
+  },
+  primarySolidBtn: {
+    backgroundColor: ORANGE,
+    borderRadius: 12,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  primarySolidBtnText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
+  secondaryOutlineBtn: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.8,
+    borderColor: ORANGE,
+    borderRadius: 12,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryOutlineBtnText: {
+    color: ORANGE,
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
+  btnPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.99 }],
+  },
+  btnDisabled: {
+    opacity: 0.65,
+  },
+
+  /* ══════════════════════════════════════════════════════════════
+     SCREENS 2 & 3: FORM SHARED STYLES
+     ══════════════════════════════════════════════════════════════ */
+  screenInner: {
+    width: "100%",
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  backButton: {
+    alignSelf: "flex-start",
+    padding: 6,
+    marginLeft: -6,
+    marginBottom: 28,
+  },
+  headerBlock: {
+    marginBottom: 36,
+  },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#181920",
+    letterSpacing: -0.5,
+    marginBottom: 8,
+  },
+  screenSubtitle: {
+    fontSize: 14,
+    color: "#8E8EA8",
+    lineHeight: 20,
+  },
+  highlightEmail: {
+    color: ORANGE,
+    fontWeight: "700",
+  },
+
+  /* ── Minimalist Underline Inputs ── */
+  inputsBlock: {
+    width: "100%",
+    marginBottom: 32,
+    gap: 22,
+  },
+  underlineWrapper: {
+    borderBottomWidth: 1.4,
+    borderBottomColor: "#E2E4EA",
+    paddingBottom: 6,
+  },
+  underlineWrapperFocused: {
+    borderBottomColor: ORANGE,
+    borderBottomWidth: 2,
+  },
+  underlineInput: {
+    fontSize: 15,
+    color: "#181920",
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    outlineWidth: 0 as any,
+  },
+  passwordUnderlineWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  passwordFlexInput: {
+    flex: 1,
+  },
+  eyeToggleBtn: {
+    padding: 6,
+  },
+
+  /* ── Action Submit ── */
+  actionSubmitBtn: {
     width: "100%",
   },
 
-  /* ── Brand ── */
-  brandBlock: {
+  /* ── Forgot Password ── */
+  forgotPassBtn: {
+    alignSelf: "center",
+    marginTop: 18,
+    marginBottom: 24,
+  },
+  forgotPassText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#181920",
+  },
+
+  /* ── "or" Divider ── */
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+    width: "100%",
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#ECEEF2",
+  },
+  dividerLabel: {
+    marginHorizontal: 16,
+    fontSize: 13,
+    color: "#8E8EA8",
+    fontWeight: "500",
+  },
+
+  /* ── Social Media Section ── */
+  socialSection: {
     alignItems: "center",
     marginBottom: 32,
   },
-  logoWrapper: {
-    width: 88,
-    height: 88,
-    borderRadius: 24,
-    backgroundColor: "#EFF6FF",
+  socialHeading: {
+    fontSize: 13,
+    color: "#8E8EA8",
+    marginBottom: 16,
+    fontWeight: "500",
+  },
+  socialButtonsRow: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
+    gap: 20,
   },
-  logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-  },
-  brandName: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#111827",
-    letterSpacing: -0.5,
-    marginBottom: 4,
-  },
-  brandTagline: {
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "center",
-  },
-
-  /* ── Tab bar ── */
-  tabBar: {
-    flexDirection: "row",
-    backgroundColor: "#E5E7EB",
-    borderRadius: 14,
-    padding: 4,
-    width: "100%",
-    maxWidth: 420,
-    marginBottom: 20,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
+  socialCircleBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
-  },
-  tabActive: {
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  tabTextActive: {
-    color: "#111827",
-  },
-
-  /* ── Card ── */
-  card: {
-    width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: "#E5E7EB",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
     elevation: 2,
-    marginBottom: 20,
   },
-
-  /* ── Fields ── */
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
-    marginBottom: 6,
-    marginTop: 4,
-  },
-  inputWrapper: {
-    flexDirection: "row",
+  googleCircleInner: {
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: 12,
-    marginBottom: 14,
-  },
-  inputIcon: {
-    marginRight: 8,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: "#111827",
-  },
-  inputFlex: {
-    flex: 1,
-  },
-  eyeBtn: {
-    padding: 4,
-  },
-
-  /* ── Forgot ── */
-  forgotRow: {
-    alignSelf: "flex-end",
-    marginBottom: 20,
-    marginTop: -6,
-  },
-  forgotText: {
-    fontSize: 13,
-    color: "#3B82F6",
-    fontWeight: "600",
-  },
-
-  /* ── Buttons ── */
-  primaryBtn: {
-    backgroundColor: "#3B82F6",
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  registerBtn: {
-    marginTop: 16,
-  },
-  btnPressed: {
-    opacity: 0.85,
-  },
-  btnDisabled: {
-    opacity: 0.7,
-  },
-  primaryBtnText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-
-  /* ── Switch row ── */
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  switchText: {
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  switchLink: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#3B82F6",
-  },
-
-  /* ── OTP Verification styles ── */
-  otpHeader: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  otpTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  otpSubtext: {
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 18,
-  },
-  otpEmail: {
-    fontWeight: "700",
-    color: "#3B82F6",
-  },
-  otpFooterRow: {
-    flexDirection: "row",
     justifyContent: "center",
+  },
+  facebookCircleBtn: {
+    backgroundColor: "#1877F2",
+    borderColor: "#1877F2",
+  },
+  appleCircleBtn: {
+    backgroundColor: "#000000",
+    borderColor: "#000000",
+  },
+
+  /* ── Footer Switch ── */
+  footerSwitchRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 20,
+    justifyContent: "center",
+  },
+  footerSwitchText: {
+    fontSize: 13,
+    color: "#8E8EA8",
+  },
+  footerSwitchLink: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: ORANGE,
+  },
+
+  /* ══════════════════════════════════════════════════════════════
+     SCREEN 4: OTP STYLES (Single unified input + 6 cells)
+     ══════════════════════════════════════════════════════════════ */
+  otpInputContainer: {
+    width: "100%",
+    position: "relative",
+    marginVertical: 30,
+  },
+  hiddenOtpInput: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    opacity: 0.01,
+    zIndex: 10,
+  },
+  otpGridRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
     gap: 8,
   },
-  resendLink: {
+  otpCellBox: {
+    flex: 1,
+    maxWidth: 52,
+    height: 58,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#E2E4EA",
+    backgroundColor: "#FAFAFC",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  otpCellBoxFocused: {
+    borderColor: ORANGE,
+    backgroundColor: ORANGE_LIGHT,
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  otpCellBoxFilled: {
+    borderColor: ORANGE,
+    backgroundColor: "#FFFFFF",
+  },
+  otpCellText: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#181920",
+    textAlign: "center",
+  },
+  otpCursorBar: {
+    position: "absolute",
+    width: 2,
+    height: 22,
+    backgroundColor: ORANGE,
+    borderRadius: 1,
+  },
+  resendSection: {
+    alignItems: "center",
+    marginTop: 24,
+    gap: 6,
+  },
+  resendNoticeText: {
     fontSize: 13,
+    color: "#8E8EA8",
+  },
+  resendTimerText: {
+    fontSize: 13,
+    color: "#8E8EA8",
+  },
+  resendTimerHighlight: {
     fontWeight: "700",
-    color: "#3B82F6",
+    color: ORANGE,
   },
-  bulletDivider: {
-    color: "#9CA3AF",
+  resendActiveBtnText: {
     fontSize: 14,
+    fontWeight: "700",
+    color: ORANGE,
   },
-  backLink: {
+
+  /* ══════════════════════════════════════════════════════════════
+     MODAL STYLES (Forgot Password)
+     ══════════════════════════════════════════════════════ */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#181920",
+  },
+  modalSubtitle: {
     fontSize: 13,
-    fontWeight: "600",
-    color: "#6B7280",
+    color: "#8E8EA8",
+    lineHeight: 19,
+    marginBottom: 24,
   },
 });
