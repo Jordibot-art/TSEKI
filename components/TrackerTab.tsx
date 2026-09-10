@@ -12,6 +12,7 @@ import {
   QuizPerformanceRecord,
   StoredQuiz,
 } from "../lib/quizStore";
+import { generateClassroomAdvice } from "../lib/pedagogicalAdvice";
 import { useTheme } from "../context/ThemeContext";
 
 export type TrackerStudent = {
@@ -96,6 +97,26 @@ export default function TrackerTab({
 
   const flaggedStudents = students.filter((s) => (s.average ?? 0) <= 50);
   const atRiskCount = flaggedStudents.length;
+  const atRiskList = flaggedStudents.map((s) => ({
+    name: s.full_name,
+    average: s.average ?? 0,
+  }));
+
+  const sortedStudents = [...students].sort((a, b) => (b.average ?? 0) - (a.average ?? 0));
+  const highestScore = sortedStudents[0]?.average ?? 0;
+  const topStudents = sortedStudents
+    .filter((s) => (s.average ?? 0) === highestScore && highestScore > 50)
+    .map((s) => ({ name: s.full_name, average: s.average ?? 0 }));
+
+  let calculatedTrend: "improving" | "declining" | "stable" | "insufficient_data" = "insufficient_data";
+  if (perfRecords.length >= 2) {
+    const first = perfRecords[0].averageScore;
+    const last = perfRecords[perfRecords.length - 1].averageScore;
+    const diff = last - first;
+    if (diff > 3) calculatedTrend = "improving";
+    else if (diff < -3) calculatedTrend = "declining";
+    else calculatedTrend = "stable";
+  }
 
   const activeQuizName =
     publishedQuizzes[0]?.quizTitle ||
@@ -603,11 +624,18 @@ export default function TrackerTab({
         <View style={styles.recommendationInfo}>
           <Text style={[styles.recommendationTitle, darkMode && { color: "#FDBA74" }]}>Tseki's Recommendation</Text>
           <Text style={[styles.recommendationText, darkMode && { color: "#E2E8F0" }]}>
-            {atRiskCount > 0
-              ? `You have ${atRiskCount} student${atRiskCount > 1 ? "s" : ""} showing signs of difficulty. Click "Create remedial quiz" to automatically generate custom, easier homework for them!`
-              : students.length === 0
-              ? "Welcome to your new classroom! Add students in Record or create your first quiz in AI Builder to get started."
-              : "All students are performing on track! Consider creating an advanced challenge quiz using AI Builder to keep top performers engaged."}
+            {generateClassroomAdvice({
+              classAverage: classAvg,
+              passRate,
+              totalStudents: students.length,
+              atRiskStudents: atRiskList,
+              topStudents,
+              subject: classSubject,
+              classTitle,
+              quizTitle: activeQuizName,
+              gradeDistribution: { a: countA, b: countB, c: countC, f: countF },
+              trend: calculatedTrend,
+            })}
           </Text>
 
           <TouchableOpacity

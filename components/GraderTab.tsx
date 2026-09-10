@@ -15,6 +15,7 @@ import {
 import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
 import { saveRosterAlert } from "../lib/alertStore";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
+import { saveStudentQuizResult } from "../lib/questionAnalysis";
 import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
 
@@ -399,6 +400,35 @@ export default function GraderTab({
             const quizTitleToRecord = selectedQuiz || "Assessment 1";
             if (classroomId) {
                 await saveQuizPerformanceRecord(classroomId, quizTitleToRecord, percentage);
+
+                // Persist per-question results for pedagogical analysis
+                const resolvedStudentId = student ? student.id : (gradingResult.studentName || "student");
+                const resolvedStudentName = student ? student.full_name : (gradingResult.studentName && gradingResult.studentName !== "Unknown" ? gradingResult.studentName : "Student");
+                const activePublished = publishedQuizzes.find((q) => q.quizTitle === quizTitleToRecord);
+                await saveStudentQuizResult({
+                    studentId: resolvedStudentId,
+                    studentName: resolvedStudentName,
+                    classroomId,
+                    quizTitle: quizTitleToRecord,
+                    scorePercentage: percentage,
+                    totalScore: gradingResult.totalScore,
+                    maxScore: gradingResult.maxScore,
+                    results: gradingResult.results.map((r) => {
+                        const matchedQuestion = activePublished?.questions?.find(
+                            (q) => q.questionNumber === r.questionNumber
+                        );
+                        return {
+                            questionNumber: r.questionNumber,
+                            questionText: matchedQuestion?.questionText,
+                            questionType: matchedQuestion?.type,
+                            studentAnswer: r.studentAnswer,
+                            correctAnswer: r.correctAnswer,
+                            isCorrect: r.isCorrect,
+                            pointsAwarded: r.pointsAwarded,
+                        };
+                    }),
+                    gradedAt: new Date().toISOString(),
+                });
 
                 // If student score is 50% or below, trigger system at-risk notification alert
                 if (percentage <= 50) {

@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -37,6 +38,7 @@ export default function AuthScreen() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   // Register Form
   const [registerName, setRegisterName] = useState("");
@@ -57,13 +59,39 @@ export default function AuthScreen() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
 
+  const [checkingSession, setCheckingSession] = useState(true);
+
   // Check existing session on mount
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        router.replace("/homepage");
+    let isMounted = true;
+    (async () => {
+      try {
+        const rememberMePref = await AsyncStorage.getItem("tseki_remember_me");
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!isMounted) return;
+
+        if (session) {
+          if (rememberMePref === "true") {
+            router.replace("/homepage");
+            return;
+          } else {
+            // User did not select "Remember me": sign out on app reopen
+            await supabase.auth.signOut();
+          }
+        }
+      } catch (err) {
+        console.error("Session check error:", err);
+      } finally {
+        if (isMounted) {
+          setCheckingSession(false);
+        }
       }
-    });
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   // Countdown timer for OTP resend
@@ -98,6 +126,7 @@ export default function AuthScreen() {
       }
 
       if (data.session) {
+        await AsyncStorage.setItem("tseki_remember_me", rememberMe ? "true" : "false");
         router.replace("/homepage");
       }
     } catch (err: any) {
@@ -265,11 +294,13 @@ export default function AuthScreen() {
     }
   }
 
-  // ── Social Login Handler ──────────────────────────────────────
-  function handleSocialLogin(provider: string) {
-    Alert.alert(
-      "Social Sign In",
-      `${provider.charAt(0).toUpperCase() + provider.slice(1)} login can be configured via Supabase OAuth in your dashboard settings.`
+
+
+  if (checkingSession) {
+    return (
+      <View style={[styles.root, styles.centeredLoading]}>
+        <ActivityIndicator size="large" color={ORANGE} />
+      </View>
     );
   }
 
@@ -412,6 +443,34 @@ export default function AuthScreen() {
                 </View>
               </View>
 
+              {/* Options: Remember Me & Forgot Password */}
+              <View style={styles.rememberForgotRow}>
+                <Pressable
+                  style={styles.rememberMeContainer}
+                  onPress={() => setRememberMe((prev) => !prev)}
+                  hitSlop={8}
+                  accessible={true}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: rememberMe }}
+                >
+                  <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                    {rememberMe && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                  </View>
+                  <Text style={styles.rememberMeText}>Remember me</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.forgotPassBtn}
+                  onPress={() => {
+                    setForgotEmail(loginEmail);
+                    setForgotModalVisible(true);
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={styles.forgotPassText}>Forgot Password?</Text>
+                </Pressable>
+              </View>
+
               {/* Action Button */}
               <Pressable
                 style={({ pressed }) => [
@@ -429,56 +488,6 @@ export default function AuthScreen() {
                   <Text style={styles.primarySolidBtnText}>LOGIN</Text>
                 )}
               </Pressable>
-
-              {/* Forgot Password */}
-              <Pressable
-                style={styles.forgotPassBtn}
-                onPress={() => {
-                  setForgotEmail(loginEmail);
-                  setForgotModalVisible(true);
-                }}
-              >
-                <Text style={styles.forgotPassText}>Forgot Password?</Text>
-              </Pressable>
-
-              {/* "or" Divider */}
-              <View style={styles.dividerRow}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerLabel}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              {/* Social Media Login */}
-              <View style={styles.socialSection}>
-                <Text style={styles.socialHeading}>Social Media Login</Text>
-                <View style={styles.socialButtonsRow}>
-                  {/* Google */}
-                  <Pressable
-                    style={styles.socialCircleBtn}
-                    onPress={() => handleSocialLogin("Google")}
-                  >
-                    <View style={styles.googleCircleInner}>
-                      <Ionicons name="logo-google" size={22} color="#EA4335" />
-                    </View>
-                  </Pressable>
-
-                  {/* Facebook */}
-                  <Pressable
-                    style={[styles.socialCircleBtn, styles.facebookCircleBtn]}
-                    onPress={() => handleSocialLogin("Facebook")}
-                  >
-                    <Ionicons name="logo-facebook" size={24} color="#FFFFFF" />
-                  </Pressable>
-
-                  {/* Apple */}
-                  <Pressable
-                    style={[styles.socialCircleBtn, styles.appleCircleBtn]}
-                    onPress={() => handleSocialLogin("Apple")}
-                  >
-                    <Ionicons name="logo-apple" size={24} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-              </View>
 
               {/* Footer switch to Sign up */}
               <View style={styles.footerSwitchRow}>
@@ -635,45 +644,6 @@ export default function AuthScreen() {
                   <Text style={styles.primarySolidBtnText}>SIGN UP</Text>
                 )}
               </Pressable>
-
-              {/* "or" Divider */}
-              <View style={[styles.dividerRow, { marginTop: 22 }]}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerLabel}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              {/* Social Media Signup */}
-              <View style={styles.socialSection}>
-                <Text style={styles.socialHeading}>Social Media Signup</Text>
-                <View style={styles.socialButtonsRow}>
-                  {/* Google */}
-                  <Pressable
-                    style={styles.socialCircleBtn}
-                    onPress={() => handleSocialLogin("Google")}
-                  >
-                    <View style={styles.googleCircleInner}>
-                      <Ionicons name="logo-google" size={22} color="#EA4335" />
-                    </View>
-                  </Pressable>
-
-                  {/* Facebook */}
-                  <Pressable
-                    style={[styles.socialCircleBtn, styles.facebookCircleBtn]}
-                    onPress={() => handleSocialLogin("Facebook")}
-                  >
-                    <Ionicons name="logo-facebook" size={24} color="#FFFFFF" />
-                  </Pressable>
-
-                  {/* Apple */}
-                  <Pressable
-                    style={[styles.socialCircleBtn, styles.appleCircleBtn]}
-                    onPress={() => handleSocialLogin("Apple")}
-                  >
-                    <Ionicons name="logo-apple" size={24} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-              </View>
 
               {/* Footer switch to Sign in */}
               <View style={styles.footerSwitchRow}>
@@ -880,6 +850,10 @@ const styles = StyleSheet.create({
     width: "100%",
     minHeight: Platform.OS === "web" ? ("100vh" as any) : "100%",
   },
+  centeredLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scrollView: {
     flex: 1,
     width: "100%",
@@ -1048,7 +1022,7 @@ const styles = StyleSheet.create({
   /* ── Minimalist Underline Inputs ── */
   inputsBlock: {
     width: "100%",
-    marginBottom: 32,
+    marginBottom: 20,
     gap: 22,
   },
   underlineWrapper: {
@@ -1078,92 +1052,62 @@ const styles = StyleSheet.create({
     padding: 6,
   },
 
+  /* ── Remember Me & Forgot Password ── */
+  rememberForgotRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 24,
+  },
+  rememberMeContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.6,
+    borderColor: "#C4C7D4",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  rememberMeText: {
+    fontSize: 13,
+    color: "#5A5D72",
+    fontWeight: "500",
+  },
+  forgotPassBtn: {
+    paddingVertical: 2,
+  },
+
   /* ── Action Submit ── */
   actionSubmitBtn: {
     width: "100%",
   },
 
   /* ── Forgot Password ── */
-  forgotPassBtn: {
-    alignSelf: "center",
-    marginTop: 18,
-    marginBottom: 24,
-  },
   forgotPassText: {
     fontSize: 13,
     fontWeight: "600",
     color: "#181920",
   },
 
-  /* ── "or" Divider ── */
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-    width: "100%",
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#ECEEF2",
-  },
-  dividerLabel: {
-    marginHorizontal: 16,
-    fontSize: 13,
-    color: "#8E8EA8",
-    fontWeight: "500",
-  },
 
-  /* ── Social Media Section ── */
-  socialSection: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  socialHeading: {
-    fontSize: 13,
-    color: "#8E8EA8",
-    marginBottom: 16,
-    fontWeight: "500",
-  },
-  socialButtonsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 20,
-  },
-  socialCircleBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  googleCircleInner: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  facebookCircleBtn: {
-    backgroundColor: "#1877F2",
-    borderColor: "#1877F2",
-  },
-  appleCircleBtn: {
-    backgroundColor: "#000000",
-    borderColor: "#000000",
-  },
 
   /* ── Footer Switch ── */
   footerSwitchRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 28,
   },
   footerSwitchText: {
     fontSize: 13,

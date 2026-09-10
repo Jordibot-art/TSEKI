@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
@@ -358,6 +359,7 @@ export default function HomePage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleLogout() {
+    await AsyncStorage.removeItem("tseki_remember_me");
     await supabase.auth.signOut();
     router.replace("/");
   }

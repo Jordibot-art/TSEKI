@@ -39,6 +39,8 @@ import {
   StoredQuiz,
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
+import { generateStudentAdvice } from "../lib/pedagogicalAdvice";
+import { getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Student = {
@@ -137,6 +139,7 @@ export default function ClassroomScreen() {
 
   // Student Profile Detail Modal
   const [selectedProfile, setSelectedProfile] = useState<Student | null>(null);
+  const [studentQuizResults, setStudentQuizResults] = useState<StudentQuizResult[]>([]);
 
   // Notification Alert state for this classroom
   const [classroomAlerts, setClassroomAlerts] = useState<RosterAlert[]>([]);
@@ -226,6 +229,15 @@ export default function ClassroomScreen() {
   useEffect(() => {
     loadClassroomAlerts();
   }, [loadClassroomAlerts]);
+
+  // Load per-question results for selected student profile (for advice engine)
+  useEffect(() => {
+    if (selectedProfile && id) {
+      getStudentResults(id, selectedProfile.id).then(setStudentQuizResults);
+    } else {
+      setStudentQuizResults([]);
+    }
+  }, [selectedProfile, id]);
 
   // ── Classroom Notification Handlers ────────────────────────────────────────
   function handleOpenNotifModal() {
@@ -1025,11 +1037,17 @@ export default function ClassroomScreen() {
                       <Text style={[styles.pedagogicalTitle, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>TSEKI PEDAGOGICAL ADVICE</Text>
                     </View>
                     <Text style={[styles.pedagogicalText, { color: darkMode ? "#D6D3D1" : "#475569" }]}>
-                      {profileIsTop
-                        ? `${firstName} displays exemplary proficiency! Consider assigning them as a peer tutor or creating an advanced, harder-tier quiz to keep them engaged.`
-                        : profileIsFlagged
-                          ? `${firstName} is struggling with recent formulas. I recommend compiling a shorter, 5-question multiple choice homework using the AI generator focused exclusively on introductory concepts to rebuild confidence!`
-                          : `${firstName} is maintaining steady progress across recent exercises. Recommend targeted practice on complex problem sets to help boost mastery toward the top tier.`}
+                      {generateStudentAdvice({
+                        studentName: selectedProfile.full_name,
+                        average: profileAvg,
+                        classAverage: students.length > 0 ? Math.round(students.reduce((sum, s) => sum + (s.average ?? 0), 0) / students.length) : 0,
+                        highestAvg: highestAvg,
+                        subject: classroomSubject || (schedule && schedule !== "No Subject" ? schedule : "") || "",
+                        quizTitle: quizTitleDisplay,
+                        difficulty: publishedQuizzes[0]?.difficulty,
+                        totalStudents: students.length,
+                        studentResults: studentQuizResults,
+                      })}
                     </Text>
                   </View>
                 </ScrollView>
