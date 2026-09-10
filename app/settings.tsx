@@ -33,15 +33,6 @@ const ORANGE_LIGHT = "#FFF7ED";
 const ORANGE_BORDER = "#FFEDD5";
 const TEXT_DARK = "#181920";
 
-// ── Theme accent colors ────────────────────────────────────────────────────────
-const THEME_COLORS = [
-  { label: "Orange",  value: "#FF6B00" },
-  { label: "Blue",    value: "#3B82F6" },
-  { label: "Purple",  value: "#8B5CF6" },
-  { label: "Emerald", value: "#10B981" },
-  { label: "Rose",    value: "#F43F5E" },
-  { label: "Amber",   value: "#F59E0B" },
-];
 
 function getInitials(name: string) {
   return name
@@ -95,38 +86,38 @@ export default function SettingsScreen() {
   const router = useRouter();
 
   // ── User info ──────────────────────────────────────────────────────────────
-  const [email, setEmail]             = useState("");
-  const [fullName, setFullName]       = useState("");
-  const [initials, setInitials]       = useState("T");
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [initials, setInitials] = useState("T");
   const [loadingUser, setLoadingUser] = useState(true);
 
   // ── Appearance (from global context — persisted via AsyncStorage) ───────────
-  const { darkMode, themeColor, setDarkMode, setThemeColor } = useTheme();
+  const { darkMode, themeColor, setDarkMode } = useTheme();
 
   // ── Edit Name modal ────────────────────────────────────────────────────────
   const [editVisible, setEditVisible] = useState(false);
-  const [draftName, setDraftName]     = useState("");
-  const [savingName, setSavingName]   = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   // ── Change Password modal ──────────────────────────────────────────────────
-  const [pwVisible, setPwVisible]         = useState(false);
-  const [newPw, setNewPw]                 = useState("");
-  const [confirmPw, setConfirmPw]         = useState("");
-  const [showNewPw, setShowNewPw]         = useState(false);
+  const [pwVisible, setPwVisible] = useState(false);
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
-  const [savingPw, setSavingPw]           = useState(false);
+  const [savingPw, setSavingPw] = useState(false);
 
   // ── Assessments State (Drafts & Archive) ───────────────────────────────────
-  const [drafts, setDrafts]                                 = useState<StoredQuiz[]>([]);
-  const [archived, setArchived]                             = useState<StoredQuiz[]>([]);
-  const [loadingAssessments, setLoadingAssessments]         = useState(false);
+  const [drafts, setDrafts] = useState<StoredQuiz[]>([]);
+  const [archived, setArchived] = useState<StoredQuiz[]>([]);
+  const [loadingAssessments, setLoadingAssessments] = useState(false);
   const [assessmentModalVisible, setAssessmentModalVisible] = useState(false);
-  const [assessmentTab, setAssessmentTab]                   = useState<"DRAFT" | "ARCHIVE">("DRAFT");
-  const [inspectedQuiz, setInspectedQuiz]                   = useState<StoredQuiz | null>(null);
-  const [inspectModalVisible, setInspectModalVisible]       = useState(false);
-  const [exportModalVisible, setExportModalVisible]         = useState(false);
-  const [exportingPdf, setExportingPdf]                     = useState(false);
-  const [selectedExportQuiz, setSelectedExportQuiz]         = useState<StoredQuiz | null>(null);
+  const [assessmentTab, setAssessmentTab] = useState<"DRAFT" | "ARCHIVE">("DRAFT");
+  const [inspectedQuiz, setInspectedQuiz] = useState<StoredQuiz | null>(null);
+  const [inspectModalVisible, setInspectModalVisible] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [selectedExportQuiz, setSelectedExportQuiz] = useState<StoredQuiz | null>(null);
 
   // ── Load user ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -323,12 +314,12 @@ export default function SettingsScreen() {
   }
 
   // ── Dynamic colors ─────────────────────────────────────────────────────────
-  const bg        = darkMode ? "#111827" : "#F9FAFB";
-  const card      = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain  = darkMode ? "#F9FAFB" : "#1F2937";
-  const textSub   = darkMode ? "#9CA3AF" : "#6B7280";
-  const border    = darkMode ? "#374151" : "#E5E7EB";
-  const inputBg   = darkMode ? "#374151" : "#F9FAFB";
+  const bg = darkMode ? "#111827" : "#F9FAFB";
+  const card = darkMode ? "#1F2937" : "#FFFFFF";
+  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
+  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
+  const border = darkMode ? "#374151" : "#E5E7EB";
+  const inputBg = darkMode ? "#374151" : "#F9FAFB";
   const inputText = darkMode ? "#F9FAFB" : "#1F2937";
 
   if (loadingUser) {
@@ -475,35 +466,6 @@ export default function SettingsScreen() {
               trackColor={{ false: "#D1D5DB", true: themeColor }}
               thumbColor="#FFFFFF"
             />
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: border }]} />
-
-          {/* Theme Color */}
-          <View style={styles.colorPickerWrap}>
-            <View style={styles.rowBase}>
-              <View style={[styles.iconWrap, { backgroundColor: themeColor + "22" }]}>
-                <Ionicons name="color-palette-outline" size={20} color={themeColor} />
-              </View>
-              <Text style={[styles.rowLabel, { color: textMain }]}>Theme Color</Text>
-            </View>
-            <View style={styles.colorSwatchRow}>
-              {THEME_COLORS.map((c) => (
-                <TouchableOpacity
-                  key={c.value}
-                  style={[
-                    styles.swatch,
-                    { backgroundColor: c.value },
-                    themeColor === c.value && styles.swatchSelected,
-                  ]}
-                  onPress={() => setThemeColor(c.value)}
-                >
-                  {themeColor === c.value && (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
         </View>
 
@@ -1144,7 +1106,7 @@ function SettingsRow({
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  root:    { flex: 1 },
+  root: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   header: {
@@ -1174,9 +1136,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.3)",
     alignItems: "center", justifyContent: "center",
   },
-  avatarText:    { fontSize: 22, fontWeight: "800", color: "#FFFFFF" },
-  profileName:   { fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginBottom: 2 },
-  profileEmail:  { fontSize: 12, color: "rgba(255,255,255,0.8)" },
+  avatarText: { fontSize: 22, fontWeight: "800", color: "#FFFFFF" },
+  profileName: { fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginBottom: 2 },
+  profileEmail: { fontSize: 12, color: "rgba(255,255,255,0.8)" },
   verifiedBadge: {
     width: 18,
     height: 18,
@@ -1200,7 +1162,7 @@ const styles = StyleSheet.create({
   },
   divider: { height: 1, marginLeft: 64 },
 
-  rowBase:  { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 14 },
+  rowBase: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 14 },
   iconWrap: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   rowLabel: { flex: 1, fontSize: 16, fontWeight: "500" },
 
@@ -1277,20 +1239,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  colorPickerWrap: { paddingBottom: 16 },
-  colorSwatchRow:  { flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingTop: 4 },
-  swatch:          { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  swatchSelected:  {
-    borderWidth: 3, borderColor: "#FFFFFF",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
-  },
-
   versionText: { textAlign: "center", fontSize: 12, marginTop: 8 },
 
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  modalCard:    { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 },
-  modalTitle:   { fontSize: 22, fontWeight: "800", marginBottom: 20 },
+  modalCard: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 },
+  modalTitle: { fontSize: 22, fontWeight: "800", marginBottom: 20 },
 
   input: { height: 54, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 16, fontSize: 16 },
   fieldLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, marginBottom: 8 },
@@ -1298,7 +1251,7 @@ const styles = StyleSheet.create({
   pwInput: { flex: 1, fontSize: 16 },
 
   modalActions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  cancelBtn:    { flex: 1, height: 54, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  cancelBtn: { flex: 1, height: 54, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   cancelBtnText: { fontSize: 16, fontWeight: "600" },
   saveBtn: {
     flex: 1, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center",
