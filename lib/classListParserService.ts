@@ -396,3 +396,85 @@ export function isDuplicateStudent(
     return false;
   });
 }
+
+// ── Excel Export Generator ──────────────────────────────────────────────────
+
+export interface ExportClasslistOptions {
+  classroomTitle: string;
+  subject?: string;
+  section?: string;
+  room?: string;
+  schedule?: string;
+  teacher?: string;
+  students: Array<{
+    full_name: string;
+    email?: string | null;
+    average?: number;
+    attendance?: number;
+  }>;
+}
+
+/**
+ * Generates an Excel workbook (.xlsx) from classroom metadata and student roster,
+ * returning the base64 string representation ready for FileSystem & Sharing.
+ */
+export function generateExcelClasslistBase64(options: ExportClasslistOptions): string {
+  const { classroomTitle, subject, section, room, schedule, teacher, students } = options;
+
+  const formattedDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  // Build rows array for SheetJS
+  const rows: any[][] = [
+    ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
+    ["Classroom:", classroomTitle, "", "Subject:", subject || "N/A"],
+    ["Section:", section || "N/A", "", "Room:", room || "N/A"],
+    ["Schedule:", schedule || "N/A", "", "Teacher:", teacher || "N/A"],
+    ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
+    [], // Blank separator row
+    ["Item", "Student's Name", "Email Address", "Attendance (%)", "Average Grade (%)", "Academic Status"],
+  ];
+
+  // Populate student records
+  students.forEach((s, idx) => {
+    const avg = s.average ?? 0;
+    let status = "On Track";
+    if (avg > 50) {
+      status = "Passing";
+    }
+    if (avg <= 50 && avg > 0) {
+      status = "At-Risk";
+    } else if (avg === 0) {
+      status = "No Grades Recorded";
+    }
+
+    rows.push([
+      idx + 1,
+      s.full_name,
+      s.email || "N/A",
+      s.attendance !== undefined ? `${s.attendance}%` : "100%",
+      `${avg}%`,
+      status,
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // Set standard column widths so text is nicely readable in Excel
+  ws["!cols"] = [
+    { wch: 8 },  // Item
+    { wch: 34 }, // Student's Name
+    { wch: 32 }, // Email Address
+    { wch: 18 }, // Attendance (%)
+    { wch: 20 }, // Average Grade (%)
+    { wch: 20 }, // Academic Status
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Classlist");
+
+  return XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+}

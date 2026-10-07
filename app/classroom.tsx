@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -8,6 +9,7 @@ import {
   ParsedStudentRow,
   isDuplicateStudent,
   deriveSection,
+  generateExcelClasslistBase64,
 } from "../lib/classListParserService";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -177,6 +179,7 @@ export default function ClassroomScreen() {
   const [importStudents, setImportStudents] = useState<ParsedStudentRow[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const loadClassroomAlerts = useCallback(async () => {
     if (!id) return;
@@ -619,43 +622,409 @@ export default function ClassroomScreen() {
     }
   }
 
-  // ── Export CSV Handler ─────────────────────────────────────────────────────
-  async function handleExportCSV() {
+  // ── Direct Download / Save To Phone Handler ──────────────────────────────────
+  async function writeToSafDirectory(
+    dirUri: string,
+    fileName: string,
+    mimeType: string,
+    base64Data: string
+  ): Promise<string> {
+    const { StorageAccessFramework } = FileSystem;
+
+    // 1. Delete any colliding file with the same name to prevent OEM filesystem errors
+    try {
+      const existing = await StorageAccessFramework.readDirectoryAsync(dirUri);
+      const lowerName = fileName.toLowerCase();
+      for (const itemUri of existing) {
+        const decoded = decodeURIComponent(itemUri).toLowerCase();
+        if (decoded.endsWith(`/${lowerName}`) || decoded.endsWith(`%2f${lowerName}`)) {
+          await StorageAccessFramework.deleteAsync(itemUri).catch(() => {});
+        }
+      }
+    } catch {
+      // ignore read directory errors
+    }
+
+    // 2. Build list of MIME types to attempt (from specific to universal)
+    const mimeCandidates: string[] = [];
+    if (fileName.endsWith(".xlsx")) {
+      mimeCandidates.push(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/octet-stream"
+      );
+    } else if (fileName.endsWith(".csv")) {
+      mimeCandidates.push(
+        "text/csv",
+        "text/comma-separated-values",
+        "text/plain",
+        "application/octet-stream"
+      );
+    } else {
+      mimeCandidates.push(mimeType, "application/octet-stream");
+    }
+
+    const uniqueMimes = Array.from(new Set(mimeCandidates));
+    let lastError: any = null;
+
+    // 3. Try creating file directly in selected directory
+    for (const mime of uniqueMimes) {
+      try {
+        const fileUri = await StorageAccessFramework.createFileAsync(dirUri, fileName, mime);
+        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return fileUri;
+      } catch (err: any) {
+        lastError = err;
+      }
+    }
+
+    // 4. If direct creation failed (e.g. Scoped Storage root Download restriction), try creating a "TSEKI" subfolder
+    try {
+      const subfolderUri = await StorageAccessFramework.makeDirectoryAsync(dirUri, "TSEKI");
+      for (const mime of uniqueMimes) {
+        try {
+          const fileUri = await StorageAccessFramework.createFileAsync(subfolderUri, fileName, mime);
+          await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          return fileUri;
+        } catch (err: any) {
+          lastError = err;
+        }
+      }
+    } catch {
+      // Subfolder creation not allowed on this root
+    }
+
+    throw lastError || new Error("Failed to create file in selected directory.");
+  }
+
+  async function saveDirectlyToPhone(options: {
+    fileName: string;
+    mimeType: string;
+    base64Data: string;
+    forceNewFolder?: boolean;
+  }) {
+    const { fileName, mimeType, base64Data, forceNewFolder } = options;
+
+    // Web: direct browser download
+    if (Platform.OS === "web") {
+      try {
+        const link = document.createElement("a");
+        link.href = `data:${mimeType};base64,${base64Data}`;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        Alert.alert("Downloaded", `"${fileName}" has been downloaded to your browser.`);
+      } catch (err: any) {
+        Alert.alert("Download Failed", err.message || "Could not trigger download.");
+      }
+      return;
+    }
+
+    // Android: use StorageAccessFramework to download directly into phone storage
+    if (Platform.OS === "android") {
+      const { StorageAccessFramework } = FileSystem;
+      if (!StorageAccessFramework) {
+        Alert.alert("Error", "Storage Access Framework is not available on this device.");
+        return;
+      }
+
+      let directoryUri: string | null = null;
+      if (!forceNewFolder) {
+        directoryUri = await AsyncStorage.getItem("tseki_export_directory_uri");
+      }
+
+      // If no folder remembered or forced new folder, prompt user with initialUri pointing to Documents
+      if (!directoryUri) {
+        let initialUri: string | null = null;
+        try {
+          initialUri = StorageAccessFramework.getUriForDirectoryInRoot("Documents");
+        } catch {
+          initialUri = null;
+        }
+
+        const perm = await StorageAccessFramework.requestDirectoryPermissionsAsync(initialUri);
+        if (!perm.granted) {
+          // User cancelled folder picker
+          return;
+        }
+        directoryUri = perm.directoryUri;
+      }
+
+      // Try writing to directoryUri
+      try {
+        await writeToSafDirectory(directoryUri, fileName, mimeType, base64Data);
+        // Successfully saved! Remember this working directory URI for all future downloads
+        await AsyncStorage.setItem("tseki_export_directory_uri", directoryUri);
+
+        Alert.alert(
+          "Download Complete",
+          `"${fileName}" has been downloaded directly to your phone.\n\nYou can access it in your phone's Files / Documents folder.`,
+          [
+            {
+              text: "Open File",
+              onPress: async () => {
+                try {
+                  const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
+                  await FileSystem.writeAsStringAsync(tempUri, base64Data, {
+                    encoding: FileSystem.EncodingType.Base64,
+                  });
+                  if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(tempUri, {
+                      mimeType,
+                      dialogTitle: `Open ${fileName}`,
+                    });
+                  }
+                } catch (openErr) {
+                  console.warn("Could not open file:", openErr);
+                }
+              },
+            },
+            { text: "OK", style: "default" },
+          ]
+        );
+        return;
+      } catch (writeErr: any) {
+        console.warn("Write to SAF directory failed:", writeErr);
+        // Remove bad cached URI
+        await AsyncStorage.removeItem("tseki_export_directory_uri");
+
+        // Inform user clearly about Android restrictions on root Download and prompt for Documents/subfolder
+        Alert.alert(
+          "Storage Permission Notice",
+          "Android does not allow saving directly into the root 'Download' folder.\n\nPlease select the 'Documents' folder or create/select a subfolder (like 'TSEKI') to complete the download.",
+          [
+            {
+              text: "Select Folder",
+              onPress: async () => {
+                try {
+                  let initialUri: string | null = null;
+                  try {
+                    initialUri = StorageAccessFramework.getUriForDirectoryInRoot("Documents");
+                  } catch {
+                    initialUri = null;
+                  }
+                  const retryPerm = await StorageAccessFramework.requestDirectoryPermissionsAsync(initialUri);
+                  if (retryPerm.granted) {
+                    await writeToSafDirectory(retryPerm.directoryUri, fileName, mimeType, base64Data);
+                    await AsyncStorage.setItem("tseki_export_directory_uri", retryPerm.directoryUri);
+                    Alert.alert(
+                      "Download Complete",
+                      `"${fileName}" has been downloaded directly to your phone.\n\nYou can access it in your phone's Files / Documents folder.`,
+                      [
+                        {
+                          text: "Open File",
+                          onPress: async () => {
+                            try {
+                              const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
+                              await FileSystem.writeAsStringAsync(tempUri, base64Data, {
+                                encoding: FileSystem.EncodingType.Base64,
+                              });
+                              if (await Sharing.isAvailableAsync()) {
+                                await Sharing.shareAsync(tempUri, {
+                                  mimeType,
+                                  dialogTitle: `Open ${fileName}`,
+                                });
+                              }
+                            } catch (e) {
+                              console.warn("Open error:", e);
+                            }
+                          },
+                        },
+                        { text: "OK", style: "default" },
+                      ]
+                    );
+                  }
+                } catch (retryErr: any) {
+                  Alert.alert("Download Error", retryErr.message || "Could not write file to the selected folder.");
+                }
+              },
+            },
+            { text: "Cancel", style: "cancel" },
+          ]
+        );
+        return;
+      }
+    }
+
+    // iOS: save to cache and open system share / Save to Files
+    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(fileUri, {
+        mimeType,
+        dialogTitle: `Download ${fileName}`,
+        UTI: fileName.endsWith(".xlsx")
+          ? "com.microsoft.excel.xlsx"
+          : "public.comma-separated-values-text",
+      });
+    } else {
+      Alert.alert("Download Complete", `File saved to: ${fileUri}`);
+    }
+  }
+
+  // ── Export Classlist (Excel / CSV) Handlers ──────────────────────────────────
+  async function handleExportExcel(forceNewFolder = false) {
+    if (students.length === 0) {
+      Alert.alert("No Data", "There are no students in this classroom to export.");
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      const base64 = generateExcelClasslistBase64({
+        classroomTitle: title || "Classroom",
+        subject: classroomSubject,
+        section: classroomSection,
+        room: classroomRoom,
+        schedule: classroomSchedule,
+        students,
+      });
+
+      const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
+      const fileName = `${cleanTitle}_classlist.xlsx`;
+      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+      await saveDirectlyToPhone({
+        fileName,
+        mimeType,
+        base64Data: base64,
+        forceNewFolder,
+      });
+    } catch (err: any) {
+      console.error("Excel export error:", err);
+      Alert.alert("Export Failed", err.message || "Could not export Excel file.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleExportCSV(forceNewFolder = false) {
     if (students.length === 0) {
       Alert.alert("No Data", "There are no students to export.");
       return;
     }
 
     try {
-      const header = "Name,Email,Average (%),Attendance (%)\n";
+      setIsExporting(true);
+      const header = "Item,Name,Email,Attendance (%),Average Grade (%)\n";
       const rows = students
         .map(
-          (s) =>
-            `"${s.full_name}","${s.email || ""}",${s.average ?? 0},${s.attendance ?? 100}`
+          (s, idx) =>
+            `${idx + 1},"${s.full_name}","${s.email || "N/A"}",${s.attendance ?? 100},${s.average ?? 0}`
         )
         .join("\n");
 
       const csvContent = header + rows;
-      const fileName = `${(title || "classroom").replace(/[^a-zA-Z0-9]/g, "_")}_roster.csv`;
-      const fileUri = FileSystem.cacheDirectory + fileName;
+      const cleanTitle = (title || "classroom").replace(/[^a-zA-Z0-9]/g, "_");
+      const fileName = `${cleanTitle}_roster.csv`;
+      const mimeType = "text/csv";
 
-      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+      const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(tempUri, csvContent, {
         encoding: FileSystem.EncodingType.UTF8,
       });
+      const base64 = await FileSystem.readAsStringAsync(tempUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
 
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
+      await saveDirectlyToPhone({
+        fileName,
+        mimeType,
+        base64Data: base64,
+        forceNewFolder,
+      });
+    } catch (err: any) {
+      console.error("CSV export error:", err);
+      Alert.alert("Export Failed", err.message || "Could not export CSV file.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleShareFile() {
+    if (students.length === 0) {
+      Alert.alert("No Data", "There are no students to export.");
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
+      const fileName = `${cleanTitle}_classlist.xlsx`;
+      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+      const base64 = generateExcelClasslistBase64({
+        classroomTitle: title || "Classroom",
+        subject: classroomSubject,
+        section: classroomSection,
+        room: classroomRoom,
+        schedule: classroomSchedule,
+        students,
+      });
+
+      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(fileUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
-          mimeType: "text/csv",
-          dialogTitle: `Export ${title} Roster`,
+          mimeType,
+          dialogTitle: `Share ${fileName}`,
         });
-      } else {
-        Alert.alert("Export Ready", `CSV file saved to: ${fileUri}`);
       }
     } catch (err: any) {
-      console.error("Export error:", err);
-      Alert.alert("Export Failed", err.message || "Could not export CSV.");
+      console.error("Share error:", err);
+      Alert.alert("Share Failed", err.message || "Could not share file.");
+    } finally {
+      setIsExporting(false);
     }
+  }
+
+  async function handlePromptExport() {
+    const hasSavedDir = Platform.OS === "android" && !!(await AsyncStorage.getItem("tseki_export_directory_uri"));
+
+    const buttons: Array<{ text: string; onPress?: () => void; style?: "default" | "cancel" | "destructive" }> = [
+      {
+        text: "Download Excel (.xlsx)",
+        onPress: () => handleExportExcel(false),
+      },
+      {
+        text: "Download CSV (.csv)",
+        onPress: () => handleExportCSV(false),
+      },
+      {
+        text: "Share File to App...",
+        onPress: () => handleShareFile(),
+      },
+    ];
+
+    if (hasSavedDir) {
+      buttons.push({
+        text: "Change Download Folder",
+        onPress: () => handleExportExcel(true),
+      });
+    }
+
+    buttons.push({
+      text: "Cancel",
+      style: "cancel",
+    });
+
+    Alert.alert(
+      "Download Classlist",
+      `Download ${students.length} student${students.length !== 1 ? "s" : ""} directly to your phone:`,
+      buttons
+    );
   }
 
   // ── Filtered list ──────────────────────────────────────────────────────────
@@ -841,14 +1210,23 @@ export default function ClassroomScreen() {
                   },
                 ]}
                 activeOpacity={0.8}
-                onPress={handleExportCSV}
+                onPress={handlePromptExport}
+                disabled={isExporting}
               >
-                <Ionicons
-                  name="document-text-outline"
-                  size={17}
-                  color={darkMode ? "#F3F4F6" : ORANGE}
-                />
-                <Text style={[styles.exportBtnText, { color: darkMode ? "#F3F4F6" : ORANGE }]}>Export CSV</Text>
+                {isExporting ? (
+                  <ActivityIndicator size="small" color={darkMode ? "#F3F4F6" : ORANGE} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="download-outline"
+                      size={17}
+                      color={darkMode ? "#F3F4F6" : ORANGE}
+                    />
+                    <Text style={[styles.exportBtnText, { color: darkMode ? "#F3F4F6" : ORANGE }]}>
+                      Export Excel
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.fabSmall, { backgroundColor: cardColor, shadowColor: cardColor }]}
