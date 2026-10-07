@@ -1,4 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
+import {
+  parseClasslistFile,
+  ParsedClasslistResult,
+  ParsedStudentRow,
+  isDuplicateStudent,
+  deriveSection,
+} from "../lib/classListParserService";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -137,6 +147,13 @@ export default function ClassroomScreen() {
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Edit-student modal state
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [studentToEdit, setStudentToEdit] = useState<Student | null>(null);
+  const [editFullName, setEditFullName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   // Student Profile Detail Modal
   const [selectedProfile, setSelectedProfile] = useState<Student | null>(null);
   const [studentQuizResults, setStudentQuizResults] = useState<StudentQuizResult[]>([]);
@@ -153,6 +170,13 @@ export default function ClassroomScreen() {
 
   const [confirmDeleteClassModal, setConfirmDeleteClassModal] = useState(false);
   const [isDeletingClass, setIsDeletingClass] = useState(false);
+
+  // Import Classlist Modal
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [importResult, setImportResult] = useState<ParsedClasslistResult | null>(null);
+  const [importStudents, setImportStudents] = useState<ParsedStudentRow[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
 
   const loadClassroomAlerts = useCallback(async () => {
     if (!id) return;
@@ -437,6 +461,203 @@ export default function ClassroomScreen() {
     setModalVisible(false);
   }
 
+  // ── Edit Student Handlers ───────────────────────────────────────────────────
+  function openEditModal(student: Student | null) {
+    if (!student) return;
+    setStudentToEdit(student);
+    setEditFullName(student.full_name || "");
+    setEditEmail(student.email || "");
+    setEditModalVisible(true);
+  }
+
+  function handleCancelEdit() {
+    Keyboard.dismiss();
+    setEditModalVisible(false);
+    setStudentToEdit(null);
+  }
+
+  async function handleSaveEditStudent() {
+    if (!studentToEdit || !editFullName.trim() || savingEdit) return;
+    setSavingEdit(true);
+
+    try {
+      const updatedName = editFullName.trim();
+      const updatedEmail = editEmail.trim() ? editEmail.trim() : null;
+
+      const { error } = await supabase
+        .from("students")
+        .update({
+          full_name: updatedName,
+          email: updatedEmail,
+        })
+        .eq("id", studentToEdit.id);
+
+      if (error) throw error;
+
+      // Update student in local roster state
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === studentToEdit.id
+            ? { ...s, full_name: updatedName, email: updatedEmail }
+            : s
+        )
+      );
+
+      // Update selected profile view if open
+      if (selectedProfile && selectedProfile.id === studentToEdit.id) {
+        setSelectedProfile((prev) =>
+          prev
+            ? { ...prev, full_name: updatedName, email: updatedEmail }
+            : null
+        );
+      }
+
+      Keyboard.dismiss();
+      setSavingEdit(false);
+      setEditModalVisible(false);
+      setStudentToEdit(null);
+    } catch (err: any) {
+      console.error("Failed to update student:", err);
+      Alert.alert("Update Failed", err.message || "Failed to update student record.");
+      setSavingEdit(false);
+    }
+  }
+
+  // ── Import Classlist Handler ────────────────────────────────────────────────
+  async function handleImportRecord() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+          "text/csv",
+          "application/csv",
+        ],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const file = result.assets[0];
+      setIsParsing(true);
+      setImportModalVisible(true);
+
+      const parsed = await parseClasslistFile(file.uri, file.name);
+
+      // Flag duplicates against current roster
+      const flaggedStudents = parsed.students.map((s) => ({
+        ...s,
+        selected: !isDuplicateStudent(s, students),
+      }));
+
+      setImportResult(parsed);
+      setImportStudents(flaggedStudents);
+      setIsParsing(false);
+    } catch (err: any) {
+      setIsParsing(false);
+      setImportModalVisible(false);
+      console.error("Import error:", err);
+      Alert.alert(
+        "Import Failed",
+        err.message || "Could not parse the classlist file. Please check the format."
+      );
+    }
+  }
+
+  function toggleImportStudent(index: number) {
+    setImportStudents((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, selected: !s.selected } : s))
+    );
+  }
+
+  function toggleAllImportStudents() {
+    const allSelected = importStudents.every((s) => s.selected);
+    setImportStudents((prev) => prev.map((s) => ({ ...s, selected: !allSelected })));
+  }
+
+  async function handleConfirmImport() {
+    if (isImporting) return;
+    const selectedStudents = importStudents.filter((s) => s.selected);
+    if (selectedStudents.length === 0) {
+      Alert.alert("No Students Selected", "Please select at least one student to import.");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const inserts = selectedStudents.map((s) => ({
+        classroom_id: id,
+        full_name: s.fullName,
+        email: s.email || null,
+        attendance: 100,
+        average: 0,
+      }));
+
+      const { data, error } = await supabase
+        .from("students")
+        .insert(inserts)
+        .select();
+
+      if (error) throw error;
+
+      if (data) {
+        setStudents((prev) => [...prev, ...(data as Student[])]);
+      }
+
+      setImportModalVisible(false);
+      setImportResult(null);
+      setImportStudents([]);
+      Alert.alert(
+        "Import Successful",
+        `${selectedStudents.length} student${selectedStudents.length > 1 ? "s" : ""} imported to this classroom.`
+      );
+    } catch (err: any) {
+      console.error("Import insert error:", err);
+      Alert.alert("Import Error", err.message || "Failed to insert students into the database.");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  // ── Export CSV Handler ─────────────────────────────────────────────────────
+  async function handleExportCSV() {
+    if (students.length === 0) {
+      Alert.alert("No Data", "There are no students to export.");
+      return;
+    }
+
+    try {
+      const header = "Name,Email,Average (%),Attendance (%)\n";
+      const rows = students
+        .map(
+          (s) =>
+            `"${s.full_name}","${s.email || ""}",${s.average ?? 0},${s.attendance ?? 100}`
+        )
+        .join("\n");
+
+      const csvContent = header + rows;
+      const fileName = `${(title || "classroom").replace(/[^a-zA-Z0-9]/g, "_")}_roster.csv`;
+      const fileUri = FileSystem.cacheDirectory + fileName;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: "text/csv",
+          dialogTitle: `Export ${title} Roster`,
+        });
+      } else {
+        Alert.alert("Export Ready", `CSV file saved to: ${fileUri}`);
+      }
+    } catch (err: any) {
+      console.error("Export error:", err);
+      Alert.alert("Export Failed", err.message || "Could not export CSV.");
+    }
+  }
+
   // ── Filtered list ──────────────────────────────────────────────────────────
   const filtered = students.filter(
     (s) =>
@@ -605,6 +826,7 @@ export default function ClassroomScreen() {
               <TouchableOpacity
                 style={[styles.importBtn, { backgroundColor: cardColor, shadowColor: cardColor }]}
                 activeOpacity={0.85}
+                onPress={handleImportRecord}
               >
                 <Ionicons name="cloud-upload-outline" size={17} color="#FFFFFF" />
                 <Text style={styles.importBtnText}>Import Record</Text>
@@ -619,6 +841,7 @@ export default function ClassroomScreen() {
                   },
                 ]}
                 activeOpacity={0.8}
+                onPress={handleExportCSV}
               >
                 <Ionicons
                   name="document-text-outline"
@@ -790,6 +1013,18 @@ export default function ClassroomScreen() {
                         <Text style={[styles.statLabel, { color: textSub }]}>Average</Text>
                       </View>
                       <TouchableOpacity
+                        style={[styles.editStudentRowBtn, { backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT }]}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          openEditModal(student);
+                        }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Edit student"
+                      >
+                        <Ionicons name="pencil" size={13} color={cardColor} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={[styles.deleteStudentRowBtn, { backgroundColor: darkMode ? "#374151" : "#FEE2E2" }]}
                         onPress={(e) => {
                           e.stopPropagation?.();
@@ -892,6 +1127,98 @@ export default function ClassroomScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ── Edit Student Details Modal ── */}
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCancelEdit}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <TouchableWithoutFeedback onPress={handleCancelEdit}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
+                  {/* Header */}
+                  <View style={styles.modalHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.modalTitle, { color: textMain }]}>Edit Student Details</Text>
+                      <Text style={{ fontSize: 12, color: textSub, marginTop: 2 }}>
+                        Update student name and email address
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={handleCancelEdit}
+                      style={[styles.modalCloseBtn, { backgroundColor: btnSecondaryBg }]}
+                    >
+                      <Ionicons name="close" size={22} color={textSub} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Full Name */}
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    FULL NAME <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Liam Smith or Smith, Liam"
+                    placeholderTextColor={textSub}
+                    value={editFullName}
+                    onChangeText={setEditFullName}
+                  />
+
+                  {/* Email */}
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    EMAIL ADDRESS{" "}
+                    {!editEmail.trim() ? (
+                      <Text style={{ color: ORANGE, fontSize: 11, fontWeight: "600" }}>(No email set)</Text>
+                    ) : null}
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. student@school.edu"
+                    placeholderTextColor={textSub}
+                    value={editEmail}
+                    onChangeText={setEditEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+
+                  {/* Buttons */}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.cancelBtn, { borderColor: border, backgroundColor: btnSecondaryBg }]}
+                      onPress={handleCancelEdit}
+                      disabled={savingEdit}
+                    >
+                      <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.addBtn,
+                        { backgroundColor: cardColor, shadowColor: cardColor },
+                        (!editFullName.trim() || savingEdit) && styles.addBtnDisabled,
+                      ]}
+                      onPress={handleSaveEditStudent}
+                      disabled={!editFullName.trim() || savingEdit}
+                    >
+                      {savingEdit ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.addBtnText}>Save Changes</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* ── Student Profile Modal (Popup) ── */}
       <Modal
         visible={selectedProfile !== null}
@@ -946,13 +1273,23 @@ export default function ClassroomScreen() {
                       </Text>
                     </View>
                   </View>
-                  <TouchableOpacity
-                    style={styles.profileCloseBtn}
-                    onPress={() => setSelectedProfile(null)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={18} color="#FFFFFF" />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <TouchableOpacity
+                      style={styles.profileHeaderEditBtn}
+                      onPress={() => openEditModal(selectedProfile)}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Edit Student Details"
+                    >
+                      <Ionicons name="pencil" size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.profileCloseBtn}
+                      onPress={() => setSelectedProfile(null)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={18} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 {/* Scrollable Body Content */}
@@ -963,6 +1300,30 @@ export default function ClassroomScreen() {
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled={true}
                 >
+                  {/* Missing Email Alert Banner */}
+                  {!selectedProfile.email && (
+                    <TouchableOpacity
+                      style={[
+                        styles.missingEmailBanner,
+                        {
+                          backgroundColor: darkMode ? "#374151" : "#FFF7ED",
+                          borderColor: darkMode ? "#4B5563" : "#FDBA74",
+                        },
+                      ]}
+                      onPress={() => openEditModal(selectedProfile)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="mail-unread-outline" size={20} color={ORANGE} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.missingEmailTitle, { color: textMain }]}>No Email Address Recorded</Text>
+                        <Text style={[styles.missingEmailSub, { color: textSub }]}>Tap here to add this student's email</Text>
+                      </View>
+                      <View style={[styles.missingEmailBadge, { backgroundColor: cardColor }]}>
+                        <Text style={styles.missingEmailBadgeText}>Add Email</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
                   {/* Stats Row */}
                   <View style={styles.profileStatsRow}>
                     <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
@@ -1055,18 +1416,41 @@ export default function ClassroomScreen() {
                 {/* Fixed Footer Action Buttons (Always Visible at bottom!) */}
                 <View style={[styles.profileFooter, { backgroundColor: cardBg, borderTopColor: border }]}>
                   <TouchableOpacity
-                    style={[styles.emailBtn, { backgroundColor: cardColor }]}
+                    style={[styles.editProfileBtn, { backgroundColor: cardColor }]}
+                    onPress={() => openEditModal(selectedProfile)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="pencil" size={16} color="#FFFFFF" />
+                    <Text style={styles.editProfileBtnText}>Edit</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.emailBtn,
+                      {
+                        backgroundColor: darkMode ? "#374151" : "#F3F4F6",
+                        borderWidth: 1,
+                        borderColor: border,
+                      },
+                    ]}
                     onPress={() => {
                       if (selectedProfile.email) {
                         Linking.openURL(`mailto:${selectedProfile.email}`);
                       } else {
-                        Alert.alert("No Email", `${selectedProfile.full_name} does not have an email address recorded.`);
+                        Alert.alert(
+                          "No Email Recorded",
+                          `${selectedProfile.full_name} does not have an email address recorded yet. Tap "Edit" to add their email.`,
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Edit Student", onPress: () => openEditModal(selectedProfile) },
+                          ]
+                        );
                       }
                     }}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="mail" size={16} color="#FFFFFF" />
-                    <Text style={styles.emailBtnText}>Email</Text>
+                    <Ionicons name="mail" size={16} color={textMain} />
+                    <Text style={[styles.emailBtnText, { color: textMain }]}>Email</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -1292,6 +1676,215 @@ export default function ClassroomScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+      {/* ── Import Classlist Preview Modal ── */}
+      <Modal
+        visible={importModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          if (!isImporting) {
+            setImportModalVisible(false);
+            setImportResult(null);
+            setImportStudents([]);
+          }
+        }}
+      >
+        <View style={[styles.importModalRoot, { backgroundColor: bg }]}>
+          {/* Header */}
+          <View style={[styles.importModalHeader, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.importModalHeaderTag}>
+                <Ionicons name="cloud-upload" size={14} color={cardColor} />
+                <Text style={[styles.importModalHeaderTagText, { color: cardColor }]}>IMPORT CLASSLIST</Text>
+              </View>
+              <Text style={[styles.importModalTitle, { color: textMain }]}>Review & Import</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                if (!isImporting) {
+                  setImportModalVisible(false);
+                  setImportResult(null);
+                  setImportStudents([]);
+                }
+              }}
+              style={[styles.importModalCloseBtn, { backgroundColor: btnSecondaryBg }]}
+              disabled={isImporting}
+            >
+              <Ionicons name="close" size={22} color={textSub} />
+            </TouchableOpacity>
+          </View>
+
+          {isParsing ? (
+            <View style={styles.importLoadingWrap}>
+              <ActivityIndicator size="large" color={cardColor} />
+              <Text style={[styles.importLoadingText, { color: textSub }]}>Parsing classlist...</Text>
+            </View>
+          ) : importResult ? (
+            <>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={styles.importScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {/* Metadata Card */}
+                {(importResult.metadata.subjectName || importResult.metadata.subjectCode || importResult.metadata.schedule || importResult.metadata.room || importResult.metadata.teacher) && (
+                  <View style={[styles.importMetaCard, { backgroundColor: cardBg, borderColor: border }]}>
+                    <View style={styles.importMetaCardHeader}>
+                      <Ionicons name="information-circle" size={16} color={cardColor} />
+                      <Text style={[styles.importMetaCardTitle, { color: textMain }]}>Detected Class Info</Text>
+                    </View>
+                    {importResult.metadata.subjectName ? (
+                      <View style={styles.importMetaRow}>
+                        <Text style={[styles.importMetaLabel, { color: textSub }]}>Subject</Text>
+                        <Text style={[styles.importMetaValue, { color: textMain }]} numberOfLines={2}>{importResult.metadata.subjectName}</Text>
+                      </View>
+                    ) : null}
+                    {importResult.metadata.subjectCode ? (
+                      <View style={styles.importMetaRow}>
+                        <Text style={[styles.importMetaLabel, { color: textSub }]}>Code</Text>
+                        <Text style={[styles.importMetaValue, { color: textMain }]}>{importResult.metadata.subjectCode}</Text>
+                      </View>
+                    ) : null}
+                    {importResult.metadata.schedule ? (
+                      <View style={styles.importMetaRow}>
+                        <Text style={[styles.importMetaLabel, { color: textSub }]}>Schedule</Text>
+                        <Text style={[styles.importMetaValue, { color: textMain }]}>{importResult.metadata.schedule}</Text>
+                      </View>
+                    ) : null}
+                    {importResult.metadata.room ? (
+                      <View style={styles.importMetaRow}>
+                        <Text style={[styles.importMetaLabel, { color: textSub }]}>Room</Text>
+                        <Text style={[styles.importMetaValue, { color: textMain }]}>{importResult.metadata.room}</Text>
+                      </View>
+                    ) : null}
+                    {importResult.metadata.teacher ? (
+                      <View style={styles.importMetaRow}>
+                        <Text style={[styles.importMetaLabel, { color: textSub }]}>Teacher</Text>
+                        <Text style={[styles.importMetaValue, { color: textMain }]}>{importResult.metadata.teacher}</Text>
+                      </View>
+                    ) : null}
+                    {importResult.metadata.edpCode ? (
+                      <View style={styles.importMetaRow}>
+                        <Text style={[styles.importMetaLabel, { color: textSub }]}>EDP Code</Text>
+                        <Text style={[styles.importMetaValue, { color: textMain }]}>{importResult.metadata.edpCode}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                )}
+
+                {/* Student Selection Header */}
+                <View style={styles.importStudentHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.importStudentHeaderTitle, { color: textMain }]}>
+                      Students Detected ({importStudents.length})
+                    </Text>
+                    <Text style={[styles.importStudentHeaderSub, { color: textSub }]}>
+                      {importStudents.filter((s) => s.selected).length} selected for import
+                      {importStudents.some((s) => !s.selected && isDuplicateStudent(s, students)) &&
+                        " • Duplicates auto-deselected"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.importSelectAllBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
+                    onPress={toggleAllImportStudents}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={importStudents.every((s) => s.selected) ? "checkbox" : "square-outline"}
+                      size={18}
+                      color={importStudents.every((s) => s.selected) ? cardColor : textSub}
+                    />
+                    <Text style={[styles.importSelectAllText, { color: textMain }]}>
+                      {importStudents.every((s) => s.selected) ? "Deselect All" : "Select All"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Student List */}
+                {importStudents.map((student, index) => {
+                  const isDup = isDuplicateStudent(student, students);
+                  return (
+                    <TouchableOpacity
+                      key={`import-${index}`}
+                      style={[
+                        styles.importStudentRow,
+                        {
+                          backgroundColor: cardBg,
+                          borderColor: isDup ? (darkMode ? "#92400E" : "#FDE68A") : student.selected ? cardColor : border,
+                          borderWidth: student.selected ? 1.5 : 1,
+                          opacity: student.selected ? 1 : 0.6,
+                        },
+                      ]}
+                      onPress={() => toggleImportStudent(index)}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons
+                        name={student.selected ? "checkbox" : "square-outline"}
+                        size={22}
+                        color={student.selected ? cardColor : textSub}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={[styles.importStudentName, { color: textMain }]} numberOfLines={1}>
+                            {student.fullName}
+                          </Text>
+                          {isDup && (
+                            <View style={[styles.importDupBadge, { backgroundColor: darkMode ? "#78350F" : "#FEF3C7" }]}>
+                              <Text style={[styles.importDupBadgeText, { color: darkMode ? "#FCD34D" : "#92400E" }]}>Duplicate</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.importStudentDetail, { color: textSub }]} numberOfLines={1}>
+                          {[student.studentId, student.email, student.course, student.gender]
+                            .filter(Boolean)
+                            .join(" • ") || "No additional info"}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Footer */}
+              <View style={[styles.importFooter, { backgroundColor: cardBg, borderTopColor: border }]}>
+                <TouchableOpacity
+                  style={[styles.importCancelBtn, { backgroundColor: btnSecondaryBg }]}
+                  onPress={() => {
+                    setImportModalVisible(false);
+                    setImportResult(null);
+                    setImportStudents([]);
+                  }}
+                  disabled={isImporting}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.importCancelBtnText, { color: textSub }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.importConfirmBtn,
+                    { backgroundColor: cardColor, shadowColor: cardColor },
+                    (isImporting || importStudents.filter((s) => s.selected).length === 0) && styles.btnDisabled,
+                  ]}
+                  onPress={handleConfirmImport}
+                  disabled={isImporting || importStudents.filter((s) => s.selected).length === 0}
+                  activeOpacity={0.85}
+                >
+                  {isImporting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="cloud-upload" size={17} color="#FFFFFF" />
+                      <Text style={styles.importConfirmBtnText}>
+                        Import {importStudents.filter((s) => s.selected).length} Student{importStudents.filter((s) => s.selected).length !== 1 ? "s" : ""}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
         </View>
       </Modal>
     </View>
@@ -1853,6 +2446,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  profileHeaderEditBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  missingEmailBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  missingEmailTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  missingEmailSub: {
+    fontSize: 11.5,
+    marginTop: 1,
+  },
+  missingEmailBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  missingEmailBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   profileScroll: {
     flexGrow: 0,
     flexShrink: 1,
@@ -2014,6 +2642,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
+  },
+  editProfileBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 23,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  editProfileBtnText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   emailBtn: {
     flex: 1,
@@ -2212,6 +2854,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  editStudentRowBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+  },
   deleteStudentRowBtn: {
     width: 30,
     height: 30,
@@ -2307,5 +2957,180 @@ const styles = StyleSheet.create({
   },
   btnDisabled: {
     opacity: 0.6,
+  },
+
+  /* ── Import Classlist Modal ── */
+  importModalRoot: {
+    flex: 1,
+  },
+  importModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  importModalHeaderTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 4,
+  },
+  importModalHeaderTagText: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  importModalTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  importModalCloseBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importLoadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  importLoadingText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  importScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+  importMetaCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  importMetaCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 12,
+  },
+  importMetaCardTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  importMetaRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+  },
+  importMetaLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    width: 72,
+  },
+  importMetaValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    flex: 1,
+    textAlign: "right",
+  },
+  importStudentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  importStudentHeaderTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  importStudentHeaderSub: {
+    fontSize: 11.5,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  importSelectAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  importSelectAllText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  importStudentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  importStudentName: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  importStudentDetail: {
+    fontSize: 11.5,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  importDupBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  importDupBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  importFooter: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 36,
+    borderTopWidth: 1,
+  },
+  importCancelBtn: {
+    flex: 0.4,
+    height: 50,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importCancelBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  importConfirmBtn: {
+    flex: 0.6,
+    height: 50,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  importConfirmBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

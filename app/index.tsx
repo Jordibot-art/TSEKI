@@ -176,17 +176,12 @@ export default function AuthScreen() {
       }
 
       if (data.session) {
-        Alert.alert("Welcome to TSEKI! 🎉", "Your account has been created.");
         router.replace("/homepage");
       } else {
         // Verification OTP required
         setOtpToken("");
         setResendCountdown(60);
         setCurrentView("otp");
-        Alert.alert(
-          "Verification Code Sent 📩",
-          `A 6-digit OTP has been sent to ${registerEmail.trim()}. Enter it below to confirm your account.`
-        );
       }
     } catch (err: any) {
       Alert.alert("Error", err.message || "An unexpected error occurred.");
@@ -228,7 +223,6 @@ export default function AuthScreen() {
         return;
       }
 
-      Alert.alert("Verified! 🎉", "Your account is active. Welcome to Tseki!");
       router.replace("/homepage");
     } catch (err: any) {
       Alert.alert("Error", err.message || "An error occurred during verification.");
