@@ -1,10 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    Keyboard,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -20,8 +23,11 @@ import {
     SupportedDocType,
 } from "../lib/documentParserService";
 import {
+    AnswerKeyItem,
     GeneratedAssessment,
-    generateScannableQuiz
+    generateScannableQuiz,
+    QuestionType,
+    ScannableQuestion,
 } from "../lib/quizGeneratorService";
 import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
 import { useTheme } from "../context/ThemeContext";
@@ -202,6 +208,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [savingDraft, setSavingDraft] = useState(false);
     const [publishingQuiz, setPublishingQuiz] = useState(false);
 
+    // ── Manual Add Question state ─────────────────────────────────────────────
+    const [addQuestionModalOpen, setAddQuestionModalOpen] = useState(false);
+    const [manualQType, setManualQType] = useState<QuestionType>("multiple_choice");
+    const [manualQText, setManualQText] = useState("");
+    const [manualChoices, setManualChoices] = useState<string[]>(["A) ", "B) ", "C) ", "D) "]);
+    const [manualCorrectAnswer, setManualCorrectAnswer] = useState("");
+    const [manualPoints, setManualPoints] = useState("1");
+    const [manualEnumCount, setManualEnumCount] = useState("3");
+    const addQScrollRef = useRef<ScrollView>(null);
+
     // ── File handler ───────────────────────────────────────────────────────────
     async function handleAttachFile() {
         try {
@@ -299,6 +315,120 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setTopic("");
         setSubject(resolvedSubject);
         setAttachedFile(null);
+    }
+
+    // ── Manual question helpers ────────────────────────────────────────────────
+    function resetManualForm() {
+        setManualQType("multiple_choice");
+        setManualQText("");
+        setManualChoices(["A) ", "B) ", "C) ", "D) "]);
+        setManualCorrectAnswer("");
+        setManualPoints("1");
+        setManualEnumCount("3");
+    }
+
+    function openAddQuestionModal() {
+        resetManualForm();
+        setAddQuestionModalOpen(true);
+    }
+
+    function handleManualQTypeChange(type: QuestionType) {
+        setManualQType(type);
+        setManualCorrectAnswer("");
+        if (type === "multiple_choice") {
+            setManualChoices(["A) ", "B) ", "C) ", "D) "]);
+        } else if (type === "true_false") {
+            setManualChoices(["A) True", "B) False"]);
+        } else {
+            setManualChoices([]);
+        }
+    }
+
+    function updateChoice(index: number, value: string) {
+        setManualChoices((prev) => {
+            const updated = [...prev];
+            updated[index] = value;
+            return updated;
+        });
+    }
+
+    function addChoice() {
+        const nextLetter = String.fromCharCode(65 + manualChoices.length);
+        setManualChoices((prev) => [...prev, `${nextLetter}) `]);
+    }
+
+    function removeChoice(index: number) {
+        setManualChoices((prev) => prev.filter((_, i) => i !== index));
+    }
+
+    function handleAddManualQuestion() {
+        if (!generatedAssessment) return;
+        const trimmedText = manualQText.trim();
+        if (!trimmedText) {
+            Alert.alert("Missing Question", "Please enter the question text.");
+            return;
+        }
+        const trimmedAnswer = manualCorrectAnswer.trim();
+        if (!trimmedAnswer) {
+            Alert.alert("Missing Answer", "Please enter the correct answer.");
+            return;
+        }
+
+        const nextNumber = generatedAssessment.questions.length + 1;
+        const enumCount = parseInt(manualEnumCount, 10) || 3;
+
+        const newQuestion: ScannableQuestion = {
+            questionNumber: nextNumber,
+            type: manualQType,
+            questionText: trimmedText,
+            options: (manualQType === "multiple_choice" || manualQType === "true_false")
+                ? manualChoices.filter((c) => c.trim().length > 0)
+                : [],
+            answerBoxesRequired: manualQType === "enumeration" ? Math.min(Math.max(enumCount, 2), 6) : 1,
+        };
+
+        const newAnswerKey: AnswerKeyItem = {
+            questionNumber: nextNumber,
+            correctAnswer: trimmedAnswer,
+            points: parseInt(manualPoints, 10) || 1,
+        };
+
+        setGeneratedAssessment({
+            ...generatedAssessment,
+            questions: [...generatedAssessment.questions, newQuestion],
+            answerKey: [...generatedAssessment.answerKey, newAnswerKey],
+        });
+
+        setAddQuestionModalOpen(false);
+        resetManualForm();
+    }
+
+    function handleDeleteQuestion(questionNumber: number) {
+        if (!generatedAssessment) return;
+        Alert.alert(
+            "Delete Question",
+            `Remove question #${questionNumber}? Remaining questions will be renumbered.`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => {
+                        const filteredQ = generatedAssessment.questions
+                            .filter((q) => q.questionNumber !== questionNumber)
+                            .map((q, idx) => ({ ...q, questionNumber: idx + 1 }));
+                        const filteredA = generatedAssessment.answerKey
+                            .filter((a) => a.questionNumber !== questionNumber)
+                            .map((a, idx) => ({ ...a, questionNumber: idx + 1 }));
+                        setGeneratedAssessment({
+                            ...generatedAssessment,
+                            questions: filteredQ,
+                            answerKey: filteredA,
+                        });
+                    },
+                },
+            ]
+        );
     }
 
     async function handleExportPaper(includeKey: boolean = false, paperSize: BondPaperSize = "short") {
@@ -609,6 +739,14 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                         </View>
                                         <Text style={[styles.questionText, { color: textMain }]} numberOfLines={4}>{q.questionText}</Text>
                                     </View>
+                                    {/* Delete question button */}
+                                    <TouchableOpacity
+                                        onPress={() => handleDeleteQuestion(q.questionNumber)}
+                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                        style={styles.deleteQBtn}
+                                    >
+                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                    </TouchableOpacity>
                                 </View>
 
                                 {q.options && q.options.length > 0 && (
@@ -664,6 +802,24 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             </View>
                         );
                     })}
+
+                    {/* ── Add Question Manually Button ── */}
+                    <TouchableOpacity
+                        style={[styles.addQuestionBtn, { borderColor: accentColor }]}
+                        onPress={openAddQuestionModal}
+                        activeOpacity={0.7}
+                    >
+                        <View style={[styles.addQuestionIconCircle, { backgroundColor: accentColor + "18" }]}>
+                            <Ionicons name="add" size={20} color={accentColor} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.addQuestionTitle, { color: accentColor }]}>Add Question Manually</Text>
+                            <Text style={[styles.addQuestionSub, { color: textSub }]}>
+                                Add your own question to this assessment
+                            </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={accentColor} />
+                    </TouchableOpacity>
 
                     {/* ── Export / Print Test Paper Button ── */}
                     <TouchableOpacity
@@ -848,6 +1004,265 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </TouchableOpacity>
                     </View>
                 </TouchableOpacity>
+            </Modal>
+
+            {/* ── Add Question Manually Modal ── */}
+            <Modal
+                visible={addQuestionModalOpen}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setAddQuestionModalOpen(false)}
+            >
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === "ios" ? "padding" : undefined}
+                >
+                    <TouchableOpacity
+                        style={styles.addQOverlay}
+                        activeOpacity={1}
+                        onPress={() => { Keyboard.dismiss(); }}
+                    >
+                        <View style={[styles.addQSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
+                            <ScrollView
+                                ref={addQScrollRef}
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                contentContainerStyle={{ paddingBottom: 20 }}
+                            >
+                                {/* Header */}
+                                <View style={styles.addQHeader}>
+                                    <View style={[styles.addQIconBg, { backgroundColor: accentColor + "18" }]}>
+                                        <Ionicons name="create" size={22} color={accentColor} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.addQTitle, { color: textMain }]}>Add Question Manually</Text>
+                                        <Text style={[styles.addQSubTitle, { color: textSub }]}>Create a custom question for this assessment</Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => setAddQuestionModalOpen(false)}>
+                                        <Ionicons name="close" size={24} color={textSub} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Question Type Selector */}
+                                <Text style={[styles.addQLabel, { color: textSub }]}>QUESTION TYPE</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                                    <View style={styles.addQTypeRow}>
+                                        {([
+                                            { key: "multiple_choice" as QuestionType, label: "Multiple Choice", icon: "list" as const },
+                                            { key: "true_false" as QuestionType, label: "True / False", icon: "checkmark-done" as const },
+                                            { key: "identification" as QuestionType, label: "Identification", icon: "text" as const },
+                                            { key: "fill_blank" as QuestionType, label: "Fill in Blank", icon: "pencil" as const },
+                                            { key: "enumeration" as QuestionType, label: "Enumeration", icon: "reorder-three" as const },
+                                        ]).map((t) => (
+                                            <TouchableOpacity
+                                                key={t.key}
+                                                style={[
+                                                    styles.addQTypeChip,
+                                                    { backgroundColor: inputBg, borderColor: border },
+                                                    manualQType === t.key && { backgroundColor: accentColor, borderColor: accentColor },
+                                                ]}
+                                                onPress={() => handleManualQTypeChange(t.key)}
+                                            >
+                                                <Ionicons
+                                                    name={t.icon}
+                                                    size={14}
+                                                    color={manualQType === t.key ? "#FFFFFF" : textSub}
+                                                />
+                                                <Text style={[
+                                                    styles.addQTypeChipText,
+                                                    { color: textSub },
+                                                    manualQType === t.key && { color: "#FFFFFF" },
+                                                ]}>
+                                                    {t.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </ScrollView>
+
+                                {/* Question Text */}
+                                <Text style={[styles.addQLabel, { color: textSub }]}>QUESTION TEXT <Text style={styles.required}>*</Text></Text>
+                                <TextInput
+                                    style={[styles.addQTextInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                                    placeholder={manualQType === "enumeration"
+                                        ? "e.g. Name 3 greenhouse gases:"
+                                        : "Enter your question here..."}
+                                    placeholderTextColor={textSub}
+                                    value={manualQText}
+                                    onChangeText={setManualQText}
+                                    multiline
+                                    textAlignVertical="top"
+                                />
+
+                                {/* Choices (for MC and T/F) */}
+                                {(manualQType === "multiple_choice" || manualQType === "true_false") && (
+                                    <>
+                                        <Text style={[styles.addQLabel, { color: textSub }]}>CHOICES</Text>
+                                        {manualChoices.map((choice, idx) => (
+                                            <View key={idx} style={styles.addQChoiceRow}>
+                                                <View style={[styles.addQChoiceLetter, { backgroundColor: accentColor + "18" }]}>
+                                                    <Text style={[styles.addQChoiceLetterText, { color: accentColor }]}>
+                                                        {String.fromCharCode(65 + idx)}
+                                                    </Text>
+                                                </View>
+                                                <TextInput
+                                                    style={[
+                                                        styles.addQChoiceInput,
+                                                        { backgroundColor: inputBg, borderColor: border, color: textMain },
+                                                    ]}
+                                                    placeholder={`Choice ${String.fromCharCode(65 + idx)}...`}
+                                                    placeholderTextColor={textSub}
+                                                    value={choice}
+                                                    onChangeText={(v) => updateChoice(idx, v)}
+                                                    editable={manualQType !== "true_false"}
+                                                />
+                                                {manualQType === "multiple_choice" && manualChoices.length > 2 && (
+                                                    <TouchableOpacity onPress={() => removeChoice(idx)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                                        <Ionicons name="close-circle" size={20} color="#EF4444" />
+                                                    </TouchableOpacity>
+                                                )}
+                                            </View>
+                                        ))}
+                                        {manualQType === "multiple_choice" && manualChoices.length < 6 && (
+                                            <TouchableOpacity
+                                                style={[styles.addQAddChoiceBtn, { borderColor: border }]}
+                                                onPress={addChoice}
+                                            >
+                                                <Ionicons name="add-circle-outline" size={16} color={accentColor} />
+                                                <Text style={[styles.addQAddChoiceText, { color: accentColor }]}>Add Choice</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Enumeration: how many items */}
+                                {manualQType === "enumeration" && (
+                                    <>
+                                        <Text style={[styles.addQLabel, { color: textSub }]}>NUMBER OF ITEMS TO ENUMERATE</Text>
+                                        <View style={styles.addQEnumRow}>
+                                            {["2", "3", "4", "5", "6"].map((n) => (
+                                                <TouchableOpacity
+                                                    key={n}
+                                                    style={[
+                                                        styles.addQEnumBtn,
+                                                        { backgroundColor: inputBg, borderColor: border },
+                                                        manualEnumCount === n && { backgroundColor: accentColor, borderColor: accentColor },
+                                                    ]}
+                                                    onPress={() => setManualEnumCount(n)}
+                                                >
+                                                    <Text style={[
+                                                        styles.addQEnumBtnText,
+                                                        { color: textSub },
+                                                        manualEnumCount === n && { color: "#FFFFFF" },
+                                                    ]}>{n}</Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    </>
+                                )}
+
+                                {/* Correct Answer */}
+                                <Text style={[styles.addQLabel, { color: textSub }]}>
+                                    CORRECT ANSWER <Text style={styles.required}>*</Text>
+                                </Text>
+                                {manualQType === "true_false" ? (
+                                    <View style={styles.addQTFRow}>
+                                        {[{ label: "True", val: "T" }, { label: "False", val: "F" }].map((tf) => (
+                                            <TouchableOpacity
+                                                key={tf.val}
+                                                style={[
+                                                    styles.addQTFBtn,
+                                                    { backgroundColor: inputBg, borderColor: border },
+                                                    manualCorrectAnswer === tf.val && { backgroundColor: accentColor, borderColor: accentColor },
+                                                ]}
+                                                onPress={() => setManualCorrectAnswer(tf.val)}
+                                            >
+                                                <Text style={[
+                                                    styles.addQTFBtnText,
+                                                    { color: textSub },
+                                                    manualCorrectAnswer === tf.val && { color: "#FFFFFF" },
+                                                ]}>{tf.label}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                ) : manualQType === "multiple_choice" ? (
+                                    <View style={styles.addQMCAnswerRow}>
+                                        {manualChoices.map((_, idx) => {
+                                            const letter = String.fromCharCode(65 + idx);
+                                            return (
+                                                <TouchableOpacity
+                                                    key={letter}
+                                                    style={[
+                                                        styles.addQMCAnswerBtn,
+                                                        { backgroundColor: inputBg, borderColor: border },
+                                                        manualCorrectAnswer === letter && { backgroundColor: accentColor, borderColor: accentColor },
+                                                    ]}
+                                                    onPress={() => setManualCorrectAnswer(letter)}
+                                                >
+                                                    <Text style={[
+                                                        styles.addQMCAnswerBtnText,
+                                                        { color: textSub },
+                                                        manualCorrectAnswer === letter && { color: "#FFFFFF" },
+                                                    ]}>{letter}</Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                ) : (
+                                    <TextInput
+                                        style={[styles.addQAnswerInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                                        placeholder={manualQType === "enumeration"
+                                            ? "e.g. Carbon dioxide, Methane, Water vapor"
+                                            : "Enter the correct answer..."}
+                                        placeholderTextColor={textSub}
+                                        value={manualCorrectAnswer}
+                                        onChangeText={setManualCorrectAnswer}
+                                    />
+                                )}
+
+                                {/* Points */}
+                                <Text style={[styles.addQLabel, { color: textSub }]}>POINTS</Text>
+                                <View style={styles.addQPointsRow}>
+                                    {["1", "2", "3", "5"].map((p) => (
+                                        <TouchableOpacity
+                                            key={p}
+                                            style={[
+                                                styles.addQPointBtn,
+                                                { backgroundColor: inputBg, borderColor: border },
+                                                manualPoints === p && { backgroundColor: accentColor, borderColor: accentColor },
+                                            ]}
+                                            onPress={() => setManualPoints(p)}
+                                        >
+                                            <Text style={[
+                                                styles.addQPointBtnText,
+                                                { color: textSub },
+                                                manualPoints === p && { color: "#FFFFFF" },
+                                            ]}>{p} pt{parseInt(p) > 1 ? "s" : ""}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                {/* Submit Button */}
+                                <TouchableOpacity
+                                    style={[styles.addQSubmitBtn, { backgroundColor: accentColor }]}
+                                    onPress={handleAddManualQuestion}
+                                    activeOpacity={0.85}
+                                >
+                                    <Ionicons name="add-circle" size={18} color="#FFFFFF" />
+                                    <Text style={styles.addQSubmitText}>Add to Assessment</Text>
+                                </TouchableOpacity>
+
+                                {/* Cancel */}
+                                <TouchableOpacity
+                                    style={styles.addQCancelBtn}
+                                    onPress={() => setAddQuestionModalOpen(false)}
+                                >
+                                    <Text style={[styles.addQCancelText, { color: textSub }]}>Cancel</Text>
+                                </TouchableOpacity>
+                            </ScrollView>
+                        </View>
+                    </TouchableOpacity>
+                </KeyboardAvoidingView>
             </Modal>
         </ScrollView>
     );
@@ -1269,5 +1684,252 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: "#9CA3AF",
         fontWeight: "500",
+    },
+
+    /* ── Delete Question Button ── */
+    deleteQBtn: {
+        padding: 6,
+        marginLeft: 4,
+    },
+
+    /* ── Add Question Button ── */
+    addQuestionBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        borderWidth: 2,
+        borderStyle: "dashed",
+        borderRadius: 14,
+        padding: 16,
+        gap: 12,
+        marginBottom: 12,
+    },
+    addQuestionIconCircle: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQuestionTitle: {
+        fontSize: 14,
+        fontWeight: "700",
+    },
+    addQuestionSub: {
+        fontSize: 11,
+        marginTop: 2,
+    },
+
+    /* ── Add Question Modal ── */
+    addQOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "flex-end",
+    },
+    addQSheet: {
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 20,
+        maxHeight: "90%",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+        elevation: 12,
+    },
+    addQHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        marginBottom: 20,
+    },
+    addQIconBg: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQTitle: {
+        fontSize: 17,
+        fontWeight: "800",
+    },
+    addQSubTitle: {
+        fontSize: 12,
+        marginTop: 2,
+    },
+    addQLabel: {
+        fontSize: 11,
+        fontWeight: "700",
+        letterSpacing: 0.6,
+        marginBottom: 8,
+        marginTop: 16,
+    },
+    addQTypeRow: {
+        flexDirection: "row",
+        gap: 8,
+    },
+    addQTypeChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+        borderWidth: 1.5,
+    },
+    addQTypeChipText: {
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    addQTextInput: {
+        borderWidth: 1.5,
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingTop: 12,
+        paddingBottom: 12,
+        fontSize: 14,
+        minHeight: 80,
+    },
+    addQChoiceRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8,
+    },
+    addQChoiceLetter: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQChoiceLetterText: {
+        fontSize: 14,
+        fontWeight: "700",
+    },
+    addQChoiceInput: {
+        flex: 1,
+        height: 44,
+        borderWidth: 1.5,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        fontSize: 14,
+    },
+    addQAddChoiceBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingVertical: 10,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderStyle: "dashed",
+        marginBottom: 4,
+    },
+    addQAddChoiceText: {
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    addQEnumRow: {
+        flexDirection: "row",
+        gap: 8,
+    },
+    addQEnumBtn: {
+        flex: 1,
+        height: 40,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQEnumBtnText: {
+        fontSize: 15,
+        fontWeight: "700",
+    },
+    addQTFRow: {
+        flexDirection: "row",
+        gap: 12,
+    },
+    addQTFBtn: {
+        flex: 1,
+        height: 48,
+        borderRadius: 12,
+        borderWidth: 1.5,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQTFBtnText: {
+        fontSize: 15,
+        fontWeight: "700",
+    },
+    addQMCAnswerRow: {
+        flexDirection: "row",
+        gap: 10,
+    },
+    addQMCAnswerBtn: {
+        flex: 1,
+        height: 44,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQMCAnswerBtnText: {
+        fontSize: 16,
+        fontWeight: "700",
+    },
+    addQAnswerInput: {
+        height: 48,
+        borderWidth: 1.5,
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        fontSize: 14,
+    },
+    addQPointsRow: {
+        flexDirection: "row",
+        gap: 10,
+    },
+    addQPointBtn: {
+        flex: 1,
+        height: 40,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    addQPointBtnText: {
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    addQSubmitBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        height: 52,
+        borderRadius: 14,
+        marginTop: 24,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.18,
+        shadowRadius: 6,
+        elevation: 4,
+    },
+    addQSubmitText: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: "#FFFFFF",
+    },
+    addQCancelBtn: {
+        alignItems: "center",
+        justifyContent: "center",
+        height: 44,
+        marginTop: 8,
+    },
+    addQCancelText: {
+        fontSize: 14,
+        fontWeight: "600",
     },
 });
