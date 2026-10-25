@@ -29,7 +29,7 @@ import {
     QuestionType,
     ScannableQuestion,
 } from "../lib/quizGeneratorService";
-import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
+import { saveDraftQuiz, savePublishedQuiz, shuffleAssessmentQuestions } from "../lib/quizStore";
 import { useTheme } from "../context/ThemeContext";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
@@ -507,6 +507,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         }
     }
 
+    function handleShuffleGeneratedQuiz() {
+        if (!generatedAssessment || generatedAssessment.questions.length <= 1) return;
+        const shuffled = shuffleAssessmentQuestions(generatedAssessment);
+        setGeneratedAssessment(shuffled);
+        Alert.alert(
+            "Questions Shuffled!",
+            `Randomized the question order (1 to ${shuffled.questions.length}) and synchronized the answer key. Ready to export or publish!`
+        );
+    }
+
     const canGenerate = (topic.trim().length > 0 || attachedFile !== null) && !generating;
 
     return (
@@ -708,8 +718,27 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 {generatedAssessment?.questions.length || questionCount} Questions • {difficulty} • Scannable Paper Layout
                             </Text>
                         </View>
-                        <TouchableOpacity onPress={handleReset}>
+                        <TouchableOpacity
+                            onPress={handleShuffleGeneratedQuiz}
+                            style={{ padding: 6, marginRight: 2 }}
+                            accessibilityLabel="Shuffle Questions"
+                        >
+                            <Ionicons name="shuffle" size={21} color={accentColor} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={handleReset} style={{ padding: 6 }}>
                             <Ionicons name="refresh" size={20} color={accentColor} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Quick Shuffle Toolbar */}
+                    <View style={styles.resultsActionsToolbar}>
+                        <TouchableOpacity
+                            style={[styles.quickShuffleBtn, { borderColor: accentColor + "55", backgroundColor: accentColor + "12" }]}
+                            onPress={handleShuffleGeneratedQuiz}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="shuffle" size={15} color={accentColor} />
+                            <Text style={[styles.quickShuffleBtnText, { color: accentColor }]}>Shuffle Questions (1..N)</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -1931,5 +1960,24 @@ const styles = StyleSheet.create({
     addQCancelText: {
         fontSize: 14,
         fontWeight: "600",
+    },
+    resultsActionsToolbar: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        marginBottom: 12,
+    },
+    quickShuffleBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 10,
+        borderWidth: 1.5,
+    },
+    quickShuffleBtnText: {
+        fontSize: 13,
+        fontWeight: "700",
     },
 });

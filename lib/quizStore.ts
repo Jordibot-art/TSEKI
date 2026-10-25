@@ -344,6 +344,149 @@ export async function deletePublishedQuiz(classroomId: string, quizId: string): 
     return false;
 }
 
+/**
+ * Shuffles questions in an assessment and aligns the answer key with the new question order.
+ * Renumbers questions and answer key 1..N.
+ */
+export function shuffleAssessmentQuestions<T extends GeneratedAssessment>(assessment: T): T {
+    if (!assessment || !Array.isArray(assessment.questions) || assessment.questions.length <= 1) {
+        return assessment;
+    }
+
+    const questions = [...assessment.questions];
+    const answerKey = Array.isArray(assessment.answerKey) ? [...assessment.answerKey] : [];
+
+    // Pair each question with its matching answer key item using questionNumber
+    const paired = questions.map((q) => {
+        const answer = answerKey.find((a) => a.questionNumber === q.questionNumber);
+        return {
+            question: { ...q },
+            answer: answer ? { ...answer } : null,
+        };
+    });
+
+    // Fisher-Yates shuffle algorithm
+    for (let i = paired.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [paired[i], paired[j]] = [paired[j], paired[i]];
+    }
+
+    // Renumber 1..N
+    const newQuestions = paired.map((item, idx) => ({
+        ...item.question,
+        questionNumber: idx + 1,
+    }));
+
+    const newAnswerKey = paired.map((item, idx) => ({
+        questionNumber: idx + 1,
+        correctAnswer: item.answer ? item.answer.correctAnswer : "",
+        points: item.answer?.points ?? 1,
+    }));
+
+    return {
+        ...assessment,
+        questions: newQuestions,
+        answerKey: newAnswerKey,
+    };
+}
+
+/**
+ * Updates an existing published/archived assessment in both Supabase cloud database
+ * and local device storage (e.g. after shuffling questions).
+ */
+export async function updatePublishedQuiz(
+    classroomId: string,
+    quizId: string,
+    updates: Partial<StoredQuiz>
+): Promise<StoredQuiz | null> {
+    const key = `${STORAGE_PREFIX}${classroomId}`;
+    const nowIso = new Date().toISOString();
+
+    try {
+        // 1. Fetch current local list
+        const existingJson = await AsyncStorage.getItem(key);
+        const existing: StoredQuiz[] = existingJson ? JSON.parse(existingJson) : [];
+        const index = existing.findIndex((q) => q.id === quizId);
+
+        let targetQuiz: StoredQuiz;
+        if (index !== -1) {
+            targetQuiz = {
+                ...existing[index],
+                ...updates,
+                updatedAt: nowIso,
+            };
+            existing[index] = targetQuiz;
+            await AsyncStorage.setItem(key, JSON.stringify(existing));
+        } else {
+            targetQuiz = {
+                id: quizId,
+                classroomId,
+                ...updates,
+                updatedAt: nowIso,
+            } as StoredQuiz;
+        }
+
+        // 2. Synchronize to Supabase Cloud Database
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                targetQuiz.teacherId = user.id;
+                const dbPayload = mapStoredQuizToDbPayload(targetQuiz, user.id);
+                const { error: dbError } = await supabase
+                    .from("archived_assessments")
+                    .upsert(dbPayload);
+
+                if (dbError) {
+                    console.warn("Could not update Supabase archived_assessments:", dbError.message);
+                } else {
+                    targetQuiz.isCloudSynced = true;
+                }
+            }
+        } catch (dbErr) {
+            console.warn("Database archive update error:", dbErr);
+        }
+
+        return targetQuiz;
+    } catch (err) {
+        console.error("Failed to update published quiz:", err);
+        return null;
+    }
+}
+
+/**
+ * Creates a shuffled copy of an archived quiz (e.g. Set B for Section 2)
+ * and saves it directly to the archive.
+ */
+export async function duplicateAsShuffledQuiz(
+    originalQuiz: StoredQuiz,
+    options?: {
+        newTitle?: string;
+        targetClassroomId?: string;
+        targetClassTitle?: string;
+    }
+): Promise<StoredQuiz> {
+    const shuffled = shuffleAssessmentQuestions(originalQuiz);
+    const newQuizId = `quiz_${Date.now()}`;
+    const targetClassroomId = options?.targetClassroomId || originalQuiz.classroomId;
+    const targetClassTitle = options?.targetClassTitle || originalQuiz.classTitle;
+    const newTitle = options?.newTitle?.trim() || `${originalQuiz.quizTitle} (Set B)`;
+
+    const duplicatedQuiz: GeneratedAssessment & Partial<StoredQuiz> = {
+        ...shuffled,
+        id: newQuizId,
+        quizTitle: newTitle,
+        classroomId: targetClassroomId,
+        classTitle: targetClassTitle,
+        subject: originalQuiz.subject,
+        difficulty: originalQuiz.difficulty,
+        questionType: originalQuiz.questionType,
+        gradeLevel: originalQuiz.gradeLevel,
+        createdAt: new Date().toISOString(),
+    };
+
+    return await savePublishedQuiz(targetClassroomId, duplicatedQuiz as GeneratedAssessment, targetClassTitle);
+}
+
 // ── Device-Local Draft Store (Instagram-Style 7-Day Cache) ─────────────────────
 
 /**

@@ -598,20 +598,22 @@ export default function HomePage() {
             </View>
           </Pressable>
         ))}
+      </ScrollView>
 
-        {/* ── Info Banner ── */}
-        <View style={styles.infoBanner}>
+      {/* ── Fixed Bottom Info Banner ── */}
+      <View style={styles.fixedBannerContainer}>
+        <View style={[styles.infoBanner, { backgroundColor: darkMode ? "#1F2937" : ORANGE_LIGHT, borderColor: darkMode ? "#374151" : "#FFEDD5" }]}>
           <View style={styles.bannerMascotWrap}>
-            <AnimatedTsekiLogo size={64} />
+            <AnimatedTsekiLogo size={58} />
           </View>
           <View style={styles.bannerTextContent}>
-            <Text style={styles.bannerTitle}>{getTeacherGreeting(userName)}</Text>
-            <Text style={styles.bannerBody}>
+            <Text style={[styles.bannerTitle, { color: textMain }]}>{getTeacherGreeting(userName)}</Text>
+            <Text style={[styles.bannerBody, { color: textSub }]} numberOfLines={3}>
               I'm here to automate grading and flag struggling students! Open a class, tap the camera tab to grade sheets instantly, or use the AI Generator to build standard-based quizzes.
             </Text>
           </View>
         </View>
-      </ScrollView>
+      </View>
 
       {/* ── Bottom Navigation ── */}
       <View style={[styles.bottomNav, { backgroundColor: cardBg, borderTopColor: border }]}>
@@ -1201,19 +1203,28 @@ const styles = StyleSheet.create({
   },
 
   /* ── Info Banner ── */
+  fixedBannerContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
   infoBanner: {
     flexDirection: "row",
     backgroundColor: ORANGE_LIGHT,
     borderRadius: 20,
-    padding: 16,
-    marginTop: 12,
+    padding: 14,
     alignItems: "center",
     borderWidth: 1.5,
     borderColor: "#FFEDD5",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   bannerMascotWrap: {
-    width: 68,
-    height: 68,
+    width: 60,
+    height: 60,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,

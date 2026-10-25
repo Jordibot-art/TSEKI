@@ -19,12 +19,15 @@ import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
 import {
   deleteDraftQuiz,
   deletePublishedQuiz,
+  duplicateAsShuffledQuiz,
   enrichQuizzesWithClassrooms,
   getAllDraftQuizzes,
   getAllPublishedQuizzes,
   getDraftTimeRemaining,
   publishDraftQuiz,
+  shuffleAssessmentQuestions,
   StoredQuiz,
+  updatePublishedQuiz,
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
 
@@ -119,6 +122,15 @@ export default function SettingsScreen() {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [selectedExportQuiz, setSelectedExportQuiz] = useState<StoredQuiz | null>(null);
+
+  // ── Shuffle Modal State ────────────────────────────────────────────────────
+  const [shuffleModalVisible, setShuffleModalVisible] = useState(false);
+  const [quizToShuffle, setQuizToShuffle] = useState<StoredQuiz | null>(null);
+  const [shuffleMode, setShuffleMode] = useState<"IN_PLACE" | "DUPLICATE">("IN_PLACE");
+  const [newQuizTitle, setNewQuizTitle] = useState("");
+  const [targetClassroomId, setTargetClassroomId] = useState("");
+  const [classroomsList, setClassroomsList] = useState<Array<{ id: string; title: string; section?: string }>>([]);
+  const [isShuffling, setIsShuffling] = useState(false);
 
   // ── Load user ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -312,6 +324,113 @@ export default function SettingsScreen() {
       Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
     } finally {
       setExportingPdf(false);
+    }
+  }
+
+  // ── Shuffle Assessment Handlers ────────────────────────────────────────────
+  async function openShuffleModal(quiz: StoredQuiz) {
+    setQuizToShuffle(quiz);
+    setShuffleMode("IN_PLACE");
+    setNewQuizTitle(`${quiz.quizTitle} (Set B)`);
+    setTargetClassroomId(quiz.classroomId || "");
+    setShuffleModalVisible(true);
+
+    try {
+      const { data } = await supabase
+        .from("classrooms")
+        .select("id, title, section")
+        .order("title", { ascending: true });
+      if (data) {
+        setClassroomsList(data);
+      }
+    } catch (err) {
+      console.warn("Could not load classrooms for shuffle:", err);
+    }
+  }
+
+  async function handleExecuteShuffle() {
+    if (!quizToShuffle) return;
+    setIsShuffling(true);
+
+    try {
+      if (shuffleMode === "IN_PLACE") {
+        const shuffled = shuffleAssessmentQuestions(quizToShuffle);
+        const updated = await updatePublishedQuiz(quizToShuffle.classroomId, quizToShuffle.id, {
+          questions: shuffled.questions,
+          answerKey: shuffled.answerKey,
+        });
+
+        if (updated) {
+          await loadAssessments();
+          if (inspectedQuiz?.id === quizToShuffle.id) {
+            setInspectedQuiz(updated);
+          }
+          setShuffleModalVisible(false);
+          Alert.alert(
+            "Questions Shuffled!",
+            `Successfully randomized question order for "${quizToShuffle.quizTitle}". Questions and answer keys have been re-indexed 1 to ${shuffled.questions.length}.\n\nReady to print for Section 2!`,
+            [
+              {
+                text: "Print / Export PDF Now",
+                onPress: () => {
+                  setSelectedExportQuiz(updated);
+                  setExportModalVisible(true);
+                },
+              },
+              {
+                text: "Inspect Questions",
+                onPress: () => {
+                  setInspectedQuiz(updated);
+                  setInspectModalVisible(true);
+                },
+              },
+              { text: "Done", style: "cancel" },
+            ]
+          );
+        } else {
+          Alert.alert("Shuffle Error", "Failed to update assessment with shuffled questions.");
+        }
+      } else {
+        // DUPLICATE AS SET B
+        const targetClass = classroomsList.find((c) => c.id === targetClassroomId);
+        const targetClassTitle = targetClass ? targetClass.title : quizToShuffle.classTitle;
+
+        const newQuiz = await duplicateAsShuffledQuiz(quizToShuffle, {
+          newTitle: newQuizTitle.trim() || `${quizToShuffle.quizTitle} (Set B)`,
+          targetClassroomId: targetClassroomId || quizToShuffle.classroomId,
+          targetClassTitle: targetClassTitle,
+        });
+
+        await loadAssessments();
+        setShuffleModalVisible(false);
+
+        Alert.alert(
+          "Shuffled Version Created!",
+          `Created "${newQuiz.quizTitle}" with randomized questions for ${targetClassTitle || "Section 2"}.\n\nOriginal quiz remains intact!`,
+          [
+            {
+              text: "Print / Export PDF Now",
+              onPress: () => {
+                setSelectedExportQuiz(newQuiz);
+                setExportModalVisible(true);
+              },
+            },
+            {
+              text: "Inspect New Quiz",
+              onPress: () => {
+                setInspectedQuiz(newQuiz);
+                setInspectModalVisible(true);
+              },
+            },
+            { text: "Done", style: "cancel" },
+          ]
+        );
+      }
+    } catch (err: any) {
+      console.error("Shuffle error:", err);
+      Alert.alert("Shuffle Error", err.message || "Failed to shuffle assessment.");
+    } finally {
+      setIsShuffling(false);
     }
   }
 
@@ -833,6 +952,14 @@ export default function SettingsScreen() {
                       </TouchableOpacity>
 
                       <TouchableOpacity
+                        style={[styles.shuffleBtn, { borderColor: themeColor + "44", backgroundColor: themeColor + "10" }]}
+                        onPress={() => openShuffleModal(quiz)}
+                      >
+                        <Ionicons name="shuffle-outline" size={15} color={themeColor} />
+                        <Text style={[styles.shuffleBtnText, { color: themeColor }]}>Shuffle</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
                         style={[styles.exportPdfBtn, { backgroundColor: "#1F2937" }]}
                         onPress={() => {
                           setSelectedExportQuiz(quiz);
@@ -883,6 +1010,16 @@ export default function SettingsScreen() {
                 {inspectedQuiz?.classTitle || "Classroom"} • {inspectedQuiz?.questions.length} Questions • {inspectedQuiz?.difficulty || "Standard"}
               </Text>
             </View>
+            {inspectedQuiz?.status === "ARCHIVE" && (
+              <TouchableOpacity
+                style={[styles.inspectHeaderShuffleBtn, { backgroundColor: themeColor + "18", borderColor: themeColor + "40" }]}
+                onPress={() => inspectedQuiz && openShuffleModal(inspectedQuiz)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="shuffle" size={14} color={themeColor} />
+                <Text style={[styles.inspectHeaderShuffleText, { color: themeColor }]}>Shuffle</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.hubCloseBtn, { backgroundColor: border }]}
               onPress={() => setInspectModalVisible(false)}
@@ -984,18 +1121,34 @@ export default function SettingsScreen() {
                 <Text style={styles.inspectFooterPublishText}>Publish Quiz to Classroom</Text>
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity
-                style={[styles.inspectFooterExportBtn, { backgroundColor: themeColor }]}
-                onPress={() => {
-                  if (inspectedQuiz) {
-                    setSelectedExportQuiz(inspectedQuiz);
-                    setExportModalVisible(true);
-                  }
-                }}
-              >
-                <Ionicons name="print-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.inspectFooterExportText}>Export / Print PDF Test Sheet</Text>
-              </TouchableOpacity>
+              <View style={styles.inspectFooterArchiveRow}>
+                <TouchableOpacity
+                  style={[styles.inspectFooterShuffleBtn, { borderColor: themeColor, backgroundColor: themeColor + "14" }]}
+                  onPress={() => {
+                    if (inspectedQuiz) {
+                      openShuffleModal(inspectedQuiz);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="shuffle" size={16} color={themeColor} />
+                  <Text style={[styles.inspectFooterShuffleText, { color: themeColor }]}>Shuffle Questions</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.inspectFooterExportBtn, { backgroundColor: themeColor, flex: 1.2 }]}
+                  onPress={() => {
+                    if (inspectedQuiz) {
+                      setSelectedExportQuiz(inspectedQuiz);
+                      setExportModalVisible(true);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="print-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.inspectFooterExportText}>Export / Print PDF</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
@@ -1082,6 +1235,192 @@ export default function SettingsScreen() {
               <Text style={[styles.exportCancelText, { color: textSub }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Shuffle Assessment Modal ── */}
+      <Modal
+        visible={shuffleModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !isShuffling && setShuffleModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.exportBackdrop}
+          activeOpacity={1}
+          onPress={() => !isShuffling && setShuffleModalVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={[styles.shuffleSheet, { backgroundColor: card }]}>
+            {/* Modal Drag Indicator */}
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.shuffleHeader}>
+              <View style={[styles.shuffleIconWrap, { backgroundColor: themeColor + "18" }]}>
+                <Ionicons name="shuffle" size={24} color={themeColor} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.shuffleTitle, { color: textMain }]}>Shuffle Questions</Text>
+                <Text style={[styles.shuffleSubtitle, { color: textSub }]}>
+                  Randomize question order & scannable answer keys for Section 2 / Set B
+                </Text>
+              </View>
+            </View>
+
+            {/* Quiz Info Box */}
+            {quizToShuffle && (
+              <View style={[styles.shuffleQuizInfoBox, { backgroundColor: inputBg, borderColor: border }]}>
+                <Ionicons name="document-text-outline" size={18} color={themeColor} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.shuffleQuizTitle, { color: textMain }]} numberOfLines={1}>
+                    {quizToShuffle.quizTitle}
+                  </Text>
+                  <Text style={[styles.shuffleQuizMeta, { color: textSub }]}>
+                    {quizToShuffle.questions.length} Questions • {quizToShuffle.classTitle || "Classroom"} • DepEd Scannable
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Shuffle Mode Selection */}
+            <Text style={[styles.shuffleSectionLabel, { color: textSub }]}>CHOOSE SHUFFLE MODE</Text>
+
+            {/* Mode 1: In-Place */}
+            <TouchableOpacity
+              style={[
+                styles.shuffleModeCard,
+                {
+                  borderColor: shuffleMode === "IN_PLACE" ? themeColor : border,
+                  backgroundColor: shuffleMode === "IN_PLACE" ? themeColor + "0C" : card,
+                },
+              ]}
+              onPress={() => setShuffleMode("IN_PLACE")}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.radioCircle, { borderColor: shuffleMode === "IN_PLACE" ? themeColor : border }]}>
+                {shuffleMode === "IN_PLACE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Shuffle Current Assessment</Text>
+                  <View style={[styles.quickBadge, { backgroundColor: "#10B98120" }]}>
+                    <Text style={styles.quickBadgeText}>QUICK PRINT</Text>
+                  </View>
+                </View>
+                <Text style={[styles.shuffleModeSub, { color: textSub }]}>
+                  Reorders questions 1 through {quizToShuffle?.questions.length || 10} directly in this quiz and updates the camera grader answer key. Perfect if you just finished Section 1 and need to print immediately for Section 2.
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Mode 2: Duplicate as Set B */}
+            <TouchableOpacity
+              style={[
+                styles.shuffleModeCard,
+                {
+                  borderColor: shuffleMode === "DUPLICATE" ? themeColor : border,
+                  backgroundColor: shuffleMode === "DUPLICATE" ? themeColor + "0C" : card,
+                },
+              ]}
+              onPress={() => setShuffleMode("DUPLICATE")}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.radioCircle, { borderColor: shuffleMode === "DUPLICATE" ? themeColor : border }]}>
+                {shuffleMode === "DUPLICATE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Create New Shuffled Set (Set B)</Text>
+                  <View style={[styles.quickBadge, { backgroundColor: "#3B82F620" }]}>
+                    <Text style={[styles.quickBadgeText, { color: "#2563EB" }]}>PRESERVE SET A</Text>
+                  </View>
+                </View>
+                <Text style={[styles.shuffleModeSub, { color: textSub }]}>
+                  Preserves Section 1's test sheet in the archive and generates an independent, randomized copy with its own title and assigned classroom.
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Additional inputs if DUPLICATE */}
+            {shuffleMode === "DUPLICATE" && (
+              <View style={styles.duplicateConfigWrap}>
+                <Text style={[styles.inputFieldLabel, { color: textSub }]}>NEW SET TITLE</Text>
+                <TextInput
+                  style={[styles.shuffleTextInput, { backgroundColor: inputBg, color: textMain, borderColor: border }]}
+                  value={newQuizTitle}
+                  onChangeText={setNewQuizTitle}
+                  placeholder="e.g. Science Quiz (Set B)"
+                  placeholderTextColor={textSub}
+                />
+
+                {classroomsList.length > 0 && (
+                  <>
+                    <Text style={[styles.inputFieldLabel, { color: textSub, marginTop: 10 }]}>ASSIGN TO CLASSROOM / SECTION</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.classroomChipsRow}>
+                      {classroomsList.map((c) => {
+                        const isSelected = targetClassroomId === c.id;
+                        return (
+                          <TouchableOpacity
+                            key={c.id}
+                            style={[
+                              styles.classroomChip,
+                              {
+                                borderColor: isSelected ? themeColor : border,
+                                backgroundColor: isSelected ? themeColor + "18" : inputBg,
+                              },
+                            ]}
+                            onPress={() => setTargetClassroomId(c.id)}
+                          >
+                            <Ionicons
+                              name="school-outline"
+                              size={12}
+                              color={isSelected ? themeColor : textSub}
+                            />
+                            <Text
+                              style={[
+                                styles.classroomChipText,
+                                { color: isSelected ? themeColor : textMain, fontWeight: isSelected ? "700" : "500" },
+                              ]}
+                            >
+                              {c.title} {c.section ? `(${c.section})` : ""}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                )}
+              </View>
+            )}
+
+            {/* Actions */}
+            <View style={styles.shuffleActionsRow}>
+              <TouchableOpacity
+                style={[styles.shuffleCancelBtn, { borderColor: border }]}
+                onPress={() => setShuffleModalVisible(false)}
+                disabled={isShuffling}
+              >
+                <Text style={[styles.shuffleCancelText, { color: textSub }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.shuffleSubmitBtn, { backgroundColor: themeColor }]}
+                onPress={handleExecuteShuffle}
+                disabled={isShuffling}
+                activeOpacity={0.8}
+              >
+                {isShuffling ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="shuffle" size={17} color="#FFFFFF" />
+                    <Text style={styles.shuffleSubmitText}>
+                      {shuffleMode === "IN_PLACE" ? "Shuffle Questions Now" : "Create & Save Set B"}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -1338,6 +1677,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inspectBtnText: { fontSize: 13, fontWeight: "600" },
+  shuffleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 5,
+  },
+  shuffleBtnText: { fontSize: 13, fontWeight: "700" },
   actionPublishBtn: {
     flex: 1,
     flexDirection: "row",
@@ -1369,6 +1719,17 @@ const styles = StyleSheet.create({
   },
 
   /* ── Question Inspector ── */
+  inspectHeaderShuffleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  inspectHeaderShuffleText: { fontSize: 12, fontWeight: "700" },
   inspectQuestionCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -1414,6 +1775,21 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopWidth: 1,
   },
+  inspectFooterArchiveRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  inspectFooterShuffleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  inspectFooterShuffleText: { fontSize: 14, fontWeight: "700" },
   inspectFooterPublishBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1475,4 +1851,136 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   exportCancelText: { fontSize: 14, fontWeight: "600" },
+
+  /* ── Shuffle Modal Styles ── */
+  shuffleSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 22,
+    paddingBottom: 36,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  shuffleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
+  shuffleIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shuffleTitle: { fontSize: 18, fontWeight: "800" },
+  shuffleSubtitle: { fontSize: 12, marginTop: 2, lineHeight: 16 },
+  shuffleQuizInfoBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  shuffleQuizTitle: { fontSize: 13, fontWeight: "700" },
+  shuffleQuizMeta: { fontSize: 11, marginTop: 2 },
+  shuffleSectionLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  shuffleModeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginBottom: 10,
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  shuffleModeTitle: { fontSize: 14, fontWeight: "700" },
+  shuffleModeSub: { fontSize: 12, marginTop: 3, lineHeight: 17 },
+  quickBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  quickBadgeText: { fontSize: 9, fontWeight: "800", color: "#059669" },
+  duplicateConfigWrap: {
+    marginTop: 4,
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  inputFieldLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.6, marginBottom: 6 },
+  shuffleTextInput: {
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    fontSize: 13,
+  },
+  classroomChipsRow: {
+    flexDirection: "row",
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  classroomChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  classroomChipText: { fontSize: 12 },
+  shuffleActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  shuffleCancelBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shuffleCancelText: { fontSize: 14, fontWeight: "600" },
+  shuffleSubmitBtn: {
+    flex: 2,
+    height: 46,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  shuffleSubmitText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });
