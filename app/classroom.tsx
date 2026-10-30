@@ -2292,7 +2292,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    flex: 1,
+    flexShrink: 0,
   },
   backIconCircle: {
     width: 32,
@@ -2313,6 +2313,8 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "center",
     letterSpacing: -0.2,
+    marginHorizontal: 8,
+    minWidth: 0,
   },
   notifDot: {
     width: 38,
@@ -3224,11 +3226,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flexShrink: 0,
   },
   topBarActionBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },

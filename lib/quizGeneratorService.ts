@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "identification" | "enumeration";
+export type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "identification" | "enumeration" | "word_box";
 
 export interface ScannableQuestion {
     questionNumber: number;
@@ -139,8 +139,16 @@ CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
    - answerBoxesRequired: The number of items to enumerate (between 2 and 4)
    - correctAnswer: Comma-separated list of items (e.g. "Carbon dioxide, Methane, Water vapor")
 
-5. If Question Type Preference is "Mixed Assessment":
-   - Create a balanced pedagogical mix of the above types across the test (e.g. Multiple Choice, True / False, Identification, and Enumeration) following each type's exact rules.
+5. If Question Type Preference is "Word Box" or "Word Bank":
+   - Every question MUST have type: "word_box"
+   - questionText: Write a clear question or fill-in-the-blank statement with a blank indicated by "______" (e.g. "The national hero of the Philippines is ______.", "______ is the process by which plants make food using sunlight.")
+   - options: An array of word bank choices that includes the correct answer AND distractor words. Include exactly 4 to 6 choices total, shuffled randomly. Format each as a simple word/phrase WITHOUT letter prefixes (e.g. ["Jose Rizal", "Andres Bonifacio", "Emilio Aguinaldo", "Apolinario Mabini"]) - NO "A)", "B)" prefixes!
+   - answerBoxesRequired: 1
+   - correctAnswer: The exact word or phrase from the options array that is the correct answer (e.g. "Jose Rizal")
+   - IMPORTANT: The word bank (options) should contain plausible distractors that are related to the topic but incorrect, making the question challenging. The correct answer MUST appear exactly (case-sensitive) in the options array.
+
+6. If Question Type Preference is "Mixed Assessment":
+   - Create a balanced pedagogical mix of the above types across the test (e.g. Multiple Choice, True / False, Identification, Word Box, and Enumeration) following each type's exact rules.
 
 You MUST return ONLY a strict, valid JSON object. Do not include markdown formatting (like \`\`\`json). The JSON must perfectly follow this structure so it can be rendered into a scannable test paper:
 
@@ -149,10 +157,10 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
   "questions": [
     {
       "questionNumber": 1,
-      "type": "multiple_choice", // Must be one of: "multiple_choice", "true_false", "identification", "enumeration"
+      "type": "multiple_choice", // Must be one of: "multiple_choice", "true_false", "identification", "enumeration", "word_box"
       "questionText": "What is the capital of France?",
-      "options": ["A) London", "B) Paris", "C) Berlin", "D) Rome"], // Leave empty array [] if identification or enumeration
-      "answerBoxesRequired": 1 // 1 for MC/TF/Identification, 2-4 for Enumeration
+      "options": ["A) London", "B) Paris", "C) Berlin", "D) Rome"], // Leave empty [] if identification or enumeration. For word_box: plain words WITHOUT letter prefixes e.g. ["Paris", "London", "Berlin", "Rome"]
+      "answerBoxesRequired": 1 // 1 for MC/TF/Identification/WordBox, 2-4 for Enumeration
     }
   ],
   "answerKey": [

@@ -43,7 +43,7 @@ const GRADE_LEVELS = [
     "Grade 11", "Grade 12",
 ];
 const QUESTION_TYPES = [
-    "Multiple Choice", "True / False", "Identification", "Fill in the Blank", "Enumeration", "Mixed Assessment",
+    "Multiple Choice", "True / False", "Identification", "Fill in the Blank", "Enumeration", "Word Box", "Mixed Assessment",
 ];
 const QUESTION_COUNTS = [
     "5 Questions", "10 Questions", "15 Questions", "20 Questions",
@@ -339,6 +339,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             setManualChoices(["A) ", "B) ", "C) ", "D) "]);
         } else if (type === "true_false") {
             setManualChoices(["A) True", "B) False"]);
+        } else if (type === "word_box") {
+            setManualChoices(["", "", "", ""]);
         } else {
             setManualChoices([]);
         }
@@ -353,8 +355,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     }
 
     function addChoice() {
-        const nextLetter = String.fromCharCode(65 + manualChoices.length);
-        setManualChoices((prev) => [...prev, `${nextLetter}) `]);
+        if (manualQType === "word_box") {
+            setManualChoices((prev) => [...prev, ""]);
+        } else {
+            const nextLetter = String.fromCharCode(65 + manualChoices.length);
+            setManualChoices((prev) => [...prev, `${nextLetter}) `]);
+        }
     }
 
     function removeChoice(index: number) {
@@ -381,7 +387,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             questionNumber: nextNumber,
             type: manualQType,
             questionText: trimmedText,
-            options: (manualQType === "multiple_choice" || manualQType === "true_false")
+            options: (manualQType === "multiple_choice" || manualQType === "true_false" || manualQType === "word_box")
                 ? manualChoices.filter((c) => c.trim().length > 0)
                 : [],
             answerBoxesRequired: manualQType === "enumeration" ? Math.min(Math.max(enumCount, 2), 6) : 1,
@@ -778,7 +784,44 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     </TouchableOpacity>
                                 </View>
 
-                                {q.options && q.options.length > 0 && (
+                                {/* Word Bank display for word_box questions */}
+                                {q.type === "word_box" && q.options && q.options.length > 0 && (
+                                    <View style={[styles.wordBankContainer, { backgroundColor: inputBg, borderColor: border }]}>
+                                        <View style={styles.wordBankHeader}>
+                                            <Ionicons name="grid" size={13} color={textSub} />
+                                            <Text style={[styles.wordBankTitle, { color: textSub }]}>WORD BANK</Text>
+                                        </View>
+                                        <View style={styles.wordBankChipsWrap}>
+                                            {q.options.map((opt, cIdx) => {
+                                                const isCorrect = opt.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
+                                                return (
+                                                    <View
+                                                        key={`wb_${cIdx}`}
+                                                        style={[
+                                                            styles.wordBankChip,
+                                                            { backgroundColor: darkMode ? "#374151" : "#FFFFFF", borderColor: border },
+                                                            isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
+                                                        ]}
+                                                    >
+                                                        <Text style={[
+                                                            styles.wordBankChipText,
+                                                            { color: textMain },
+                                                            isCorrect && { color: accentColor, fontWeight: "700" },
+                                                        ]}>
+                                                            {opt}
+                                                        </Text>
+                                                        {isCorrect && (
+                                                            <Ionicons name="checkmark-circle" size={13} color={accentColor} />
+                                                        )}
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Standard choices for MC and T/F */}
+                                {q.type !== "word_box" && q.options && q.options.length > 0 && (
                                     <View style={styles.choicesWrap}>
                                         {q.options.map((opt, cIdx) => {
                                             const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
@@ -1082,6 +1125,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                             { key: "identification" as QuestionType, label: "Identification", icon: "text" as const },
                                             { key: "fill_blank" as QuestionType, label: "Fill in Blank", icon: "pencil" as const },
                                             { key: "enumeration" as QuestionType, label: "Enumeration", icon: "reorder-three" as const },
+                                            { key: "word_box" as QuestionType, label: "Word Box", icon: "grid" as const },
                                         ]).map((t) => (
                                             <TouchableOpacity
                                                 key={t.key}
@@ -1115,7 +1159,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     style={[styles.addQTextInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
                                     placeholder={manualQType === "enumeration"
                                         ? "e.g. Name 3 greenhouse gases:"
-                                        : "Enter your question here..."}
+                                        : manualQType === "word_box"
+                                            ? "e.g. The national hero of the Philippines is ______."
+                                            : "Enter your question here..."}
                                     placeholderTextColor={textSub}
                                     value={manualQText}
                                     onChangeText={setManualQText}
@@ -1123,7 +1169,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     textAlignVertical="top"
                                 />
 
-                                {/* Choices (for MC and T/F) */}
+                                {/* Choices (for MC, T/F, and Word Box) */}
                                 {(manualQType === "multiple_choice" || manualQType === "true_false") && (
                                     <>
                                         <Text style={[styles.addQLabel, { color: textSub }]}>CHOICES</Text>
@@ -1159,6 +1205,47 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                             >
                                                 <Ionicons name="add-circle-outline" size={16} color={accentColor} />
                                                 <Text style={[styles.addQAddChoiceText, { color: accentColor }]}>Add Choice</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Word Box / Word Bank choices */}
+                                {manualQType === "word_box" && (
+                                    <>
+                                        <Text style={[styles.addQLabel, { color: textSub }]}>WORD BANK CHOICES</Text>
+                                        <Text style={[styles.wordBankHint, { color: textSub }]}>
+                                            Add words to the word bank. Include the correct answer and distractors (no letter prefixes).
+                                        </Text>
+                                        {manualChoices.map((choice, idx) => (
+                                            <View key={idx} style={styles.addQChoiceRow}>
+                                                <View style={[styles.wordBankPill, { backgroundColor: accentColor + "14", borderColor: accentColor + "44" }]}>
+                                                    <Ionicons name="cube-outline" size={12} color={accentColor} />
+                                                </View>
+                                                <TextInput
+                                                    style={[
+                                                        styles.addQChoiceInput,
+                                                        { backgroundColor: inputBg, borderColor: border, color: textMain },
+                                                    ]}
+                                                    placeholder={`Word ${idx + 1}...`}
+                                                    placeholderTextColor={textSub}
+                                                    value={choice}
+                                                    onChangeText={(v) => updateChoice(idx, v)}
+                                                />
+                                                {manualChoices.length > 2 && (
+                                                    <TouchableOpacity onPress={() => removeChoice(idx)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                                        <Ionicons name="close-circle" size={20} color="#EF4444" />
+                                                    </TouchableOpacity>
+                                                )}
+                                            </View>
+                                        ))}
+                                        {manualChoices.length < 8 && (
+                                            <TouchableOpacity
+                                                style={[styles.addQAddChoiceBtn, { borderColor: border }]}
+                                                onPress={addChoice}
+                                            >
+                                                <Ionicons name="add-circle-outline" size={16} color={accentColor} />
+                                                <Text style={[styles.addQAddChoiceText, { color: accentColor }]}>Add Word</Text>
                                             </TouchableOpacity>
                                         )}
                                     </>
@@ -1237,6 +1324,40 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                             );
                                         })}
                                     </View>
+                                ) : manualQType === "word_box" ? (
+                                    <>
+                                        <Text style={[styles.wordBankHint, { color: textSub, marginBottom: 8 }]}>
+                                            Tap the correct word from your word bank:
+                                        </Text>
+                                        <View style={styles.wordBankAnswerGrid}>
+                                            {manualChoices.filter((c) => c.trim().length > 0).map((word, idx) => {
+                                                const trimmedWord = word.trim();
+                                                const isSelected = manualCorrectAnswer === trimmedWord;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={`wb_${idx}`}
+                                                        style={[
+                                                            styles.wordBankAnswerChip,
+                                                            { backgroundColor: inputBg, borderColor: border },
+                                                            isSelected && { backgroundColor: accentColor, borderColor: accentColor },
+                                                        ]}
+                                                        onPress={() => setManualCorrectAnswer(trimmedWord)}
+                                                    >
+                                                        <Ionicons
+                                                            name={isSelected ? "checkmark-circle" : "cube-outline"}
+                                                            size={14}
+                                                            color={isSelected ? "#FFFFFF" : textSub}
+                                                        />
+                                                        <Text style={[
+                                                            styles.wordBankAnswerChipText,
+                                                            { color: textSub },
+                                                            isSelected && { color: "#FFFFFF", fontWeight: "700" },
+                                                        ]}>{trimmedWord}</Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </>
                                 ) : (
                                     <TextInput
                                         style={[styles.addQAnswerInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1979,5 +2100,73 @@ const styles = StyleSheet.create({
     quickShuffleBtnText: {
         fontSize: 13,
         fontWeight: "700",
+    },
+
+    /* ── Word Box / Word Bank Styles ── */
+    wordBankContainer: {
+        borderWidth: 1.5,
+        borderRadius: 12,
+        padding: 12,
+        borderStyle: "dashed",
+    },
+    wordBankHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 8,
+    },
+    wordBankTitle: {
+        fontSize: 10,
+        fontWeight: "800",
+        letterSpacing: 0.8,
+    },
+    wordBankChipsWrap: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+    },
+    wordBankChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 10,
+        borderWidth: 1.5,
+    },
+    wordBankChipText: {
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    wordBankPill: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    wordBankHint: {
+        fontSize: 11,
+        lineHeight: 16,
+        marginBottom: 4,
+    },
+    wordBankAnswerGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+    },
+    wordBankAnswerChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 10,
+        borderWidth: 1.5,
+    },
+    wordBankAnswerChipText: {
+        fontSize: 13,
+        fontWeight: "600",
     },
 });

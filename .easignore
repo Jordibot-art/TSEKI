@@ -1,0 +1,47 @@
+# EAS Build Ignore File
+# When .easignore exists, EAS CLI uses this instead of .gitignore.
+# We omit .env here so EAS receives your environment variables during cloud builds,
+# while .gitignore continues to keep .env out of your Git repository.
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env overrides (keep .env included)
+.env.local
+.env.*.local
+
+# typescript
+*.tsbuildinfo
+
+app-example
+
+# generated native folders (if managed workflow)
+/ios
+/android

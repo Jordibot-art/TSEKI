@@ -13,11 +13,12 @@ export interface ExportPaperOptions {
   paperSize?: BondPaperSize; // "short" (8.5x11") or "long" (8.5x13")
 }
 
-type NormalizedQuestionType = "multiple_choice" | "true_false" | "identification" | "enumeration";
+type NormalizedQuestionType = "multiple_choice" | "true_false" | "identification" | "enumeration" | "word_box";
 
 function normalizeQuestionType(type: string): NormalizedQuestionType {
   const t = (type || "").toLowerCase().trim();
   if (t.includes("true") || t.includes("false") || t === "tf") return "true_false";
+  if (t.includes("word") || t.includes("bank") || t === "word_box") return "word_box";
   if (t.includes("ident") || t.includes("fill") || t.includes("blank")) return "identification";
   if (t.includes("enum")) return "enumeration";
   return "multiple_choice";
@@ -28,6 +29,7 @@ function getTypeBadgeLabel(type: string): string {
   if (norm === "true_false") return "TRUE / FALSE";
   if (norm === "identification") return "IDENTIFICATION";
   if (norm === "enumeration") return "ENUMERATION";
+  if (norm === "word_box") return "WORD BOX";
   return "MULTIPLE CHOICE";
 }
 
@@ -71,6 +73,15 @@ function buildInstructionsHtml(questions: ScannableQuestion[]): string {
     `;
   }
 
+  // Single-type Word Box
+  if (uniqueTypes.length === 1 && uniqueTypes[0] === "word_box") {
+    return `
+      <div class="instructions-strip">
+        <strong>Instructions (Word Box):</strong> Read each question carefully. Choose the correct answer from the word bank provided below each question and write it clearly inside the answer box on the right.
+      </div>
+    `;
+  }
+
   // Mixed Assessment: provide tailored instructions for each question type present
   return `
     <div class="instructions-strip">
@@ -80,6 +91,7 @@ function buildInstructionsHtml(questions: ScannableQuestion[]): string {
         ${uniqueTypes.includes("true_false") ? `<span class="mixed-rule">• <strong>True / False:</strong> Write <strong>T</strong> if True, <strong>F</strong> if False</span>` : ""}
         ${uniqueTypes.includes("identification") ? `<span class="mixed-rule">• <strong>Identification:</strong> Write the exact term, word, or name</span>` : ""}
         ${uniqueTypes.includes("enumeration") ? `<span class="mixed-rule">• <strong>Enumeration:</strong> Write one item per numbered box</span>` : ""}
+        ${uniqueTypes.includes("word_box") ? `<span class="mixed-rule">• <strong>Word Box:</strong> Choose the correct word from the word bank and write it in the answer box</span>` : ""}
       </div>
     </div>
   `;
@@ -127,6 +139,7 @@ export function buildPaperSheetHtml({
       const boxCount = Math.max(1, q.answerBoxesRequired || 1);
       const isTextFill = normType === "identification";
       const isEnum = normType === "enumeration";
+      const isWordBox = normType === "word_box";
 
       // Format answer for answer key
       let formattedAnswer = rawCorrectAnswer;
@@ -136,14 +149,27 @@ export function buildPaperSheetHtml({
         else if (lower === "false" || lower === "f") formattedAnswer = "F";
       }
 
-      // Options row (for multiple choice or true/false)
+      // Options row (for multiple choice or true/false — NOT word_box)
       let optionsHtml = "";
-      if (q.options && q.options.length > 0) {
+      if (!isWordBox && q.options && q.options.length > 0) {
         optionsHtml = `
           <div class="options-row">
             ${q.options
             .map((opt) => `<span class="option-text">${escapeHtml(opt)}</span>`)
             .join("")}
+          </div>
+        `;
+      }
+
+      // Word Bank box (for word_box type)
+      let wordBankHtml = "";
+      if (isWordBox && q.options && q.options.length > 0) {
+        wordBankHtml = `
+          <div class="word-bank-box">
+            <div class="word-bank-label">📦 WORD BANK</div>
+            <div class="word-bank-chips">
+              ${q.options.map((opt) => `<span class="word-bank-chip">${escapeHtml(opt)}</span>`).join("")}
+            </div>
           </div>
         `;
       }
@@ -173,7 +199,7 @@ export function buildPaperSheetHtml({
               }
             }
 
-            const boxClass = isTextFill ? "box-wide" : isEnum ? "box-enum" : "box-square";
+            const boxClass = isTextFill ? "box-wide" : isEnum ? "box-enum" : isWordBox ? "box-wide" : "box-square";
             const watermark = isEnum && boxCount > 1 && !filledText ? `<span class="box-watermark">#${idx + 1}</span>` : "";
 
             return `
@@ -197,6 +223,7 @@ export function buildPaperSheetHtml({
               ${points > 1 ? `<span class="q-pts">(${points}pts)</span>` : ""}
             </div>
             ${optionsHtml}
+            ${wordBankHtml}
           </div>
           <div class="q-box-cell">
             ${boxesHtml}

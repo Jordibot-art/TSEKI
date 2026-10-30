@@ -706,15 +706,16 @@ export default function SettingsScreen() {
         <View style={[styles.hubContainer, { backgroundColor: bg }]}>
           {/* Hub Header */}
           <View style={[styles.hubHeader, { backgroundColor: card, borderBottomColor: border }]}>
-            <View>
-              <Text style={[styles.hubHeaderTitle, { color: textMain }]}>Assessments Repository</Text>
-              <Text style={[styles.hubHeaderSub, { color: textSub }]}>
+            <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+              <Text style={[styles.hubHeaderTitle, { color: textMain }]} numberOfLines={1}>Assessments Repository</Text>
+              <Text style={[styles.hubHeaderSub, { color: textSub }]} numberOfLines={1}>
                 Manage your saved drafts and published classroom archives
               </Text>
             </View>
             <TouchableOpacity
               style={[styles.hubCloseBtn, { backgroundColor: border }]}
               onPress={() => setAssessmentModalVisible(false)}
+              accessibilityLabel="Close repository"
             >
               <Ionicons name="close" size={20} color={textMain} />
             </TouchableOpacity>
@@ -798,7 +799,7 @@ export default function SettingsScreen() {
                 drafts.map((draft) => (
                   <View key={draft.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
                     <View style={styles.cardTopRow}>
-                      <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
                         <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
                           {draft.quizTitle}
                         </Text>
@@ -809,7 +810,7 @@ export default function SettingsScreen() {
                           </Text>
                         </View>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         {(() => {
                           const timeInfo = getDraftTimeRemaining(draft);
                           return (
@@ -865,7 +866,7 @@ export default function SettingsScreen() {
                         }}
                       >
                         <Ionicons name="eye-outline" size={15} color={textMain} />
-                        <Text style={[styles.inspectBtnText, { color: textMain }]}>Inspect</Text>
+                        <Text style={[styles.inspectBtnText, { color: textMain }]} numberOfLines={1}>Inspect</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -873,7 +874,7 @@ export default function SettingsScreen() {
                         onPress={() => handlePublishDraft(draft)}
                       >
                         <Ionicons name="send-outline" size={15} color="#FFFFFF" />
-                        <Text style={styles.actionPublishText}>Publish</Text>
+                        <Text style={styles.actionPublishText} numberOfLines={1}>Publish</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -902,7 +903,7 @@ export default function SettingsScreen() {
                 archived.map((quiz) => (
                   <View key={quiz.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
                     <View style={styles.cardTopRow}>
-                      <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
                         <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
                           {quiz.quizTitle}
                         </Text>
@@ -913,7 +914,7 @@ export default function SettingsScreen() {
                           </Text>
                         </View>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         <View style={styles.cloudSyncBadge}>
                           <Ionicons name="cloud-done-outline" size={11} color="#059669" />
                           <Text style={styles.cloudSyncBadgeText}>CLOUD</Text>
@@ -948,7 +949,7 @@ export default function SettingsScreen() {
                         }}
                       >
                         <Ionicons name="eye-outline" size={15} color={textMain} />
-                        <Text style={[styles.inspectBtnText, { color: textMain }]}>Inspect</Text>
+                        <Text style={[styles.inspectBtnText, { color: textMain }]} numberOfLines={1}>Inspect</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -956,7 +957,7 @@ export default function SettingsScreen() {
                         onPress={() => openShuffleModal(quiz)}
                       >
                         <Ionicons name="shuffle-outline" size={15} color={themeColor} />
-                        <Text style={[styles.shuffleBtnText, { color: themeColor }]}>Shuffle</Text>
+                        <Text style={[styles.shuffleBtnText, { color: themeColor }]} numberOfLines={1}>Shuffle</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -967,7 +968,7 @@ export default function SettingsScreen() {
                         }}
                       >
                         <Ionicons name="print-outline" size={15} color="#FFFFFF" />
-                        <Text style={styles.exportPdfText}>Export PDF</Text>
+                        <Text style={styles.exportPdfText} numberOfLines={1}>Export PDF</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -995,37 +996,42 @@ export default function SettingsScreen() {
         <View style={[styles.hubContainer, { backgroundColor: bg }]}>
           {/* Header */}
           <View style={[styles.hubHeader, { backgroundColor: card, borderBottomColor: border }]}>
-            <View style={{ flex: 1, marginRight: 12 }}>
+            <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
                 <Text style={[styles.hubHeaderTitle, { color: textMain }]} numberOfLines={1}>
                   {inspectedQuiz?.quizTitle}
                 </Text>
                 {inspectedQuiz?.status === "DRAFT" ? (
-                  <View style={styles.draftBadge}><Text style={styles.draftBadgeText}>DRAFT</Text></View>
+                  <View style={[styles.draftBadge, { flexShrink: 0 }]}><Text style={styles.draftBadgeText}>DRAFT</Text></View>
                 ) : (
-                  <View style={styles.archiveBadge}><Text style={styles.archiveBadgeText}>ARCHIVE</Text></View>
+                  <View style={[styles.archiveBadge, { flexShrink: 0 }]}><Text style={styles.archiveBadgeText}>ARCHIVE</Text></View>
                 )}
               </View>
-              <Text style={[styles.hubHeaderSub, { color: textSub }]}>
+              <Text style={[styles.hubHeaderSub, { color: textSub }]} numberOfLines={1}>
                 {inspectedQuiz?.classTitle || "Classroom"} • {inspectedQuiz?.questions.length} Questions • {inspectedQuiz?.difficulty || "Standard"}
               </Text>
             </View>
-            {inspectedQuiz?.status === "ARCHIVE" && (
+
+            <View style={styles.hubHeaderRightActions}>
+              {inspectedQuiz?.status === "ARCHIVE" && (
+                <TouchableOpacity
+                  style={[styles.inspectHeaderShuffleBtn, { backgroundColor: themeColor + "18", borderColor: themeColor + "40" }]}
+                  onPress={() => inspectedQuiz && openShuffleModal(inspectedQuiz)}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Shuffle Questions"
+                >
+                  <Ionicons name="shuffle" size={14} color={themeColor} />
+                  <Text style={[styles.inspectHeaderShuffleText, { color: themeColor }]}>Shuffle</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
-                style={[styles.inspectHeaderShuffleBtn, { backgroundColor: themeColor + "18", borderColor: themeColor + "40" }]}
-                onPress={() => inspectedQuiz && openShuffleModal(inspectedQuiz)}
-                activeOpacity={0.7}
+                style={[styles.hubCloseBtn, { backgroundColor: border }]}
+                onPress={() => setInspectModalVisible(false)}
+                accessibilityLabel="Close inspector"
               >
-                <Ionicons name="shuffle" size={14} color={themeColor} />
-                <Text style={[styles.inspectHeaderShuffleText, { color: themeColor }]}>Shuffle</Text>
+                <Ionicons name="close" size={20} color={textMain} />
               </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[styles.hubCloseBtn, { backgroundColor: border }]}
-              onPress={() => setInspectModalVisible(false)}
-            >
-              <Ionicons name="close" size={20} color={textMain} />
-            </TouchableOpacity>
+            </View>
           </View>
 
           {/* Scrollable Questions list */}
@@ -1251,175 +1257,182 @@ export default function SettingsScreen() {
           onPress={() => !isShuffling && setShuffleModalVisible(false)}
         >
           <TouchableOpacity activeOpacity={1} style={[styles.shuffleSheet, { backgroundColor: card }]}>
-            {/* Modal Drag Indicator */}
-            <View style={styles.sheetHandle} />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 10 }}
+            >
+              {/* Modal Drag Indicator */}
+              <View style={styles.sheetHandle} />
 
-            <View style={styles.shuffleHeader}>
-              <View style={[styles.shuffleIconWrap, { backgroundColor: themeColor + "18" }]}>
-                <Ionicons name="shuffle" size={24} color={themeColor} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.shuffleTitle, { color: textMain }]}>Shuffle Questions</Text>
-                <Text style={[styles.shuffleSubtitle, { color: textSub }]}>
-                  Randomize question order & scannable answer keys for Section 2 / Set B
-                </Text>
-              </View>
-            </View>
-
-            {/* Quiz Info Box */}
-            {quizToShuffle && (
-              <View style={[styles.shuffleQuizInfoBox, { backgroundColor: inputBg, borderColor: border }]}>
-                <Ionicons name="document-text-outline" size={18} color={themeColor} />
+              <View style={styles.shuffleHeader}>
+                <View style={[styles.shuffleIconWrap, { backgroundColor: themeColor + "18" }]}>
+                  <Ionicons name="shuffle" size={24} color={themeColor} />
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.shuffleQuizTitle, { color: textMain }]} numberOfLines={1}>
-                    {quizToShuffle.quizTitle}
-                  </Text>
-                  <Text style={[styles.shuffleQuizMeta, { color: textSub }]}>
-                    {quizToShuffle.questions.length} Questions • {quizToShuffle.classTitle || "Classroom"} • DepEd Scannable
+                  <Text style={[styles.shuffleTitle, { color: textMain }]}>Shuffle Questions</Text>
+                  <Text style={[styles.shuffleSubtitle, { color: textSub }]}>
+                    Randomize question order & scannable answer keys for Section 2 / Set B
                   </Text>
                 </View>
               </View>
-            )}
 
-            {/* Shuffle Mode Selection */}
-            <Text style={[styles.shuffleSectionLabel, { color: textSub }]}>CHOOSE SHUFFLE MODE</Text>
-
-            {/* Mode 1: In-Place */}
-            <TouchableOpacity
-              style={[
-                styles.shuffleModeCard,
-                {
-                  borderColor: shuffleMode === "IN_PLACE" ? themeColor : border,
-                  backgroundColor: shuffleMode === "IN_PLACE" ? themeColor + "0C" : card,
-                },
-              ]}
-              onPress={() => setShuffleMode("IN_PLACE")}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.radioCircle, { borderColor: shuffleMode === "IN_PLACE" ? themeColor : border }]}>
-                {shuffleMode === "IN_PLACE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Shuffle Current Assessment</Text>
-                  <View style={[styles.quickBadge, { backgroundColor: "#10B98120" }]}>
-                    <Text style={styles.quickBadgeText}>QUICK PRINT</Text>
-                  </View>
-                </View>
-                <Text style={[styles.shuffleModeSub, { color: textSub }]}>
-                  Reorders questions 1 through {quizToShuffle?.questions.length || 10} directly in this quiz and updates the camera grader answer key. Perfect if you just finished Section 1 and need to print immediately for Section 2.
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Mode 2: Duplicate as Set B */}
-            <TouchableOpacity
-              style={[
-                styles.shuffleModeCard,
-                {
-                  borderColor: shuffleMode === "DUPLICATE" ? themeColor : border,
-                  backgroundColor: shuffleMode === "DUPLICATE" ? themeColor + "0C" : card,
-                },
-              ]}
-              onPress={() => setShuffleMode("DUPLICATE")}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.radioCircle, { borderColor: shuffleMode === "DUPLICATE" ? themeColor : border }]}>
-                {shuffleMode === "DUPLICATE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Create New Shuffled Set (Set B)</Text>
-                  <View style={[styles.quickBadge, { backgroundColor: "#3B82F620" }]}>
-                    <Text style={[styles.quickBadgeText, { color: "#2563EB" }]}>PRESERVE SET A</Text>
-                  </View>
-                </View>
-                <Text style={[styles.shuffleModeSub, { color: textSub }]}>
-                  Preserves Section 1's test sheet in the archive and generates an independent, randomized copy with its own title and assigned classroom.
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Additional inputs if DUPLICATE */}
-            {shuffleMode === "DUPLICATE" && (
-              <View style={styles.duplicateConfigWrap}>
-                <Text style={[styles.inputFieldLabel, { color: textSub }]}>NEW SET TITLE</Text>
-                <TextInput
-                  style={[styles.shuffleTextInput, { backgroundColor: inputBg, color: textMain, borderColor: border }]}
-                  value={newQuizTitle}
-                  onChangeText={setNewQuizTitle}
-                  placeholder="e.g. Science Quiz (Set B)"
-                  placeholderTextColor={textSub}
-                />
-
-                {classroomsList.length > 0 && (
-                  <>
-                    <Text style={[styles.inputFieldLabel, { color: textSub, marginTop: 10 }]}>ASSIGN TO CLASSROOM / SECTION</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.classroomChipsRow}>
-                      {classroomsList.map((c) => {
-                        const isSelected = targetClassroomId === c.id;
-                        return (
-                          <TouchableOpacity
-                            key={c.id}
-                            style={[
-                              styles.classroomChip,
-                              {
-                                borderColor: isSelected ? themeColor : border,
-                                backgroundColor: isSelected ? themeColor + "18" : inputBg,
-                              },
-                            ]}
-                            onPress={() => setTargetClassroomId(c.id)}
-                          >
-                            <Ionicons
-                              name="school-outline"
-                              size={12}
-                              color={isSelected ? themeColor : textSub}
-                            />
-                            <Text
-                              style={[
-                                styles.classroomChipText,
-                                { color: isSelected ? themeColor : textMain, fontWeight: isSelected ? "700" : "500" },
-                              ]}
-                            >
-                              {c.title} {c.section ? `(${c.section})` : ""}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </>
-                )}
-              </View>
-            )}
-
-            {/* Actions */}
-            <View style={styles.shuffleActionsRow}>
-              <TouchableOpacity
-                style={[styles.shuffleCancelBtn, { borderColor: border }]}
-                onPress={() => setShuffleModalVisible(false)}
-                disabled={isShuffling}
-              >
-                <Text style={[styles.shuffleCancelText, { color: textSub }]}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.shuffleSubmitBtn, { backgroundColor: themeColor }]}
-                onPress={handleExecuteShuffle}
-                disabled={isShuffling}
-                activeOpacity={0.8}
-              >
-                {isShuffling ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Ionicons name="shuffle" size={17} color="#FFFFFF" />
-                    <Text style={styles.shuffleSubmitText}>
-                      {shuffleMode === "IN_PLACE" ? "Shuffle Questions Now" : "Create & Save Set B"}
+              {/* Quiz Info Box */}
+              {quizToShuffle && (
+                <View style={[styles.shuffleQuizInfoBox, { backgroundColor: inputBg, borderColor: border }]}>
+                  <Ionicons name="document-text-outline" size={18} color={themeColor} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.shuffleQuizTitle, { color: textMain }]} numberOfLines={1}>
+                      {quizToShuffle.quizTitle}
                     </Text>
-                  </>
-                )}
+                    <Text style={[styles.shuffleQuizMeta, { color: textSub }]}>
+                      {quizToShuffle.questions.length} Questions • {quizToShuffle.classTitle || "Classroom"} • DepEd Scannable
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Shuffle Mode Selection */}
+              <Text style={[styles.shuffleSectionLabel, { color: textSub }]}>CHOOSE SHUFFLE MODE</Text>
+
+              {/* Mode 1: In-Place */}
+              <TouchableOpacity
+                style={[
+                  styles.shuffleModeCard,
+                  {
+                    borderColor: shuffleMode === "IN_PLACE" ? themeColor : border,
+                    backgroundColor: shuffleMode === "IN_PLACE" ? themeColor + "0C" : card,
+                  },
+                ]}
+                onPress={() => setShuffleMode("IN_PLACE")}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.radioCircle, { borderColor: shuffleMode === "IN_PLACE" ? themeColor : border }]}>
+                  {shuffleMode === "IN_PLACE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Shuffle Current Assessment</Text>
+                    <View style={[styles.quickBadge, { backgroundColor: "#10B98120" }]}>
+                      <Text style={styles.quickBadgeText}>QUICK PRINT</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.shuffleModeSub, { color: textSub }]}>
+                    Reorders questions 1 through {quizToShuffle?.questions.length || 10} directly in this quiz and updates the camera grader answer key. Perfect if you just finished Section 1 and need to print immediately for Section 2.
+                  </Text>
+                </View>
               </TouchableOpacity>
-            </View>
+
+              {/* Mode 2: Duplicate as Set B */}
+              <TouchableOpacity
+                style={[
+                  styles.shuffleModeCard,
+                  {
+                    borderColor: shuffleMode === "DUPLICATE" ? themeColor : border,
+                    backgroundColor: shuffleMode === "DUPLICATE" ? themeColor + "0C" : card,
+                  },
+                ]}
+                onPress={() => setShuffleMode("DUPLICATE")}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.radioCircle, { borderColor: shuffleMode === "DUPLICATE" ? themeColor : border }]}>
+                  {shuffleMode === "DUPLICATE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Create New Shuffled Set (Set B)</Text>
+                    <View style={[styles.quickBadge, { backgroundColor: "#3B82F620" }]}>
+                      <Text style={[styles.quickBadgeText, { color: "#2563EB" }]}>PRESERVE SET A</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.shuffleModeSub, { color: textSub }]}>
+                    Preserves Section 1's test sheet in the archive and generates an independent, randomized copy with its own title and assigned classroom.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Additional inputs if DUPLICATE */}
+              {shuffleMode === "DUPLICATE" && (
+                <View style={styles.duplicateConfigWrap}>
+                  <Text style={[styles.inputFieldLabel, { color: textSub }]}>NEW SET TITLE</Text>
+                  <TextInput
+                    style={[styles.shuffleTextInput, { backgroundColor: inputBg, color: textMain, borderColor: border }]}
+                    value={newQuizTitle}
+                    onChangeText={setNewQuizTitle}
+                    placeholder="e.g. Science Quiz (Set B)"
+                    placeholderTextColor={textSub}
+                  />
+
+                  {classroomsList.length > 0 && (
+                    <>
+                      <Text style={[styles.inputFieldLabel, { color: textSub, marginTop: 10 }]}>ASSIGN TO CLASSROOM / SECTION</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.classroomChipsRow}>
+                        {classroomsList.map((c) => {
+                          const isSelected = targetClassroomId === c.id;
+                          return (
+                            <TouchableOpacity
+                              key={c.id}
+                              style={[
+                                styles.classroomChip,
+                                {
+                                  borderColor: isSelected ? themeColor : border,
+                                  backgroundColor: isSelected ? themeColor + "18" : inputBg,
+                                },
+                              ]}
+                              onPress={() => setTargetClassroomId(c.id)}
+                            >
+                              <Ionicons
+                                name="school-outline"
+                                size={12}
+                                color={isSelected ? themeColor : textSub}
+                              />
+                              <Text
+                                style={[
+                                  styles.classroomChipText,
+                                  { color: isSelected ? themeColor : textMain, fontWeight: isSelected ? "700" : "500" },
+                                ]}
+                              >
+                                {c.title} {c.section ? `(${c.section})` : ""}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* Actions */}
+              <View style={styles.shuffleActionsRow}>
+                <TouchableOpacity
+                  style={[styles.shuffleCancelBtn, { borderColor: border }]}
+                  onPress={() => setShuffleModalVisible(false)}
+                  disabled={isShuffling}
+                >
+                  <Text style={[styles.shuffleCancelText, { color: textSub }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.shuffleSubmitBtn, { backgroundColor: themeColor }]}
+                  onPress={handleExecuteShuffle}
+                  disabled={isShuffling}
+                  activeOpacity={0.8}
+                >
+                  {isShuffling ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="shuffle" size={17} color="#FFFFFF" />
+                      <Text style={styles.shuffleSubmitText}>
+                        {shuffleMode === "IN_PLACE" ? "Shuffle Questions Now" : "Create & Save Set B"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1611,8 +1624,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderBottomWidth: 1,
   },
-  hubHeaderTitle: { fontSize: 18, fontWeight: "800" },
+  hubHeaderTitle: { fontSize: 18, fontWeight: "800", flexShrink: 1 },
   hubHeaderSub: { fontSize: 12, marginTop: 2 },
+  hubHeaderRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
   hubCloseBtn: {
     width: 36,
     height: 36,
@@ -1707,7 +1726,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 6,
   },
-  exportPdfText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  exportPdfText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700", paddingHorizontal: 2 },
   deleteBtn: {
     width: 38,
     height: 38,
@@ -1716,6 +1735,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FEE2E222",
+    flexShrink: 0,
   },
 
   /* ── Question Inspector ── */
@@ -1727,7 +1747,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    marginRight: 8,
   },
   inspectHeaderShuffleText: { fontSize: 12, fontWeight: "700" },
   inspectQuestionCard: {
@@ -1820,6 +1839,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     padding: 24,
     paddingBottom: 40,
+    maxHeight: "90%",
   },
   exportSheetHeader: { marginBottom: 20 },
   exportSheetTitle: { fontSize: 19, fontWeight: "800" },
@@ -1858,6 +1878,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     padding: 22,
     paddingBottom: 36,
+    maxHeight: "90%",
   },
   sheetHandle: {
     width: 40,
