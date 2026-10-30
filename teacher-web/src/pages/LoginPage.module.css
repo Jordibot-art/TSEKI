@@ -1,0 +1,292 @@
+/* ─── Login Page ─── */
+
+.page {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Brand Panel (Left) ── */
+.brandPanel {
+  flex: 0 0 45%;
+  background: linear-gradient(135deg, var(--orange-500) 0%, var(--orange-600) 40%, var(--orange-700) 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px;
+  position: relative;
+  overflow: hidden;
+}
+
+.brandContent {
+  position: relative;
+  z-index: 2;
+}
+
+.logoWrap {
+  margin-bottom: 28px;
+}
+
+.logoIcon {
+  width: 72px;
+  height: 72px;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(10px);
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+
+.brandName {
+  font-size: 42px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -1px;
+  margin-bottom: 6px;
+}
+
+.brandTagline {
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.85);
+  margin-bottom: 20px;
+}
+
+.brandDesc {
+  font-size: 15px;
+  color: rgba(255,255,255,0.7);
+  line-height: 1.7;
+  max-width: 380px;
+  margin-bottom: 36px;
+}
+
+.featureList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.featureItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: rgba(255,255,255,0.9);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.featureDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.6);
+  flex-shrink: 0;
+}
+
+.brandFooter {
+  position: absolute;
+  bottom: 30px;
+  left: 60px;
+  z-index: 2;
+}
+
+.brandFooter p {
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+}
+
+/* Decorative */
+.decorCircle1,
+.decorCircle2,
+.decorCircle3 {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.08);
+  pointer-events: none;
+}
+
+.decorCircle1 {
+  width: 300px;
+  height: 300px;
+  top: -60px;
+  right: -80px;
+  background: rgba(255,255,255,0.04);
+}
+
+.decorCircle2 {
+  width: 200px;
+  height: 200px;
+  bottom: 80px;
+  right: 40px;
+  background: rgba(255,255,255,0.03);
+}
+
+.decorCircle3 {
+  width: 140px;
+  height: 140px;
+  bottom: -40px;
+  left: 30%;
+  background: rgba(255,255,255,0.05);
+}
+
+/* ── Form Panel (Right) ── */
+.formPanel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: var(--bg-primary);
+}
+
+.formCard {
+  width: 100%;
+  max-width: 420px;
+  animation: fadeIn 0.5s ease forwards;
+}
+
+.formHeader {
+  margin-bottom: 32px;
+}
+
+.mobileLogo {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--orange-500);
+}
+
+.formHeader h2 {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.formHeader p {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.errorBanner {
+  background: var(--red-100);
+  color: var(--red-500);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 20px;
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.fieldGroup {
+  margin-bottom: 20px;
+}
+
+.fieldGroup label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 1.5px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input:focus {
+  border-color: var(--orange-500);
+  box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+}
+
+.passwordWrap {
+  position: relative;
+}
+
+.passwordWrap .input {
+  padding-right: 44px;
+}
+
+.eyeBtn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  padding: 4px;
+  transition: color var(--transition-fast);
+}
+
+.eyeBtn:hover {
+  color: var(--text-secondary);
+}
+
+.submitBtn {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--orange-500) 0%, var(--orange-600) 100%);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--orange-600) 0%, var(--orange-700) 100%);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
+.submitBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+.hint {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.hint strong {
+  color: var(--orange-500);
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .brandPanel {
+    display: none;
+  }
+
+  .mobileLogo {
+    display: flex;
+  }
+}
