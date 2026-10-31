@@ -1,10 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://gpqssirhcgelceoemysg.supabase.co";
-const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdwcXNzaXJoY2dlbGNlb2VteXNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxOTM0NzUsImV4cCI6MjEwMzc2OTQ3NX0.No_hvc_Vm9n1KgHr63BfFyqhdMtlTHP5dSSdrWKyBrQ";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn(
+    "Missing Supabase environment variables in teacher-web! Please check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file."
+  );
+}
+
+export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
