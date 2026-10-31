@@ -75,6 +75,7 @@ export default function AssessmentsPage() {
   const [gradeLevel, setGradeLevel] = useState("Grade 10");
   const [difficulty, setDifficulty] = useState("Medium");
   const [questionType, setQuestionType] = useState<QuestionType | "mixed">("multiple_choice");
+  const [mixedTypes, setMixedTypes] = useState<string[]>(["multiple_choice", "enumeration", "true_false"]);
   const [questionCount, setQuestionCount] = useState<number>(10);
   const [topicPrompt, setTopicPrompt] = useState("");
   const [lessonNotes, setLessonNotes] = useState("");
@@ -231,12 +232,27 @@ export default function AssessmentsPage() {
 
     setGeneratorLoading(true);
     try {
+      let effectiveQuestionType: any = questionType;
+      if (questionType === "mixed" && mixedTypes.length > 0) {
+        const typeLabels: Record<string, string> = {
+          multiple_choice: "Multiple Choice",
+          enumeration: "Enumeration",
+          true_false: "True / False",
+          identification: "Identification",
+          word_box: "Word Box",
+        };
+        const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
+        const selectedLabels = mixedTypes
+          .map((k, idx) => `Part ${romanNumerals[idx]}. ${typeLabels[k] || k}`);
+        effectiveQuestionType = `Mixed Assessment (include ONLY these parts sequentially: ${selectedLabels.join(", ")})`;
+      }
+
       const generated = await generateScannableQuiz({
         topic: effectiveTopic || "Curriculum Assessment",
         subject,
         gradeLevel,
         difficulty,
-        questionType,
+        questionType: effectiveQuestionType,
         questionCount,
         attachedPdfBase64: attachedDoc?.type === "pdf" ? attachedDoc.base64 : undefined,
         attachedPdfName: attachedDoc?.type === "pdf" ? attachedDoc.name : undefined,
@@ -688,6 +704,94 @@ export default function AssessmentsPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* ── Mixed Assessment Type Picker ── */}
+                {questionType === "mixed" && (
+                  <div style={{
+                    padding: "14px 16px",
+                    background: "var(--color-bg-subtle, #F8FAFC)",
+                    border: "1px solid var(--color-border, #E2E8F0)",
+                    borderRadius: "12px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                    marginBottom: "16px",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "800", color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        Select Test Types to Include
+                      </span>
+                      <span style={{ fontSize: "11px", fontWeight: "700", background: "rgba(59, 130, 246, 0.1)", color: "#3B82F6", padding: "2px 8px", borderRadius: "6px" }}>
+                        {mixedTypes.length} Selected
+                      </span>
+                    </div>
+                    <p style={{ fontSize: "12px", color: "var(--color-text-subtle, #64748B)", margin: 0 }}>
+                      Pick which test parts to include (e.g. I. Multiple Choice, II. Enumeration, III. True/False). Questions will be organized into sequential sections.
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" }}>
+                      {[
+                        { key: "multiple_choice", label: "Multiple Choice" },
+                        { key: "enumeration", label: "Enumeration" },
+                        { key: "true_false", label: "True / False" },
+                        { key: "identification", label: "Identification" },
+                        { key: "word_box", label: "Word Box" },
+                      ].map((opt) => {
+                        const selIdx = mixedTypes.indexOf(opt.key);
+                        const isSelected = selIdx !== -1;
+                        const romans = ["I", "II", "III", "IV", "V"];
+                        return (
+                          <label
+                            key={opt.key}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              padding: "6px 12px",
+                              borderRadius: "8px",
+                              border: isSelected ? "1.5px solid #3B82F6" : "1.5px solid var(--color-border, #E2E8F0)",
+                              background: isSelected ? "rgba(59, 130, 246, 0.08)" : "var(--color-surface, #FFFFFF)",
+                              cursor: "pointer",
+                              fontSize: "13px",
+                              fontWeight: isSelected ? 600 : 500,
+                              color: isSelected ? "#3B82F6" : "inherit",
+                              userSelect: "none",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  if (mixedTypes.length <= 2) {
+                                    alert("Please select at least 2 test types for a mixed assessment.");
+                                    return;
+                                  }
+                                  setMixedTypes(mixedTypes.filter((k) => k !== opt.key));
+                                } else {
+                                  setMixedTypes([...mixedTypes, opt.key]);
+                                }
+                              }}
+                              style={{ accentColor: "#3B82F6" }}
+                            />
+                            {isSelected && (
+                              <span style={{
+                                fontSize: "10px",
+                                fontWeight: "800",
+                                background: "#3B82F6",
+                                color: "#FFFFFF",
+                                padding: "1px 5px",
+                                borderRadius: "4px",
+                              }}>
+                                {romans[selIdx]}
+                              </span>
+                            )}
+                            {opt.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* ── Attach Reference File (Dropzone) ── */}
                 <div className={styles.fieldGroup}>

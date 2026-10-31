@@ -105,6 +105,7 @@ export default function HomePage() {
   const [section, setSection] = useState("");
   const [room, setRoom] = useState("");
   const [schedule, setSchedule] = useState("");
+  const [selectedColor, setSelectedColor] = useState(CARD_COLORS[0]);
   const [userName, setUserName] = useState("");
 
   // ── Load classrooms from Supabase ─────────────────────────────────────────
@@ -180,7 +181,7 @@ export default function HomePage() {
                   classroomTitle: c ? c.title : "Classroom",
                   classroomSchedule: cSchedule || (c ? (c.subject || "No Subject") : ""),
                   classroomRoom: c ? (c.room ? `Room ${c.room}` : cSection || "No Room") : "",
-                  classroomColor: CARD_COLORS[cIdx >= 0 ? cIdx % CARD_COLORS.length : 0],
+                  classroomColor: c?.color || CARD_COLORS[cIdx >= 0 ? cIdx % CARD_COLORS.length : 0],
                   scorePercentage: s.average,
                   alertType: s.average <= 40 ? "HIGH RISK" : "URGENT REVIEW",
                   message: `${s.full_name || "Student"} has dropped to an average of ${s.average}%. Performance Flagged: At-Risk.`,
@@ -269,7 +270,7 @@ export default function HomePage() {
             section: parsedSection,
             room: (row.room || "").toUpperCase(),
             schedule: parsedSchedule,
-            color: CARD_COLORS[i % CARD_COLORS.length],
+            color: row.color || CARD_COLORS[i % CARD_COLORS.length],
             students: displayStudents,
             quizzes: displayQuizzes,
             flagged: displayFlagged,
@@ -370,6 +371,7 @@ export default function HomePage() {
     setSection("");
     setRoom("");
     setSchedule("");
+    setSelectedColor(CARD_COLORS[0]);
     setModalVisible(true);
   }
 
@@ -404,6 +406,7 @@ export default function HomePage() {
         subject: finalSubject || null,
         section: encodedSection || null,
         room: finalRoom || null,
+        color: selectedColor,
       })
       .select()
       .single();
@@ -416,7 +419,7 @@ export default function HomePage() {
         section: finalSection,
         room: data.room || "",
         schedule: finalSchedule,
-        color: CARD_COLORS[cards.length % CARD_COLORS.length],
+        color: data.color || selectedColor,
         students: 0,
         quizzes: 0,
         flagged: 0,
@@ -775,6 +778,46 @@ export default function HomePage() {
                 onChangeText={setSchedule}
               />
 
+              {/* THEME COLOR */}
+              <View style={styles.colorFieldHeader}>
+                <Ionicons name="color-palette-outline" size={17} color={selectedColor} />
+                <Text style={[styles.fieldLabel, { color: textMain, marginTop: 0, marginBottom: 0 }]}>
+                  THEME COLOR
+                </Text>
+              </View>
+              <Text style={[styles.colorSubtitle, { color: textSub }]}>
+                Select an accent color for this classroom card &amp; banner
+              </Text>
+
+              <View style={styles.colorPickerContainer}>
+                {CARD_COLORS.map((c) => {
+                  const isSelected = selectedColor === c;
+                  return (
+                    <TouchableOpacity
+                      key={c}
+                      activeOpacity={0.8}
+                      onPress={() => setSelectedColor(c)}
+                      style={[
+                        styles.colorDot,
+                        { backgroundColor: c },
+                        isSelected && [
+                          styles.colorDotActive,
+                          {
+                            borderColor: darkMode ? "#FFFFFF" : "#0F172A",
+                            shadowColor: c,
+                          },
+                        ],
+                      ]}
+                      accessibilityLabel={`Select theme color ${c}`}
+                    >
+                      {isSelected && (
+                        <Ionicons name="checkmark-sharp" size={20} color="#FFFFFF" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
               {/* Action Buttons */}
               <View style={styles.modalActions}>
                 <TouchableOpacity
@@ -789,6 +832,7 @@ export default function HomePage() {
                 <TouchableOpacity
                   style={[
                     styles.buildBtn,
+                    { backgroundColor: selectedColor, shadowColor: selectedColor },
                     (!classTitle.trim() || saving) && styles.buildBtnDisabled,
                   ]}
                   onPress={handleBuildClass}
@@ -1395,6 +1439,42 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#FFFFFF",
     letterSpacing: 0.3,
+  },
+  colorFieldHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 18,
+    marginBottom: 4,
+  },
+  colorSubtitle: {
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 10,
+  },
+  colorPickerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  colorDot: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "transparent",
+  },
+  colorDotActive: {
+    borderWidth: 3.5,
+    transform: [{ scale: 1.12 }],
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
   },
 
   /* ── Active Roster Alerts Popup (Image 2) ── */

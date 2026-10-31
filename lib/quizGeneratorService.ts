@@ -24,7 +24,8 @@ export interface GeneratedAssessment {
 }
 
 export interface AssessmentGenerationParams {
-    topic: string;
+    topic?: string;
+    lessonNotes?: string;
     subject?: string;
     gradeLevel?: string;
     questionType?: string;
@@ -53,7 +54,12 @@ export async function generateScannableQuiz(
     const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
 
     const count = params.questionCount || 10;
-    const diff = params.difficulty || "Medium";
+    const rawDiff = params.difficulty || "Medium (Application & Analysis)";
+    const diffCategory: "Easy" | "Medium" | "Hard" =
+        rawDiff.toLowerCase().includes("easy") ? "Easy" :
+        rawDiff.toLowerCase().includes("hard") ? "Hard" :
+        "Medium";
+
     const subj = params.subject || "General Education";
     const grade = params.gradeLevel || "Grade 10";
     const qType = params.questionType || "Mixed (Multiple Choice, True/False, Fill in Blank)";
@@ -77,9 +83,7 @@ CRITICAL DIFFICULTY GUIDELINES - HARD (Bloom's Level 5 & 6: Evaluation, Complex 
 - Question Phrasing: Present challenging, multi-layered problem scenarios where simple recall is insufficient to arrive at the answer.
 - Distractors / Choices: Distractors must be highly sophisticated, specifically targeting subtle student misconceptions, calculation traps, and edge-case pitfalls.
 - Pedagogical Goal: Challenge and stretch top-tier students, demanding deep mastery and rigorous critical thinking.`,
-    }[diff as "Easy" | "Medium" | "Hard"] || `
-CRITICAL DIFFICULTY GUIDELINES:
-- Calibrate the cognitive complexity, vocabulary, and distractor subtlety strictly to the requested "${diff}" level.`;
+    }[diffCategory];
 
     const docName = params.attachedFileName || params.attachedPdfName;
     const isPdf = params.attachedFileType === "pdf" || Boolean(params.attachedPdfBase64);
@@ -88,30 +92,55 @@ CRITICAL DIFFICULTY GUIDELINES:
     if (docName) {
         if (params.attachedFileText) {
             documentSourceInstruction = `
-- Source Document: Attached document ("${docName}").
-STRICT ASSESSMENT SOURCE MATERIAL:
-The user has attached the reference document "${docName}". You MUST strictly base your questions, correct answers, and distractors on the provided content below. Do NOT generate questions on topics not mentioned in this document:
-
---- BEGIN ATTACHED DOCUMENT CONTENT ("${docName}") ---
+- Attached Reference Document: "${docName}"
+Content from "${docName}":
+--- BEGIN ATTACHED DOCUMENT CONTENT ---
 ${params.attachedFileText}
 --- END ATTACHED DOCUMENT CONTENT ---
 `;
         } else if (isPdf) {
-            documentSourceInstruction = `- Source Document: Strictly derive questions and answers from the attached PDF document ("${docName}"). Do NOT ask general questions outside this document.`;
+            documentSourceInstruction = `- Attached Reference Document: Strictly derive questions and answers from the attached PDF document ("${docName}"). Do NOT ask general questions outside this document.`;
         }
     }
 
+    let lessonNotesInstruction = "";
+    if (params.lessonNotes && params.lessonNotes.trim().length > 0) {
+        lessonNotesInstruction = `
+- Teacher's Lesson Notes / Syllabus Text:
+--- BEGIN LESSON NOTES ---
+${params.lessonNotes.trim()}
+--- END LESSON NOTES ---
+`;
+    }
+
+    const effectiveTopic =
+        params.topic?.trim() ||
+        (docName ? `Content from ${docName}` : "") ||
+        (params.lessonNotes?.trim() ? "Teacher's Lesson Notes & Syllabus Content" : `${subj} Course Material`);
+
+    let sourceMaterialSection = "";
+    if (documentSourceInstruction || lessonNotesInstruction) {
+        sourceMaterialSection = `
+STRICT ASSESSMENT SOURCE MATERIAL:
+The user has provided reference learning material below. You MUST strictly base your questions, correct answers, and distractors on the provided content. Do NOT generate questions on external topics not mentioned in these materials:
+${documentSourceInstruction}
+${lessonNotesInstruction}
+`;
+    }
+
     let promptText = `
-You are an expert curriculum designer and psychometrician. Generate an educational assessment based on the requested topic and the STRICT cognitive difficulty guidelines below.
+You are an expert curriculum designer and psychometrician. Generate an educational assessment based on the requested materials and the STRICT cognitive difficulty guidelines below.
 
 Assessment Parameters:
-- Topic: ${params.topic}
+- Topic / Focus: ${effectiveTopic}
 - Subject: ${subj}
 - Grade Level: ${grade}
 - Question Type Preference: ${qType}
 - Number of Questions: ${count}
-- Selected Difficulty: ${diff.toUpperCase()}
-${documentSourceInstruction}
+- Selected Bloom's Difficulty: ${rawDiff} (${diffCategory.toUpperCase()})
+${sourceMaterialSection}
+
+${difficultyGuide}
 
 CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
 1. If Question Type Preference is "Multiple Choice":
@@ -147,8 +176,13 @@ CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
    - correctAnswer: The exact word or phrase from the options array that is the correct answer (e.g. "Jose Rizal")
    - IMPORTANT: The word bank (options) should contain plausible distractors that are related to the topic but incorrect, making the question challenging. The correct answer MUST appear exactly (case-sensitive) in the options array.
 
-6. If Question Type Preference is "Mixed Assessment":
-   - Create a balanced pedagogical mix of the above types across the test (e.g. Multiple Choice, True / False, Identification, Word Box, and Enumeration) following each type's exact rules.
+6. If Question Type Preference is "Mixed Assessment" or contains "Mixed Assessment":
+   - If specific parts/types are listed (e.g. "include ONLY these parts sequentially: Part I. Multiple Choice, Part II. Enumeration, Part III. True / False"):
+     * You MUST ONLY include the specified question types. Do NOT generate any unselected question types.
+     * Organize the questions sequentially into sections matching those types (e.g. Part I questions first, Part II questions next, Part III questions after), maintaining continuous overall question numbering (1, 2, 3... up to ${count}).
+     * Distribute the total question count evenly across the chosen parts.
+   - If no specific parts are specified, create a balanced pedagogical mix across Multiple Choice, True / False, Identification, Word Box, and Enumeration.
+   - Each individual question MUST strictly follow its respective formatting rules from items 1 to 5 above.
 
 You MUST return ONLY a strict, valid JSON object. Do not include markdown formatting (like \`\`\`json). The JSON must perfectly follow this structure so it can be rendered into a scannable test paper:
 

@@ -39,18 +39,30 @@ const SUBJECTS = [
     "Economics", "Technology", "Physical Education", "Arts", "Music",
 ];
 const GRADE_LEVELS = [
+    "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6",
     "Grade 7", "Grade 8", "Grade 9", "Grade 10",
-    "Grade 11", "Grade 12",
+    "Grade 11 (SHS)", "Grade 12 (SHS)",
+];
+const BLOOM_DIFFICULTIES = [
+    "Easy (Recall & Understanding)",
+    "Medium (Application & Analysis)",
+    "Hard (Evaluation & Synthesis)",
 ];
 const QUESTION_TYPES = [
     "Multiple Choice", "True / False", "Identification", "Fill in the Blank", "Enumeration", "Word Box", "Mixed Assessment",
+];
+const MIXED_TYPE_OPTIONS = [
+    { key: "multiple_choice", label: "Multiple Choice" },
+    { key: "enumeration", label: "Enumeration" },
+    { key: "true_false", label: "True / False" },
+    { key: "identification", label: "Identification" },
+    { key: "fill_blank", label: "Fill in the Blank" },
+    { key: "word_box", label: "Word Box" },
 ];
 const QUESTION_COUNTS = [
     "5 Questions", "10 Questions", "15 Questions", "20 Questions",
     "25 Questions", "30 Questions", "40 Questions", "50 Questions",
 ];
-
-type Difficulty = "Easy" | "Medium" | "Hard";
 
 // ── Answer Matching Helper ────────────────────────────────────────────────────
 function isChoiceAnswer(choice: string, answer: string, choiceIndex: number): boolean {
@@ -179,7 +191,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const resolvedSubject = classSubject && classSubject.trim().length > 0 ? classSubject.trim() : "General";
 
     // ── Form state ─────────────────────────────────────────────────────────────
-    const [topic, setTopic] = useState("");
+    const [lessonNotes, setLessonNotes] = useState("");
     const [subject, setSubject] = useState(resolvedSubject);
 
     useEffect(() => {
@@ -187,10 +199,11 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             setSubject(classSubject.trim());
         }
     }, [classSubject]);
-    const [gradeLevel, setGradeLevel] = useState("Grade 11");
+    const [gradeLevel, setGradeLevel] = useState("Grade 11 (SHS)");
     const [questionType, setQuestionType] = useState("Multiple Choice");
+    const [mixedTypes, setMixedTypes] = useState<string[]>(["multiple_choice", "enumeration", "true_false"]);
     const [questionCount, setQuestionCount] = useState("20 Questions");
-    const [difficulty, setDifficulty] = useState<Difficulty>("Hard");
+    const [difficulty, setDifficulty] = useState("Medium (Application & Analysis)");
     const [attachedFile, setAttachedFile] = useState<{
         uri: string;
         name: string;
@@ -251,8 +264,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     // ── Generate handler ───────────────────────────────────────────────────────
     async function handleGenerate() {
-        const effectiveTopic = topic.trim() || (attachedFile ? `Content of ${attachedFile.name}` : "");
-        if (!effectiveTopic || generating) return;
+        if ((!attachedFile && !lessonNotes.trim()) || generating) return;
         setGenerating(true);
         setShowResults(false);
 
@@ -277,11 +289,22 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             }
 
             const count = parseInt(questionCount.split(" ")[0], 10) || 10;
+
+            // Build the effective question type string
+            let effectiveQuestionType = questionType;
+            if (questionType === "Mixed Assessment" && mixedTypes.length > 0) {
+                const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
+                const selectedLabels = MIXED_TYPE_OPTIONS
+                    .filter((opt) => mixedTypes.includes(opt.key))
+                    .map((opt, idx) => `Part ${romanNumerals[idx]}. ${opt.label}`);
+                effectiveQuestionType = `Mixed Assessment (include ONLY these parts sequentially: ${selectedLabels.join(", ")})`;
+            }
+
             const assessment = await generateScannableQuiz({
-                topic: effectiveTopic,
+                lessonNotes: lessonNotes.trim() || undefined,
                 subject,
                 gradeLevel,
-                questionType,
+                questionType: effectiveQuestionType,
                 questionCount: count,
                 difficulty,
                 attachedPdfBase64,
@@ -312,9 +335,10 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     function handleReset() {
         setShowResults(false);
         setGeneratedAssessment(null);
-        setTopic("");
+        setLessonNotes("");
         setSubject(resolvedSubject);
         setAttachedFile(null);
+        setMixedTypes(["multiple_choice", "enumeration", "true_false"]);
     }
 
     // ── Manual question helpers ────────────────────────────────────────────────
@@ -523,7 +547,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         );
     }
 
-    const canGenerate = (topic.trim().length > 0 || attachedFile !== null) && !generating;
+    const canGenerate = (attachedFile !== null || lessonNotes.trim().length > 0) && !generating;
 
     return (
         <ScrollView
@@ -545,90 +569,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
             {!showResults ? (
                 <>
-                    {/* ── Assessment Topic ── */}
-                    <Text style={[styles.fieldLabel, { color: textSub }]}>
-                        ASSESSMENT TOPIC {attachedFile ? <Text style={styles.optional}>(OPTIONAL WITH FILE)</Text> : <Text style={styles.required}>*</Text>}
-                    </Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                        placeholder={
-                            attachedFile
-                                ? `e.g. Focus on Chapter 3 of ${attachedFile.name}, or leave blank to cover whole file`
-                                : "e.g. Cold War, Photosynthesis, Quadratic Equations..."
-                        }
-                        placeholderTextColor={textSub}
-                        value={topic}
-                        onChangeText={setTopic}
-                    />
-
-                    {/* ── Subject (Auto from Classroom) + Grade Level ── */}
-                    <View style={styles.twoCol}>
-                        <View style={styles.colHalf}>
-                            <Text style={[styles.fieldLabel, { color: textSub }]}>SUBJECT</Text>
-                            <View style={[styles.autoSubjectBtn, { backgroundColor: inputBg, borderColor: border }]}>
-                                <Text style={[styles.autoSubjectText, { color: textMain }]} numberOfLines={1}>
-                                    {subject}
-                                </Text>
-                                <Ionicons name="lock-closed" size={14} color={textSub} />
-                            </View>
-                        </View>
-                        <View style={styles.colHalf}>
-                            <Dropdown
-                                label="GRADE LEVEL"
-                                value={gradeLevel}
-                                options={GRADE_LEVELS}
-                                onSelect={setGradeLevel}
-                                accentColor={accentColor}
-                            />
-                        </View>
-                    </View>
-
-                    {/* ── Question Type + Count ── */}
-                    <View style={styles.twoCol}>
-                        <View style={styles.colHalf}>
-                            <Dropdown
-                                label="QUESTION TYPE"
-                                value={questionType}
-                                options={QUESTION_TYPES}
-                                onSelect={setQuestionType}
-                                accentColor={accentColor}
-                            />
-                        </View>
-                        <View style={styles.colHalf}>
-                            <Dropdown
-                                label="QUESTIONS COUNT"
-                                value={questionCount}
-                                options={QUESTION_COUNTS}
-                                onSelect={setQuestionCount}
-                                accentColor={accentColor}
-                            />
-                        </View>
-                    </View>
-
-                    {/* ── Difficulty Level ── */}
-                    <Text style={[styles.fieldLabel, { color: textSub }]}>DIFFICULTY LEVEL</Text>
-                    <View style={styles.difficultyRow}>
-                        {(["Easy", "Medium", "Hard"] as Difficulty[]).map((d) => (
-                            <TouchableOpacity
-                                key={d}
-                                style={[
-                                    styles.diffBtn,
-                                    { backgroundColor: inputBg, borderColor: border },
-                                    difficulty === d && { backgroundColor: accentColor, borderColor: accentColor },
-                                ]}
-                                onPress={() => setDifficulty(d)}
-                            >
-                                <Text style={[
-                                    styles.diffBtnText,
-                                    { color: textSub },
-                                    difficulty === d && { color: "#FFFFFF" },
-                                ]}>
-                                    {d}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
                     {/* ── Attached File ── */}
                     <Text style={[styles.fieldLabel, { color: textSub }]}>ATTACH REFERENCE FILE <Text style={styles.optional}>(DOC, PPT, PDF - OPTIONAL)</Text></Text>
                     <TouchableOpacity
@@ -680,6 +620,150 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         )}
                     </TouchableOpacity>
 
+                    {/* ── Paste Lesson Notes or Syllabus Text (Optional) ── */}
+                    <Text style={[styles.fieldLabel, { color: textSub }]}>
+                        PASTE LESSON NOTES OR SYLLABUS TEXT <Text style={styles.optional}>(OPTIONAL)</Text>
+                    </Text>
+                    <TextInput
+                        style={[styles.textAreaInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                        placeholder="Paste textbook excerpts, lesson summary, or curriculum outline here for deeper contextual accuracy..."
+                        placeholderTextColor={textSub}
+                        value={lessonNotes}
+                        onChangeText={setLessonNotes}
+                        multiline
+                        numberOfLines={4}
+                        textAlignVertical="top"
+                    />
+
+                    {/* ── Subject (Auto from Classroom) + Grade Level ── */}
+                    <View style={styles.twoCol}>
+                        <View style={styles.colHalf}>
+                            <Text style={[styles.fieldLabel, { color: textSub }]}>SUBJECT</Text>
+                            <View style={[styles.autoSubjectBtn, { backgroundColor: inputBg, borderColor: border }]}>
+                                <Text style={[styles.autoSubjectText, { color: textMain }]} numberOfLines={1}>
+                                    {subject}
+                                </Text>
+                                <Ionicons name="lock-closed" size={14} color={textSub} />
+                            </View>
+                        </View>
+                        <View style={styles.colHalf}>
+                            <Dropdown
+                                label="GRADE LEVEL"
+                                value={gradeLevel}
+                                options={GRADE_LEVELS}
+                                onSelect={setGradeLevel}
+                                accentColor={accentColor}
+                            />
+                        </View>
+                    </View>
+
+                    {/* ── Question Type + Count ── */}
+                    <View style={styles.twoCol}>
+                        <View style={styles.colHalf}>
+                            <Dropdown
+                                label="QUESTION TYPE"
+                                value={questionType}
+                                options={QUESTION_TYPES}
+                                onSelect={setQuestionType}
+                                accentColor={accentColor}
+                            />
+                        </View>
+                        <View style={styles.colHalf}>
+                            <Dropdown
+                                label="QUESTIONS COUNT"
+                                value={questionCount}
+                                options={QUESTION_COUNTS}
+                                onSelect={setQuestionCount}
+                                accentColor={accentColor}
+                            />
+                        </View>
+                    </View>
+
+                    {/* ── Mixed Assessment Type Picker ── */}
+                    {questionType === "Mixed Assessment" && (
+                        <View style={[styles.mixedPickerContainer, { backgroundColor: inputBg, borderColor: border }]}>
+                            <View style={styles.mixedPickerHeader}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                    <Ionicons name="layers-outline" size={16} color={accentColor} />
+                                    <Text style={[styles.mixedPickerTitle, { color: accentColor }]}>
+                                        Select Test Types to Include
+                                    </Text>
+                                </View>
+                                <View style={[styles.mixedCountBadge, { backgroundColor: accentColor + "18" }]}>
+                                    <Text style={[styles.mixedCountText, { color: accentColor }]}>
+                                        {mixedTypes.length} Selected
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <Text style={[styles.mixedPickerHint, { color: textSub }]}>
+                                Pick which test parts to include (e.g. I. Multiple Choice, II. Enumeration, III. True/False). Questions will be grouped into sequential parts.
+                            </Text>
+
+                            <View style={styles.mixedPickerGrid}>
+                                {MIXED_TYPE_OPTIONS.map((opt) => {
+                                    const selectedFiltered = MIXED_TYPE_OPTIONS.filter((o) => mixedTypes.includes(o.key));
+                                    const orderIndex = selectedFiltered.findIndex((o) => o.key === opt.key);
+                                    const isSelected = orderIndex !== -1;
+                                    const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
+                                    const roman = isSelected ? romanNumerals[orderIndex] : null;
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={opt.key}
+                                            style={[
+                                                styles.mixedChip,
+                                                { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF", borderColor: border },
+                                                isSelected && { backgroundColor: accentColor + "15", borderColor: accentColor },
+                                            ]}
+                                            onPress={() => {
+                                                if (isSelected) {
+                                                    // Don't allow deselecting if only 2 remain
+                                                    if (mixedTypes.length <= 2) {
+                                                        Alert.alert("Minimum Required", "Please select at least 2 test types for a mixed assessment.");
+                                                        return;
+                                                    }
+                                                    setMixedTypes(mixedTypes.filter((k) => k !== opt.key));
+                                                } else {
+                                                    setMixedTypes([...mixedTypes, opt.key]);
+                                                }
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Ionicons
+                                                name={isSelected ? "checkbox" : "square-outline"}
+                                                size={18}
+                                                color={isSelected ? accentColor : textSub}
+                                                style={{ marginRight: 6 }}
+                                            />
+                                            {roman && (
+                                                <View style={[styles.mixedRomanBadge, { backgroundColor: accentColor }]}>
+                                                    <Text style={styles.mixedRomanBadgeText}>{roman}</Text>
+                                                </View>
+                                            )}
+                                            <Text style={[
+                                                styles.mixedChipText,
+                                                { color: isSelected ? accentColor : textMain },
+                                                isSelected && { fontWeight: "700" },
+                                            ]}>
+                                                {opt.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </View>
+                    )}
+
+                    {/* ── Bloom's Taxonomy Difficulty ── */}
+                    <Dropdown
+                        label="BLOOM'S TAXONOMY DIFFICULTY"
+                        value={difficulty}
+                        options={BLOOM_DIFFICULTIES}
+                        onSelect={setDifficulty}
+                        accentColor={accentColor}
+                    />
+
                     {/* ── Generate Button ── */}
                     <TouchableOpacity
                         style={[
@@ -707,7 +791,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     <View style={styles.infoNote}>
                         <Ionicons name="information-circle-outline" size={15} color={textSub} />
                         <Text style={[styles.infoText, { color: textSub }]}>
-                            Questions are generated based on DepEd curriculum standards
+                            {!attachedFile && !lessonNotes.trim()
+                                ? "Attach a reference file (DOC, PPT, PDF) or paste lesson notes to generate an assessment."
+                                : "Questions are generated based on DepEd curriculum standards and your materials."}
                         </Text>
                     </View>
                 </>
@@ -1448,6 +1534,20 @@ const styles = StyleSheet.create({
         borderRadius: 12, paddingHorizontal: 14, fontSize: 15,
         color: "#1F2937", backgroundColor: "#F9FAFB",
     },
+    textAreaInput: {
+        minHeight: 100,
+        maxHeight: 160,
+        borderWidth: 1.5,
+        borderColor: "#D1D5DB",
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingTop: 12,
+        paddingBottom: 12,
+        fontSize: 14,
+        lineHeight: 20,
+        color: "#1F2937",
+        backgroundColor: "#F9FAFB",
+    },
 
     /* Attach File */
     attachBtn: {
@@ -1519,6 +1619,69 @@ const styles = StyleSheet.create({
     /* Two-column layout */
     twoCol: { flexDirection: "row", gap: 12 },
     colHalf: { flex: 1 },
+
+    /* Mixed Assessment Picker */
+    mixedPickerContainer: {
+        borderWidth: 1.5,
+        borderRadius: 16,
+        padding: 16,
+        marginTop: 4,
+        marginBottom: 12,
+    },
+    mixedPickerHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 6,
+    },
+    mixedPickerTitle: {
+        fontSize: 13,
+        fontWeight: "800",
+        letterSpacing: 0.5,
+        textTransform: "uppercase",
+    },
+    mixedCountBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+    },
+    mixedCountText: {
+        fontSize: 11,
+        fontWeight: "700",
+    },
+    mixedPickerHint: {
+        fontSize: 12,
+        lineHeight: 16,
+        marginBottom: 12,
+    },
+    mixedPickerGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+    },
+    mixedChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        borderRadius: 10,
+        borderWidth: 1.5,
+    },
+    mixedRomanBadge: {
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        borderRadius: 4,
+        marginRight: 6,
+    },
+    mixedRomanBadgeText: {
+        color: "#FFFFFF",
+        fontSize: 10,
+        fontWeight: "800",
+    },
+    mixedChipText: {
+        fontSize: 13,
+        fontWeight: "500",
+    },
 
     /* Difficulty */
     difficultyRow: { flexDirection: "row", gap: 10 },

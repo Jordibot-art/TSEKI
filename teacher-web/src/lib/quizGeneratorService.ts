@@ -165,8 +165,13 @@ CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
    - answerBoxesRequired: 1
    - correctAnswer: The exact word or phrase from the options array
 
-6. If Question Type Preference is "Mixed Assessment" or "mixed":
-   - Create a balanced pedagogical mix across the test (Multiple Choice, True / False, Identification, Word Box) following each type's exact rules.
+6. If Question Type Preference is "Mixed Assessment" or "mixed" or contains "Mixed Assessment":
+   - If specific parts/types are listed (e.g. "include ONLY these parts sequentially: Part I. Multiple Choice, Part II. Enumeration, Part III. True / False"):
+     * You MUST ONLY include the specified question types. Do NOT generate any unselected question types.
+     * Organize the questions sequentially into sections matching those types (e.g. Part I questions first, Part II questions next, Part III questions after), maintaining continuous overall question numbering (1, 2, 3... up to ${count}).
+     * Distribute the total question count evenly across the chosen parts.
+   - If no specific parts are specified, create a balanced pedagogical mix across Multiple Choice, True / False, Identification, Word Box, and Enumeration.
+   - Each individual question MUST strictly follow its respective formatting rules from items 1 to 5 above.
 
 You MUST return ONLY a strict, valid JSON object. Do not include markdown formatting or backticks. Follow this exact JSON schema:
 {
