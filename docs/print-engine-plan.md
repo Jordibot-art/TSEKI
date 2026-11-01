@@ -1,601 +1,419 @@
-# Tseki Print Engine — Technical Specification & Implementation Status
-
-> **Branch:** `feature/print-engine`
-> **Status:** IMPLEMENTED & VERIFIED (Fontkit + Noto Sans Unicode, Top-Relative Layout Coordinates, Smoke Test, Table Confirmation)
+# Print Engine Plan (v2 – updated after Step 0 review)
 
 ---
 
-## 1. Executive Summary
+## 0. Startup Status
 
-Build a **printable paper layout engine** that runs when a quiz is published (and on-demand via a "Print" button). It produces:
+**`npm install`** — succeeded (exit 0). 57 vulnerabilities noted (1 low / 43 moderate / 12 high / 1 critical); none are in pdf-lib, fontkit, XLSX, or qrcode-generator. No action needed before starting.
 
-1. **Student PDFs** — either ALL-IN-ONE (question + answer on one page) or SEPARATE (reusable booklet + standalone answer sheet).
-2. **Teacher answer key PDF** — accepted answers and grading tolerances.
-3. **Layout JSON** — pixel-precise box positions so the Grader tab can locate each answer box by coordinates instead of relying purely on Gemini Vision free-form OCR.
+**`npx expo start -c`** — Metro started and cached successfully. React Compiler enabled. No errors observed at startup.
 
 ---
 
-## 2. PDF & Font Rendering Architecture
+## 1. Existing `lib/printEngine` File Inventory
 
-### Font Embedding: **Noto Sans Regular & Bold via `@pdf-lib/fontkit`**
-PDF standard 14 fonts (e.g. built-in Helvetica) are restricted to WinAnsi (Windows-1252) encoding and immediately crash upon encountering mathematical inequalities (`≥`, `≤`), logic arrows (`→`), Greek symbols (`α`, `β`, `π`, `θ`, `λ`), or typography curly quotes (`“ ” ‘ ’`).
+The previous attempt left these files committed on HEAD (now showing as *deleted* in the working tree because a rollback was done). For each:
 
-**Implementation:**
-- Registered `@pdf-lib/fontkit` on PDFDocument instances (`doc.registerFontkit(fontkit)`).
-- Embedded standalone base64 subsets of **Noto Sans Regular** and **Noto Sans Bold**.
-- `measure.ts`, `fitDecision.ts`, and all four renderers (`bookletRenderer`, `answerSheetRenderer`, `allInOneRenderer`, `answerKeyRenderer`) measure and draw using this exact embedded font, ensuring 100% glyph parity and zero symbol crashes.
-
-### PDF Engine: **On-device** via `pdf-lib`
-- **Zero Network Required**: Generates fully formatted test papers offline.
-- **High Performance**: 2-page PDF generates in ~500ms–1.5s on mobile hardware.
-- **Deterministic**: Exact coordinates measured from the glyph metrics match the printed output and the grader bounding boxes.
-
----
-
-## 3. Print Engine File Structure
-
-```
-lib/
-├── paperSheetExporter.ts          ← LEGACY — kept intact
-├── printEngine/
-│   ├── index.ts                   ← public API: generatePrintPackage()
-│   ├── types.ts                   ← shared types (PrintMode, LayoutJSON, BoxRect, etc.)
-│   ├── constants.ts               ← page sizes, margins, MIN_FONT_PT, box dimensions
-│   ├── measure.ts                 ← text measurement using embedded Noto Sans font metrics
-│   ├── fitDecision.ts             ← tries 11 → 10.5 → 10 pt; returns mode + fontSize
-│   ├── bookletRenderer.ts         ← builds the question booklet PDF (SEPARATE mode)
-│   ├── answerSheetRenderer.ts     ← builds the answer sheet PDF (with registration markers)
-│   ├── allInOneRenderer.ts        ← builds the single-page ALL-IN-ONE PDF
-│   ├── answerKeyRenderer.ts       ← builds the teacher answer key PDF
-│   ├── layoutJson.ts              ← assembles LayoutJSON with top-relative coordinates
-│   ├── qrStamp.ts                 ← QR code generation (quiz ID, version, page)
-│   ├── markers.ts                 ← 4 solid black corner registration markers (14x14 pt)
-│   ├── smokeTest.ts               ← on-device 2-page benchmark & verification service
-│   ├── fonts/
-│   │   ├── embedFonts.ts          ← fontkit embedding helper for regular & bold
-│   │   └── notoSansFonts.ts       ← base64 embedded Noto Sans TTF buffers
-│   └── __tests__/
-│       ├── fontSymbolsTest.ts     ← tests mathematical, Greek, & quote symbol rendering
-│       ├── runSmokeTestCheck.ts   ← smoke test execution verification
-│       ├── runStep1Tests.ts       ← text measuring & fit decision tests
-│       ├── runStep2Tests.ts       ← PDF renderers & bounding box tests
-│       ├── runStep3Tests.ts       ← layout JSON & answer key tests
-│       ├── runExcelScoreTest.ts   ← clean numerical score export tests
-│       └── fixtures/              ← sample quiz objects (10, 20, 40 items)
-```
+| File | Decision | Reason |
+|---|---|---|
+| `types.ts` | ✅ **Reuse with edits** | Already has `PrintPackage`, `LayoutJSON`, `LayoutItem`, `LayoutPage`, `MarkerRect`, `FitResult`, `BoxRect`. Needs `questionNumber`, `subIndex`, `maxChars`, `rect` (rename `box → rect`) per review item 2. |
+| `constants.ts` | ✅ **Reuse with edits** | `CORNER_MARKER.size` is 14 pt — correct. QR size is 54 pt — OK. Add `MODULE_MIN_PT = 1.5`. |
+| `index.ts` | ✅ **Reuse with edits** | `generatePrintPackage` API is correct. Return shape updated to match review item 3. |
+| `measure.ts` | ✅ **Reuse with edits** | Module-level font cache is correct. Convert to singleton loading asset bytes once. |
+| `fitDecision.ts` | ✅ **Reuse with edits** | Logic correct; wire to asset-loaded font. |
+| `markers.ts` | ✅ **Reuse as-is** | Draws 4 corner squares + safe-zone guard. |
+| `qrStamp.ts` | ✅ **Reuse with edits** | Must use `qrcode-generator`, ECL M, size 54–60 pt, module ≥ 1.5 pt. |
+| `bookletRenderer.ts` | ✅ **Reuse with edits** | Wire font, update layout coord export. |
+| `answerSheetRenderer.ts` | ✅ **Reuse with edits** | Wire font, update coord export, enforce 1-page (2 max) limit. |
+| `allInOneRenderer.ts` | ✅ **Reuse with edits** | Wire font, update coord export. |
+| `answerKeyRenderer.ts` | ✅ **Reuse with edits** | Needs teacher key table format per sample images. |
+| `layoutJson.ts` | ✅ **Reuse with edits** | Update types to new schema. |
+| `versionShuffle.ts` | ✅ **Reuse as-is** | Mulberry32 deterministic shuffle correct; Set A = original order. |
+| `mobileShare.ts` | ✅ **Reuse as-is** | Handles Sharing + FileSystem write. |
+| `smokeTest.ts` | ✅ **Reuse with edits** | Must report font load, layout, PDF build, file write separately. |
+| `fonts/embedFonts.ts` | ✅ **Reuse with edits** | Change to load from asset file, not the base64 TS module. |
+| `fonts/notoSansFonts.ts` | ❌ **DELETE** | 1.5 MiB of base64 in JS — wrong approach (see Font section). |
+| `__tests__/fixtures/sampleQuizzes.ts` | ✅ **Reuse with edits** | Add Filipino-name quiz, symbol quiz, too-long-answer fixture. |
+| `__tests__/fontSymbolsTest.ts` | ✅ **Reuse** | Keep. |
+| `__tests__/runStep1Tests.ts` | ✅ **Reuse with edits** | Update assertions to new types. |
+| `__tests__/runStep2Tests.ts` | ✅ **Reuse with edits** | Change visual comparison to pdfjs-dist + canvas. |
+| `__tests__/runStep3Tests.ts` | ✅ **Reuse with edits** | Update to new LayoutJSON schema. |
+| `__tests__/runExcelScoreTest.ts` | ✅ **Reuse with edits** | 3 students × 2 quizzes test (Step 6). |
+| `__tests__/runSmokeTestCheck.ts` | ✅ **Reuse with edits** | Extend with per-phase timing assertions. |
+| `__tests__/targetExportTest.ts` | ✅ **Reuse** | Validates target='LAYOUT_ONLY' path. |
+| `lib/scoreExportService.ts` | ❌ **DELETE** | Scores-only export moves into `classListParserService.ts`. No second service. |
+| `migrations/add_layout_json_to_archived_assessments.sql` | ✅ **Reuse as-is** | Correct ALTER TABLE. |
+| `scripts/generateFontData.ts` | ❌ **DELETE** | Not needed once font is an asset file. |
+| `scripts/renderSamplePdfs.ts` | ✅ **Reuse with edits** | Switch to pdfjs-dist + canvas. |
 
 ---
 
-## 4. Core Types
+## 2. Font Loading: Asset File, Not Base64 JS
+
+### Why the base64 approach was wrong
+`fonts/notoSansFonts.ts` was 1.5 MiB of inline base64 strings. This is decoded into memory **at JS parse time**, doubling peak RAM and inflating the Metro bundle. It is not the Expo-recommended pattern.
+
+### Correct approach in Expo
+1. Copy `NotoSans-Regular.ttf` and `NotoSans-Bold.ttf` into `assets/fonts/`.
+2. Register them in `app.json` under `expo.fonts` so they are bundled in the native binary.
+3. In `embedFonts.ts`, read the bytes with `expo-asset` + `expo-file-system`:
 
 ```ts
-// lib/printEngine/types.ts
+// lib/printEngine/fonts/embedFonts.ts
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
 
-export type PrintMode = 'ALL_IN_ONE' | 'SEPARATE' | 'AUTO';
-
-export interface PrintOptions {
-  mode: PrintMode;             // default 'AUTO'
-  version?: 'A' | 'B' | 'C';  // shuffle version
-  forceSeparate?: boolean;     // teacher toggle override
-  gradeLevel?: string;         // determines MIN_FONT_PT
+async function loadFontBytes(assetModule: number): Promise<Uint8Array> {
+  const asset = Asset.fromModule(assetModule);
+  await asset.downloadAsync();               // no-op if already bundled
+  const b64 = await FileSystem.readAsStringAsync(asset.localUri!, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }
+```
 
-export interface PrintPackage {
-  pdfs: {
-    /** ALL-IN-ONE: single PDF; SEPARATE: booklet + answerSheet(s) */
-    studentPdf: Uint8Array;
-    answerSheetPdf?: Uint8Array;   // only in SEPARATE mode
-    answerKeyPdf: Uint8Array;
-  };
-  layoutJson: LayoutJSON;
-  mode: 'ALL_IN_ONE' | 'SEPARATE';
-  fontSize: number;
-  pages: number;
-  fitMessage: string;  // e.g. "Fits on 1 page at 10.5 pt"
-}
+4. Cache the decoded `Uint8Array` in a module-level singleton — file read happens **once per app session**.
+5. Each `PDFDocument` calls `doc.embedFont(cachedBytes)` which **subsets only used glyphs** — the subset in a typical 40-item quiz is well under 50 KB.
 
-export interface LayoutJSON {
-  quizId: string;
-  version: string;
-  pageSize: { width: number; height: number }; // points
-  pages: LayoutPage[];
-}
+### Why this is possible in Expo
+`expo-asset` + `expo-file-system` work in Expo Go, dev builds, and production builds. The `localUri` of a bundled asset is always a readable file path on device. No additional native module is needed.
 
-export interface LayoutPage {
-  pageNumber: number;
-  markers: MarkerRect[];          // 4 corner squares
-  qrPosition: BoxRect;
-  items: LayoutItem[];
-}
+**Font sizes on disk:** NotoSans-Regular.ttf ~550 KB; NotoSans-Bold.ttf ~560 KB. The Metro bundle saves ~400 KB vs. the old base64 approach.
 
-export interface LayoutItem {
-  questionNumber: number;
-  /** For enumeration sub-boxes: 37.1, 37.2, ... */
-  subIndex?: number;
-  type: 'letter' | 'tf' | 'text';
-  box: BoxRect;                   // { x, y, width, height } in points
-  maxChars: number;
-  expectedAnswer?: string;        // only in answer key
-}
+---
 
-export interface BoxRect {
-  x: number;
-  /**
-   * Vertical coordinate in points measured from the TOP edge of the page (y = 0 at top, increasing downward).
-   * Note: Standard PDF coordinates measure from the bottom, but LayoutJSON standardizes on top-relative y
-   * to match standard computer vision / camera image coordinate systems.
-   */
-  y: number;
+## 3. LayoutJSON Full Schema
+
+All coordinates use **PDF points** (1/72 inch). `y = 0` is the **top** of the page; `y` increases downward. Conversion from pdf-lib's bottom-origin coordinate happens once in `layoutJson.ts`:
+
+```ts
+// lib/printEngine/layoutJson.ts
+// pdf-lib uses y from BOTTOM. We standardize on y from TOP:
+//   topY = pageHeight - (pdfBottomY + rectHeight)
+// This matches camera image coordinate systems where y=0 is the top-left pixel.
+export const topY = (pdfBottomY: number, rectHeight: number, pageHeight: number) =>
+  pageHeight - pdfBottomY - rectHeight;
+```
+
+```ts
+// lib/printEngine/types.ts — canonical schema
+
+export type BoxType = 'letter' | 'tf' | 'text' | 'word_box';
+
+export interface Rect {
+  x: number;      // left edge, points from left of page
+  y: number;      // top edge, points from TOP of page (NOT pdf-lib native)
   width: number;
   height: number;
 }
 
-export interface MarkerRect extends BoxRect {
+export interface MarkerRect extends Rect {
   corner: 'TL' | 'TR' | 'BL' | 'BR';
 }
 
+export interface QRRect extends Rect {
+  content: string;  // "<quizId>|<version>|<docType>|<page>/<totalPages>"
+}
+
+export interface LayoutItem {
+  questionNumber: number;   // 1-based, continuous across parts
+  subIndex?: number;        // enumeration sub-boxes: 1, 2, 3 → label "37.1", "37.2" …
+  type: BoxType;
+  rect: Rect;               // exact box position on the page
+  maxChars: number;         // max accepted answer length in characters
+}
+
+export interface LayoutPage {
+  pageNumber: number;
+  markers: MarkerRect[];    // always exactly 4
+  qr: QRRect;
+  items: LayoutItem[];
+}
+
+export interface LayoutJSON {
+  quizId: string;
+  version: 'A' | 'B' | 'C';
+  pageSize: { width: number; height: number }; // in points
+  pages: LayoutPage[];
+  answerVariants: AnswerVariant[];              // accepted answers per question
+  createdAt: string;                           // ISO 8601
+}
+```
+
+---
+
+## 4. PrintPackage Result Type
+
+```ts
+export interface PrintPackage {
+  studentPdf:     Uint8Array;           // question booklet (SEPARATE) or combined (ALL-IN-ONE)
+  answerSheetPdf?: Uint8Array;          // SEPARATE mode only
+  answerKeyPdf:   Uint8Array;           // teacher answer key (always generated)
+  layoutJson:     LayoutJSON;           // grader coordinate map
+  mode:           'ALL_IN_ONE' | 'SEPARATE';
+  fontSize:       number;               // actual font size used (pt)
+  pages:          number;               // page count of the student document
+  fitMessage:     string;               // e.g. "Fits on 1 page at 10.5 pt"
+}
+```
+
+There is **no** `pdfBase64` field. Callers that need base64 use `uint8ArrayToBase64()` in `index.ts`.
+
+---
+
+## 5. Mixed Assessment Part Ordering
+
+- Parts follow **the order the teacher ticked them** in the UI (I, II, III in tick order).
+- Extra questions go to the **first ticked types** in tick order.
+- **No alphabetical sort.** Tick order is canonical.
+- The Gemini prompt requests questions in part order (all Part I first, then Part II, etc.).
+- Version shuffle (mulberry32) shuffles question *positions* on the answer sheet but does not change part assignments.
+
+---
+
+## 6. QR Code Specification
+
+| Parameter | Value |
+|---|---|
+| Library | `qrcode-generator` |
+| Error correction | M (15% recovery) |
+| Overall size | 54 – 60 pt (target 56 pt) |
+| Module minimum | 1.5 pt |
+| Content format | `<quizId>\|<version>\|<docType>\|<page>/<totalPages>` |
+| Example content | `QZ-20261101-40\|A\|SHEET\|1/1` |
+| Placement | Top-right of every page, outside corner marker safe zone |
+
+**Decode test:** Use `pdfjs-dist` to render the page to a PNG buffer (Node), then decode with `jsQR`. Runs in `__tests__/runStep2Tests.ts` — not on device.
+
+---
+
+## 7. Visual Comparison Tool
+
+Use **`pdfjs-dist` + `canvas`** (Node.js) in `scripts/renderSamplePdfs.ts`:
+- Renders each page to a PNG buffer on desktop.
+- No native modules, no device needed.
+- Compare with reference images in `docs/` using `pixelmatch` or `sharp.diff`.
+- Threshold: ≤ 2% pixel difference acceptable (font hinting may vary slightly).
+
+Do **not** use `react-native-pdf` or pdf-lib for visual checks — neither runs in Node.
+
+---
+
+## 8. Page Limits
+
+| Document | Limit |
+|---|---|
+| Answer sheet | 1 page; overflow to "Sheet 2 of 2" allowed; hard max 2 pages |
+| Question booklet | No hard limit; font-fit algorithm applies only in ALL-IN-ONE mode |
+| ALL-IN-ONE student sheet | 1 page; if it doesn't fit at min font size → switch to SEPARATE |
+| Answer key | 1 page typical; overflow to page 2 allowed |
+
+---
+
+## 9. Excel Export Clarification
+
+### Existing roster export — do not change
+- Button: **"Download Excel (.xlsx)"** in classroom screen (`classroom.tsx` line 996).
+- Calls `generateExcelClasslistBase64()` from `lib/classListParserService.ts`.
+- Exports a **student roster** with names, email, attendance, average grade percentage.
+- This must remain completely unchanged.
+
+### New scores-only export (Feature B, Step 6)
+- A new function `generateScoreExportBase64(options: ScoreExportOptions): string` added to `lib/classListParserService.ts` (not a separate file, not a new library).
+- Called from a new **"Export Quiz Scores (.xlsx)"** button in the Grader/results screen (Step 7).
+- **Rules:**
+  - One row per student, one column per quiz (header = quiz title).
+  - Score cell = plain number: `{ t: 'n', v: 20 }` — not a string, not a percentage.
+  - Blank cell (not `"-"`) if student did not take the quiz.
+  - No percentages, grades, remarks, ranks, or averages.
+- **Test (Step 6):** 3 students × 2 quizzes. Asserts: correct header row, numeric score cells, blank cell for skipped quiz.
+
+---
+
+## 10. Teacher Answer Key PDF
+
+Format matches the sample provided:
+
+```
+TEACHER COPY - ANSWER KEY
+<Quiz Title>
+
+#      | Type            | Correct answer           | Points | Grader rule
+-------|-----------------|--------------------------|--------|---------------------------
+1      | Multiple choice | B                        | 1      | Single letter
+4      | True / False    | T                        | 1      | T or F only
+6      | Identification  | DATA CENTER              | 1      | Accept DATACENTER, DATA-CENTER
+12.1–12.3 | Enumeration  | TOWER, RACK, BLADE       | 3      | 1 pt per box, no order, no repeats
+
+Grading notes:
+• Quiz ID: QZ-... | Version A | N items | N points
+• Each page has its own QR code (quiz ID, version, page number).
+• Scan the 4 corner squares first to straighten the photo, then read each answer box.
+• Normalize OCR text: uppercase, trim spaces, strip punctuation.
+• Send any box where OCR confidence is low to the teacher review screen.
+```
+
+### Answer Variants
+```ts
 export interface AnswerVariant {
   questionNumber: number;
-  accepted: string[];            // e.g. ["DATA CENTER", "DATACENTER"]
+  accepted: string[];   // e.g. ["DATA CENTER", "DATACENTER", "DATA-CENTER"]
   maxChars: number;
-  type: 'letter' | 'tf' | 'text';
+  type: QuestionType;
 }
 ```
+Stored in `layoutJson.answerVariants[]`.
+
+### Answer Length Validation
+- Fill-in-blank, identification, and enumeration: **1–3 words, ≤ 25 characters**.
+- Rule injected into the Gemini prompt.
+- After generation, answers > 25 chars are flagged in the builder review screen (Step 7).
+- Box width sized from the longest accepted variant (capped at 25 chars → ~256 pt at Noto Sans 10 pt).
 
 ---
 
-## 5. Page Layout Specification
+## 11. Migration File
 
-### 5.1 Page Dimensions (Short Bond Paper)
+**File:** `migrations/add_layout_json_to_archived_assessments.sql`
 
-| Element | Value |
-|---|---|
-| Paper | 8.5 × 11 in = 612 × 792 pt |
-| Margins | top 36 pt, bottom 36 pt, left 36 pt, right 36 pt |
-| Printable area | 540 × 720 pt |
-| Corner markers | 14 × 14 pt solid black squares, 4 pt inside margins |
-| QR code | 54 × 54 pt, bottom-right above margin |
-
-### 5.2 ALL-IN-ONE Layout
-
-```
-┌──────────────────────────────────────────────┐
-│ ■                                          ■ │  ← corner markers
-│   HEADER: Title, Subject, Date, Name, Score  │
-│   ──────────────────────────────────────────  │
-│   INSTRUCTIONS                                │
-│   ┌───────────────────┬──────────────────────┐│
-│   │  Col 1: Q + Box   │  Col 2: Q + Box      ││
-│   │  1. Question...□  │  11. Question...□    ││
-│   │  2. Question...□  │  12. Question...□    ││
-│   │  ...              │  ...                 ││
-│   └───────────────────┴──────────────────────┘│
-│ ■  [QR]                                    ■ │
-└──────────────────────────────────────────────┘
-```
-
-- Questions flow column-first (items 1–N/2 in left column, N/2+1–N in right).
-- Each question row: question text (flexible width) + answer box (fixed width).
-- Answer box sizes:
-  - Letter (MC, T/F, Word Box letter): **28 × 28 pt**
-  - Text (Fill-in, Identification): **width = max(80, longestAnswer × 7.5) pt, height 28 pt**
-  - Enumeration: stacked vertically, each sub-box same as text box.
-
-### 5.3 SEPARATE Layout — Booklet
-
-- Two columns, 11 pt font, no answer boxes.
-- Questions flow onto as many pages as needed.
-- Header on page 1; continuation header ("Page 2 of 3") on subsequent pages.
-- Footer: "DO NOT WRITE ON THIS BOOKLET".
-
-### 5.4 SEPARATE Layout — Answer Sheet
-
-```
-┌──────────────────────────────────────────────┐
-│ ■                                          ■ │
-│   ANSWER SHEET — Version A — Page 1 of 1     │
-│   Name: ________________  Section: ________  │
-│   ──────────────────────────────────────────  │
-│   INSTRUCTIONS: CAPITAL LETTERS, ONE PER BOX  │
-│                                              │
-│   ┌──── Letter Grid (8 per row) ───────────┐ │
-│   │ 1[__] 2[__] 3[__] 4[__] 5[__] 6[__]   │ │
-│   │ 7[__] 8[__] 9[__] 10[__] 11[__] 12[__]│ │
-│   └────────────────────────────────────────┘ │
-│                                              │
-│   ┌──── Text Boxes (2 columns) ────────────┐ │
-│   │ 15 [____________]  16 [____________]    │ │
-│   └────────────────────────────────────────┘ │
-│                                              │
-│   ┌──── Enumeration Group ─────────────────┐ │
-│   │ 20.1 [____________]                     │ │
-│   │ 20.2 [____________]                     │ │
-│   │ 20.3 [____________]                     │ │
-│   └────────────────────────────────────────┘ │
-│ ■  [QR]                                    ■ │
-└──────────────────────────────────────────────┘
-```
-
-- Letter answers grouped into compact grids, 8 boxes per row.
-- Text answers in two columns.
-- Enumeration boxes grouped under their question number.
-- If it overflows, "Sheet 2 of 2" with its own markers and QR.
-
----
-
-## 6. Auto Font-Fit Algorithm
-
-```
-function decideFit(quiz, gradeLevel):
-    MIN_FONT = gradeLevel in [1,2,3] ? 10.5 : 10.0
-    candidates = [11, 10.5, 10].filter(f => f >= MIN_FONT)
-
-    for fontSize of candidates:
-        height = measureAllInOne(quiz, fontSize)
-        if height <= PRINTABLE_HEIGHT:
-            return { mode: 'ALL_IN_ONE', fontSize, pages: 1 }
-
-    return { mode: 'SEPARATE', fontSize: 11, pages: measureBookletPages(quiz, 11) }
-```
-
-The `measureAllInOne` function computes the total vertical space by:
-1. Summing header height (fixed ~90 pt).
-2. Instructions strip height (fixed ~40 pt).
-3. For each column, sum the row heights:
-   - Row height = max(text lines × lineHeight, answerBoxHeight).
-   - Text lines = ceil(textWidth / columnContentWidth).
-   - `textWidth` is measured from the embedded font's glyph metrics.
-
----
-
-## 7. QR Code Content
-
-Each QR encodes a compact JSON string:
-
-```json
-{
-  "q": "quiz_1730000000",
-  "v": "A",
-  "t": "answer_sheet",
-  "p": 1,
-  "n": 2
-}
-```
-
-- `q` — quiz ID
-- `v` — version (A/B/C)
-- `t` — document type (`answer_sheet` | `booklet` | `all_in_one`)
-- `p` — page number
-- `n` — total pages
-
-Library: We'll use a minimal QR encoder (`qrcode-generator` — 8 KB, pure JS, no DOM) to produce the QR matrix, then draw it with `pdf-lib` rectangles.
-
----
-
-## 8. Versions and Shuffling
-
-The existing `shuffleAssessmentQuestions()` in [`quizStore.ts`](file:///d:/TSEKI/lib/quizStore.ts) already does a Fisher-Yates shuffle with renumbering. The print engine extends this:
-
-1. When `version` is specified (A/B/C), shuffle with a deterministic seed derived from `quizId + version`.
-2. Each version produces its own booklet, answer sheet, answer key, and layout JSON.
-3. The version letter is embedded in the QR code and printed on every page.
-4. The grader reads the QR code to select the correct layout JSON for scoring.
-
-**Seeded shuffle**: Replace `Math.random()` with a simple seeded PRNG (mulberry32) so version B always produces the same order for a given quiz.
-
----
-
-## 9. Mixed Assessment Handling
-
-### Part numbering
-Parts are numbered I, II, III in the **order the teacher ticked** them (stored as an ordered array in `mixedTypes` state — see [AIBuilderTab.tsx line 204](file:///d:/TSEKI/components/AIBuilderTab.tsx#L204)).
-
-### Question count distribution
-```
-total = 20, ticked = [MC, Enum, TF]  →  [7, 7, 6]
-total = 20, ticked = [MC, TF]        →  [10, 10]
-```
-Extra questions go to the first ticked type(s). The teacher can edit the split before generating (new UI: editable number inputs per part).
-
-### Continuous numbering
-Questions are numbered 1–N across all parts. Each part starts with a short instruction line (e.g., "Part II — Enumeration: List the items.").
-
-### Word Box word bank
-Word Box parts include a word bank with lettered choices (A–F+) plus 2–3 extra wrong words. The bank is printed once at the top of that part.
-
----
-
-## 10. Answer Length Validation
-
-### Gemini prompt addition
-Add to the generation prompt:
-```
-IMPORTANT: For Identification, Fill in the Blank, and Enumeration answers,
-each answer MUST be 1 to 3 words (maximum ~25 characters).
-Keep answers concise: a term, name, or short phrase.
-```
-
-### Post-generation validation
-```ts
-function validateAnswerLengths(assessment: GeneratedAssessment): FlaggedQuestion[] {
-  const MAX_CHARS = 25;
-  const flagged: FlaggedQuestion[] = [];
-  for (const key of assessment.answerKey) {
-    const q = assessment.questions.find(q => q.questionNumber === key.questionNumber);
-    if (!q) continue;
-    const type = normalizeQuestionType(q.type);
-    if (['identification', 'fill_blank', 'enumeration'].includes(type)) {
-      const answers = type === 'enumeration'
-        ? key.correctAnswer.split(/[,;]/).map(s => s.trim())
-        : [key.correctAnswer.trim()];
-      for (const ans of answers) {
-        if (ans.length > MAX_CHARS) {
-          flagged.push({ questionNumber: key.questionNumber, answer: ans, length: ans.length });
-        }
-      }
-    }
-  }
-  return flagged;
-}
-```
-
-Flagged questions are shown to the teacher with a warning badge. The teacher can edit the answer or tap "Regenerate this question".
-
-### Answer box sizing
-```
-boxWidth = max(80, Math.ceil(longestAcceptedAnswer.length * 7.5 * 1.5))
-```
-Cap at 200 pt to prevent overflow.
-
-### Answer variants
-Store accepted variants alongside each answer key item:
-```ts
-// e.g. for "DATA CENTER":
-variants: ["DATA CENTER", "DATACENTER", "Data Center"]
-```
-
----
-
-## 11. Layout JSON Persistence
-
-### Storage & Database Confirmation
-Confirmed: The Grader reads published quizzes from the **`archived_assessments`** table in Supabase (managed via `lib/quizStore.ts`).
-
-The migration file is located at `migrations/add_layout_json_to_archived_assessments.sql`:
 ```sql
--- migrations/add_layout_json_to_archived_assessments.sql
+-- Tseki Print Engine: adds layout_json column to archived_assessments
 ALTER TABLE archived_assessments
-ADD COLUMN IF NOT EXISTS layout_json JSONB DEFAULT NULL;
+  ADD COLUMN IF NOT EXISTS layout_json JSONB DEFAULT NULL;
 
-COMMENT ON COLUMN archived_assessments.layout_json IS 'Exact physical bounding box coordinates of all answer boxes and registration markers for camera OCR grading';
+COMMENT ON COLUMN archived_assessments.layout_json IS
+  'Top-origin coordinate map of all answer boxes and registration markers, used by the camera grader.';
 ```
 
-> ⚠️ **Database Migration Instruction for User:**
-> This migration has NOT been run against your Supabase project. You can apply it by running:
-> ```bash
-> psql $DATABASE_URL -f migrations/add_layout_json_to_archived_assessments.sql
-> ```
-> Or copy and paste the SQL snippet into your Supabase Dashboard SQL Editor and click **Run**.
-
-### Grader Integration Architecture
-
-#### 1. On-Device vs. Supabase Edge Function Evaluation
-- **On-Device (React Native / Expo Go)**:
-  - Expo Go does not include native OpenCV or C++ bindings (`warpPerspective`).
-  - Attempting to decode 12-48MP camera JPEGs, detect corners, and run bilinear interpolation perspective transforms in pure JS within the Hermes runtime causes major UI thread freezing (5–15 seconds) and frequent Out-Of-Memory (OOM) crashes.
-- **Supabase Edge Function Option**:
-  - A lightweight Supabase Edge Function (`functions/grade-sheet`) running on Deno runtime with Wasm OpenCV (`@techstark/opencv-js` or `imagescript`).
-  - Workflow:
-    1. Phone sends captured image (base64 or signed upload) + `layout_json`.
-    2. Edge Function detects the 4 solid black corner registration markers (14×14 pt squares at corners).
-    3. Performs 4-point perspective transform (`cv.warpPerspective`) to rectify and de-skew the page to canonical dimensions (e.g., 612×792 pt).
-    4. Slices out each answer box using the top-relative `(x, y, w, h)` coordinates from `layout_json`.
-    5. Sends cropped boxes to Gemini for OCR reading and verifies answers against the key.
-    6. Returns structured grading results.
-
-#### 2. Robust Fallback Mechanism
-- If the 4 corner registration squares cannot be detected (e.g. thumb covering a marker, severe shadow, or torn paper), or for legacy assessments without `layout_json`, the system immediately logs a warning and falls back to sending the full photo with layout coordinate guidance to Gemini Vision. No scan is ever lost.
+**Do not run it automatically.** Command to apply:
+```
+supabase db push
+```
 
 ---
 
-## 12. Teacher Answer Key PDF
+## 12. Step 5 Grader Approach (On-Device, No Edge Function)
 
-The answer key PDF contains:
+1. Teacher taps "Scan" in the Grader tab.
+2. Camera captures full-resolution photo.
+3. **Shrink to ~1600 px wide** with `expo-image-manipulator`.
+4. **Detect 4 corner squares** on the small image: threshold the image, find 4 solid-black blobs near the corners (known position ± tolerance). Pure JS — no WASM, no Edge Function.
+5. **Compute perspective transform**: map detected corners to known PDF corner positions.
+6. **Crop each answer box**: map `LayoutItem.rect` through the transform, crop with `expo-image-manipulator`.
+7. **Return crops** as URIs to the existing OCR logic.
+8. **Low-confidence fallback**: < 4 corners found, or degenerate transform → `confidence = 'low'` for all boxes → existing review screen handles them.
 
-| Column | Description |
+**Expo Go vs. dev build:** All steps work in Expo Go. A dev build is needed only if high-resolution image memory exceeds Expo Go limits (unlikely at 1600 px).
+
+---
+
+## 13. Performance Requirements (Acceptance Criteria)
+
+### Targets (measure on real device, release/preview build — NOT Expo Go or dev mode)
+
+| Operation | Target |
 |---|---|
-| # | Question number |
-| Type | MC / TF / ID / ENUM / WB |
-| Correct Answer | The accepted answer |
-| Variants | Alternative accepted spellings |
-| Grading Rule | Uppercase, trim, strip punctuation, etc. |
+| Publish (save + layout-only pass) | < 0.3 s |
+| Background PDF generation (40-item quiz) | ~ 2 s |
+| Open cached PDF | < 1 s |
+| Excel export (40 students × 10 quizzes) | ~ 1.5 s |
 
-**Grading rules printed on the key:**
-- Uppercase all student answers before comparison.
-- Trim leading/trailing whitespace.
-- Remove punctuation (periods, commas).
-- For answers ≥ 6 characters: accept 1-letter spelling difference (Levenshtein ≤ 1).
-- Low-confidence OCR boxes → route to the existing review screen in GraderTab.
+**These are targets, not claimed measurements. Real numbers will be reported in the Step 4 smoke test. The smoke test must report separately: font load, layout pass, PDF build, file write.**
 
----
+### Architecture rules
 
-## 13. Integration Points with Existing Screens
+**Publish is non-blocking:**
+1. Publish → save quiz metadata → run layout-only pass (math only, no `doc.save()`) → write `layoutJson` to Supabase → return.
+2. Kick off PDF generation via `InteractionManager.runAfterInteractions()`.
+3. Show a non-blocking "Preparing print files…" chip; dismiss on completion.
 
-### AIBuilderTab.tsx (changes)
+**PDF caching:**
+- Key: `{quizId}_{version}_{contentHash}` (`contentHash` = fast hash of serialized questions).
+- Storage: `FileSystem.cacheDirectory + 'tseki_pdfs/'`.
+- Invalidation: if quiz `updated_at` changes → regenerate; otherwise serve the cached file.
 
-1. **After generation**: run `validateAnswerLengths()`. Show flagged items with a warning banner.
-2. **Mixed Assessment**: add editable split inputs per part before generating.
-3. **Publish flow**: call `generatePrintPackage()` after `savePublishedQuiz()`.
-   - Save `layoutJson` to the quiz record in Supabase.
-   - Show fit result message (e.g., "Fits on 1 page at 10.5 pt" or "Using separate booklet + answer sheet").
-4. **Export button**: replace old `exportPaperSheet()` call with new engine.
-   - Add toggle for "Force separate booklet + answer sheet".
-   - Add version selector (A / B / C).
-5. **Print on published quiz**: also available from Settings → Published tab.
+**Font singleton:**
+- `getFontSingleton()` loads asset bytes once per app session.
+- `doc.embedFont(bytes)` subsets per document (only glyphs used in that quiz).
 
-### GraderTab.tsx (changes)
+**Chunked build:**
+- Generate one PDF page per chunk; yield to UI between pages via `setTimeout(resolve, 0)`.
 
-1. When a quiz is selected for grading, load its `layout_json`.
-2. Pass box positions in the Gemini Vision prompt.
-3. If `layout_json` is missing (legacy quiz), fall back to current free-form OCR.
+**Excel export:**
+- One Supabase query for all quiz results (no N+1).
+- One synchronous pass with SheetJS `aoa_to_sheet`.
+- Write to `FileSystem.cacheDirectory`, then share.
+- Use existing `xlsx` library; do not add another.
 
-### quizStore.ts (changes)
-
-1. Add `layoutJson?: LayoutJSON` to `StoredQuiz`.
-2. Add `layout_json` to `mapDbRowToStoredQuiz` / `mapStoredQuizToDbPayload`.
-3. Add `answerVariants?: AnswerVariant[]` to `StoredQuiz`.
+### If a goal cannot be met
+Report: which goal, measured time, and a concrete fix proposal before proceeding to the next step.
 
 ---
 
-## 14. New Dependencies
+## 14. File Map
 
-| Package | Purpose | Size |
-|---|---|---|
-| `pdf-lib` | Build PDFs with exact glyph metrics | ~200 KB gz |
-| `qrcode-generator` | Minimal QR matrix (no DOM) | ~8 KB gz |
+```
+lib/printEngine/
+  index.ts               — generatePrintPackage(), uint8ArrayToBase64(), mergePdfs()
+  types.ts               — PrintOptions, PrintPackage, LayoutJSON, LayoutItem, LayoutPage, Rect …
+  constants.ts           — page dims, margins, corner size, QR config, font config, answer-box config
+  measure.ts             — measureTextWidth(), wrapText(), measureQuestionHeight(), getFontSingleton()
+  fitDecision.ts         — decideFit(): tries 11 → 10.5 → 10 pt, returns FitResult
+  markers.ts             — drawCornerMarkers(page, dims)
+  qrStamp.ts             — stampQR(page, content, position)
+  bookletRenderer.ts     — renderBookletPDF()
+  answerSheetRenderer.ts — renderAnswerSheetPDF()
+  allInOneRenderer.ts    — renderAllInOnePDF()
+  answerKeyRenderer.ts   — renderAnswerKeyPDF()
+  layoutJson.ts          — buildLayoutJSON(), topY() coordinate conversion
+  versionShuffle.ts      — shuffleAssessmentForVersion() — mulberry32
+  mobileShare.ts         — sharePdfFile(), cacheAndOpenPdf()
+  smokeTest.ts           — runSmokeTest() — per-phase timings
+  fonts/
+    embedFonts.ts        — getFontSingleton(), embedPrintFonts(doc)
+    notoSansFonts.ts     — DELETED
 
-Both are pure-JS, work in Hermes, and have no native module requirements.
+assets/fonts/
+  NotoSans-Regular.ttf   — new (replaces base64 module)
+  NotoSans-Bold.ttf      — new (replaces base64 module)
 
-We do **not** need `expo-print` for the new engine (it stays for the legacy exporter).
+lib/classListParserService.ts
+  generateExcelClasslistBase64()    — roster export (UNCHANGED)
+  generateScoreExportBase64()       — NEW: scores-only (Feature B, Step 6)
 
----
-
-## 15. Build Order (4 Commits)
-
-### Step 1 — Text Measuring & Fit Decision
-**Files created:**
-- `lib/printEngine/constants.ts`
-- `lib/printEngine/types.ts`
-- `lib/printEngine/measure.ts`
-- `lib/printEngine/fitDecision.ts`
-- `lib/printEngine/__tests__/measure.test.ts`
-- `lib/printEngine/__tests__/fitDecision.test.ts`
-- `lib/printEngine/__tests__/fixtures/*.ts` (sample quizzes)
-
-**What it does:**
-- Embeds a font (Helvetica built into pdf-lib, or a bundled .ttf).
-- Measures text widths using `font.widthOfTextAtSize()`.
-- Implements the fit decision algorithm (Section 6).
-- Tests: 10, 20, 30, 40, 50 items; all-MC; all-short; mixed types; different part orders.
-- Tests: deterministic — same quiz always gives same result.
-
-**Commit:** `feat(print-engine): text measuring and fit decision with tests`
-
----
-
-### Step 2 — Booklet PDF & Answer Sheet PDF
-**Files created:**
-- `lib/printEngine/markers.ts`
-- `lib/printEngine/qrStamp.ts`
-- `lib/printEngine/bookletRenderer.ts`
-- `lib/printEngine/answerSheetRenderer.ts`
-- `lib/printEngine/allInOneRenderer.ts`
-- `lib/printEngine/index.ts`
-- `lib/printEngine/__tests__/renderers.test.ts`
-
-**What it does:**
-- Renders all three PDF types using pdf-lib.
-- Corner markers, QR codes, headers, instructions, question text, answer boxes.
-- SEPARATE mode: booklet (no boxes, "do not write") + answer sheet (boxes only).
-- ALL-IN-ONE mode: questions + boxes on one page.
-- Version support (A/B/C with seeded shuffle).
-- Tests: render PDFs, verify page count, verify no box overlaps text, verify boxes don't touch corner markers.
-
-**Commit:** `feat(print-engine): booklet, answer sheet, and all-in-one PDF renderers`
+migrations/
+  add_layout_json_to_archived_assessments.sql  — DO NOT RUN; apply with: supabase db push
+```
 
 ---
 
-### Step 3 — Layout JSON & Teacher Answer Key
-**Files created:**
-- `lib/printEngine/layoutJson.ts`
-- `lib/printEngine/answerKeyRenderer.ts`
-- `lib/printEngine/__tests__/layoutJson.test.ts`
-- `migrations/add_layout_json_to_archived_assessments.sql`
+## 15. PDF Layout Appearance
 
-**What it does:**
-- Extracts `LayoutJSON` from the coordinates used during rendering.
-- Generates teacher answer key PDF.
-- Answer length validation utility.
-- Answer variant storage.
-- Database migration file (NOT executed — handed to you).
-- Tests: validate layout JSON schema, box positions within page bounds, no overlaps.
+### Question Booklet
+- **Header:** `TSEKI SMART ASSESSMENT SYSTEM | QUESTION BOOKLET` · QR code top-right
+- **Sub-header:** Quiz title (bold large) · `BSIT-4 | Quiz 2 | Version A`
+- **Banner:** `Do NOT write on this booklet. Write every answer on your ANSWER SHEET.`
+- **Body:** Two-column layout, Noto Sans 11/10.5/10 pt
+- **Parts:** `TEST I | MULTIPLE CHOICE (12 pts)` + instruction line, continuous numbering
+- **Word box:** `WORD BANK` table with lettered choices, embedded between parts
+- **Footer:** `Tseki Question Booklet | QZ-… | Version A | 40 Items — Do not write … | Page 1 of 2`
 
-**Commit:** `feat(print-engine): layout JSON generation and teacher answer key`
+### Answer Sheet
+- Corner squares (14 pt solid black) at all 4 corners
+- QR code every page
+- Letter/TF sections: 8-per-row compact grids (25 × 27 pt boxes)
+- Text sections (Fill-in, Identification): wide 2-column boxes (~256 pt wide)
+- Enumeration: 3-column sub-boxes labeled `37.1`, `37.2` …
+- Instructions: dark ink, CAPS, one answer per box
+- Footer: `Sheet 1 of 1` / `Sheet 2 of 2`
 
----
-
-### Step 4 — Builder & Grader Screen Integration
-**Files modified:**
-- `components/AIBuilderTab.tsx` — new export flow, validation, mixed split editor
-- `components/GraderTab.tsx` — read layout JSON, pass box positions to Gemini
-- `lib/quizStore.ts` — add `layoutJson` field
-- `lib/quizGeneratorService.ts` — add answer length constraint to prompt
-- `app/settings.tsx` — update re-export to use new engine
-
-**What it does:**
-- Wires up the print engine to the publish flow.
-- Shows fit result in the UI.
-- Adds "Force separate" toggle and version picker.
-- Grader reads box positions from layout JSON.
-- Answer length validation with flagging UI.
-- Mixed assessment split editor.
-
-**Commit:** `feat(print-engine): integrate print engine with builder and grader screens`
+### Teacher Answer Key
+- Title: `TEACHER COPY - ANSWER KEY`
+- Table: `# | Type | Correct answer | Points | Grader rule`
+- Enumeration span rows: `12.1–12.3 | Enumeration | TOWER, RACK, BLADE | 3 | 1 pt per box`
+- Grading notes at bottom
 
 ---
 
-## 16. Test Plan
-
-### Unit Tests (Jest, run with `npx jest`)
-
-| Test Case | What it verifies |
-|---|---|
-| 10-item all-MC quiz | ALL-IN-ONE at 11 pt, 1 page |
-| 20-item all-MC quiz | ALL-IN-ONE at 11 or 10.5 pt |
-| 30-item mixed quiz | Fit decision correctness |
-| 40-item mixed quiz | May switch to SEPARATE |
-| 50-item mixed quiz | SEPARATE mode, multi-page booklet |
-| All-identification quiz (20 items) | Wide boxes, earlier SEPARATE switch |
-| Quiz with one too-long answer (30+ chars) | Flagged by validator |
-| Mixed with parts [TF, MC, Enum] | Part order preserved, continuous numbering |
-| Mixed with parts [WB, ID, MC, TF] | 4-part layout, word bank in Part I |
-| Deterministic fit | Same quiz → same mode + fontSize every run |
-| No box overlaps text | Box rectangles don't intersect question text rects |
-| No box touches corners | All boxes at least 20 pt from corner markers |
-| Layout JSON schema | All required fields present and valid |
-| Answer variants | "DATA CENTER" matches "DATACENTER" |
-| Version shuffle | Version A ≠ Version B order; Version A always same |
-
-### Visual Verification
-- Render generated PDFs to images (using a headless PDF renderer or by opening on device).
-- Show rendered images to the user for visual inspection.
-
----
-
-## 17. Risk Mitigation
-
-| Risk | Mitigation |
-|---|---|
-| `pdf-lib` slow on very low-end phones | Benchmark on a budget Android; the fit decision is pure math (~5 ms); PDF rendering is a single pass (~500 ms for 2 pages). If too slow, move to an Edge Function later. |
-| Font metrics differ from printed output | We embed the exact same font in the PDF and measure with its metrics. WYSIWYG guaranteed. |
-| QR code unreadable from phone camera | Use error correction level M (15% damage tolerance). Test with printed sheets. |
-| Corner markers too small for skew correction | 14 pt (≈5 mm) is the standard for OMR sheets. Increase to 18 pt if camera tests fail. |
-| Existing tests break | New module is additive. No existing files are modified until Step 4. |
-
----
-
-## 18. Resolved Architecture Decisions & Verification Guide
-
-1. **Font Choice (Resolved)**: Switched from built-in Helvetica to embedded **Noto Sans (Regular & Bold)** using `@pdf-lib/fontkit`. Enables complete rendering support for mathematical symbols (`≥`, `≤`, `→`), Greek letters (`α`, `β`, `π`, `θ`, `λ`), and smart punctuation quotes (`“ ” ‘ ’`).
-2. **Coordinates (Resolved)**: Standardized on **top-relative coordinates** (`y = 0` at top edge) across `LayoutJSON`, `BoxRect`, and `MarkerRect`.
-3. **Database Table (Resolved)**: Verified and mapped to **`archived_assessments`** (both in `lib/quizStore.ts` and in `migrations/add_layout_json_to_archived_assessments.sql`).
-4. **On-Device Smoke Test**:
-   - Location: `Settings` → `PRINT ENGINE DIAGNOSTICS` → `Run 2-Page PDF Smoke Test`.
-   - Expected Time: ~500ms to 1.5s on mobile hardware.
-   - Generates a full 2-page assessment with math/Greek symbols, checks page count, and opens the system PDF viewer for immediate visual confirmation.
-5. **Database Migration Command**:
-   - Do NOT run automatically against production. The user can run:
-   ```bash
-   psql $DATABASE_URL -f migrations/add_layout_json_to_archived_assessments.sql
-   ```
-   Or execute the SQL directly in the Supabase Dashboard SQL Editor.
+*v2 — updated after Step 0 review. No feature code written yet.*
