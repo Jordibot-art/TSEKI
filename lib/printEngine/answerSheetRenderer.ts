@@ -1,7 +1,6 @@
-// lib/printEngine/answerSheetRenderer.ts
-
-import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import { ANSWER_BOX_CONFIG, COLORS, MARGINS, PAPER_DIMENSIONS } from './constants';
+import { embedPrintFonts } from './fonts/embedFonts';
 import { drawCornerMarkers } from './markers';
 import { drawQRCode } from './qrStamp';
 import { LayoutItem, LayoutPage, PrintOptions, ScannableQuestion } from './types';
@@ -33,8 +32,7 @@ export async function renderAnswerSheetPDF(
     options: PrintOptions = {}
 ): Promise<AnswerSheetRenderResult> {
     const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];

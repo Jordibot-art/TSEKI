@@ -1,29 +1,40 @@
 // lib/printEngine/measure.ts
 
-import { PDFDocument, StandardFonts, PDFFont } from 'pdf-lib';
+import { PDFDocument, PDFFont } from 'pdf-lib';
 import { FONT_CONFIG } from './constants';
+import { embedPrintFonts } from './fonts/embedFonts';
 import { ScannableQuestion } from './types';
 
-let cachedFont: PDFFont | null = null;
+let cachedRegularFont: PDFFont | null = null;
+let cachedBoldFont: PDFFont | null = null;
 
 /**
- * Returns a shared Helvetica PDFFont instance for text measurement.
+ * Returns a shared embedded Noto Sans Regular PDFFont instance for text measurement.
  */
 export async function getMeasureFont(): Promise<PDFFont> {
-    if (cachedFont) return cachedFont;
+    if (cachedRegularFont) return cachedRegularFont;
     const doc = await PDFDocument.create();
-    cachedFont = await doc.embedFont(StandardFonts.Helvetica);
-    return cachedFont;
+    const { regular, bold } = await embedPrintFonts(doc);
+    cachedRegularFont = regular;
+    cachedBoldFont = bold;
+    return cachedRegularFont;
 }
 
 /**
- * Measures the exact rendered width of a string in points using Helvetica metrics.
+ * Returns a shared embedded Noto Sans Bold PDFFont instance.
+ */
+export async function getMeasureBoldFont(): Promise<PDFFont> {
+    if (cachedBoldFont) return cachedBoldFont;
+    await getMeasureFont();
+    return cachedBoldFont!;
+}
+
+/**
+ * Measures the exact rendered width of a string in points using embedded Noto Sans metrics.
  */
 export function measureTextWidth(text: string, fontSize: number, font: PDFFont): number {
     if (!text || text.length === 0) return 0;
-    // Sanitize non-ASCII chars for standard Helvetica
-    const sanitized = text.replace(/[^\x20-\x7E]/g, ' ');
-    return font.widthOfTextAtSize(sanitized, fontSize);
+    return font.widthOfTextAtSize(text, fontSize);
 }
 
 /**

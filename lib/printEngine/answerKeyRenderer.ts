@@ -1,7 +1,6 @@
-// lib/printEngine/answerKeyRenderer.ts
-
-import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import { MARGINS, PAPER_DIMENSIONS } from './constants';
+import { embedPrintFonts } from './fonts/embedFonts';
 import { wrapText } from './measure';
 import { GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
@@ -13,9 +12,7 @@ export async function renderAnswerKeyPDF(
     options: PrintOptions = {}
 ): Promise<Uint8Array> {
     const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
-    const fontOblique = await doc.embedFont(StandardFonts.HelveticaOblique);
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];
@@ -73,7 +70,7 @@ export async function renderAnswerKeyPDF(
     }
 
     // Draw grading notes at end of table if space permits, or bottom
-    drawGradingGuidelines(currentPage, tableX, cursorY - 14, printableWidth, font, fontBold, fontOblique);
+    drawGradingGuidelines(currentPage, tableX, cursorY - 14, printableWidth, font, fontBold);
 
     // Footers
     for (let i = 0; i < pages.length; i++) {
@@ -176,7 +173,7 @@ function buildAnswerKeyRows(
     questions: ScannableQuestion[],
     answerKey: GeneratedAssessment['answerKey']
 ): AnswerRowData[] {
-    const keyMap = new Map(answerKey.map((k) => [k.questionNumber, k]));
+    const keyMap = new Map((answerKey || []).map((k) => [k.questionNumber, k]));
     const rows: AnswerRowData[] = [];
 
     for (let i = 0; i < questions.length; i++) {
@@ -295,8 +292,7 @@ function drawGradingGuidelines(
     y: number,
     width: number,
     font: PDFFont,
-    fontBold: PDFFont,
-    fontOblique: PDFFont
+    fontBold: PDFFont
 ): void {
     if (y < MARGINS.bottom + 50) return; // not enough room on this page
 

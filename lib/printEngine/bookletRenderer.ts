@@ -1,7 +1,6 @@
-// lib/printEngine/bookletRenderer.ts
-
-import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import { COLORS, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS } from './constants';
+import { embedPrintFonts } from './fonts/embedFonts';
 import { wrapText } from './measure';
 import { drawQRCode } from './qrStamp';
 import { GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
@@ -10,7 +9,6 @@ interface BookletRenderContext {
     doc: PDFDocument;
     font: PDFFont;
     fontBold: PDFFont;
-    fontOblique: PDFFont;
     assessment: GeneratedAssessment;
     options: PrintOptions;
     version: 'A' | 'B' | 'C';
@@ -31,9 +29,7 @@ export async function renderBookletPDF(
     options: PrintOptions = {}
 ): Promise<Uint8Array> {
     const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
-    const fontOblique = await doc.embedFont(StandardFonts.HelveticaOblique);
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];
@@ -51,7 +47,6 @@ export async function renderBookletPDF(
         doc,
         font,
         fontBold,
-        fontOblique,
         assessment,
         options,
         version,
@@ -265,7 +260,7 @@ function drawPartBanner(
     pts: number,
     instructions: string
 ): number {
-    const { colWidth, fontBold, fontOblique } = ctx;
+    const { colWidth, fontBold, font } = ctx;
     const bannerHeight = 16;
 
     // Gray background banner
@@ -290,13 +285,13 @@ function drawPartBanner(
 
     // Instructions
     if (instructions) {
-        const lines = wrapText(instructions, colWidth, 8.5, fontOblique);
+        const lines = wrapText(instructions, colWidth, 8.5, font);
         for (const line of lines) {
             page.drawText(line, {
                 x,
                 y: nextY,
                 size: 8.5,
-                font: fontOblique,
+                font,
                 color: rgb(0.25, 0.25, 0.25),
             });
             nextY -= 11;

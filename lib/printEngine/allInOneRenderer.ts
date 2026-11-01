@@ -1,7 +1,8 @@
 // lib/printEngine/allInOneRenderer.ts
 
-import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import { COLORS, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS } from './constants';
+import { embedPrintFonts } from './fonts/embedFonts';
 import { drawCornerMarkers } from './markers';
 import { wrapText } from './measure';
 import { drawQRCode } from './qrStamp';
@@ -38,8 +39,7 @@ export async function renderAllInOnePDF(
     selectedFontSize: number = 10.5
 ): Promise<AllInOneRenderResult> {
     const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];
