@@ -8,7 +8,7 @@ import ClassroomsPage from "./pages/ClassroomsPage";
 import ClassroomDetailPage from "./pages/ClassroomDetailPage";
 import AssessmentsPage from "./pages/AssessmentsPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
-import SettingsPage from "./pages/SettingsPage";
+import ExcelPage from "./pages/ExcelPage";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -109,6 +109,7 @@ export default function App() {
               <Route path="classrooms" element={<ClassroomsPage />} />
               <Route path="classrooms/:id" element={<ClassroomDetailPage />} />
               <Route path="assessments" element={<AssessmentsPage />} />
+          <Route path="excel" element={<ExcelPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

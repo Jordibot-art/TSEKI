@@ -12,12 +12,12 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
-import { saveRosterAlert } from "../lib/alertStore";
-import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
-import { saveStudentQuizResult } from "../lib/questionAnalysis";
-import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
+import { saveRosterAlert } from "../lib/alertStore";
+import { gradeStudentTest, GradingResponse } from "../lib/gradingService";
+import { saveStudentQuizResult } from "../lib/questionAnalysis";
+import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
+import { supabase } from "../supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
@@ -291,7 +291,7 @@ export default function GraderTab({
             }
             const activeAnswerKey = published.answerKey;
 
-            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType, published.layoutJson);
+            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType);
             setGradingResult(result);
 
             // Match student if detected name matches a student in classroom roster
@@ -767,7 +767,7 @@ export default function GraderTab({
                 transparent
                 animationType="fade"
                 statusBarTranslucent
-                onRequestClose={() => {}}
+                onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
                     <View style={[styles.loadingCard, { backgroundColor: cardBg }]}>

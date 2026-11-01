@@ -15,15 +15,14 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
-import { generatePrintPackage, validateAnswerLengths, generateAnswerVariants } from "../lib/printEngine";
-import { sharePdfBytes } from "../lib/printEngine/mobileShare";
+import { useTheme } from "../context/ThemeContext";
 import {
     detectDocType,
     getDocBadgeInfo,
     parseDocumentFile,
     SupportedDocType,
 } from "../lib/documentParserService";
+import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
 import {
     AnswerKeyItem,
     GeneratedAssessment,
@@ -32,7 +31,6 @@ import {
     ScannableQuestion,
 } from "../lib/quizGeneratorService";
 import { saveDraftQuiz, savePublishedQuiz, shuffleAssessmentQuestions } from "../lib/quizStore";
-import { useTheme } from "../context/ThemeContext";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const SUBJECTS = [
@@ -220,8 +218,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [showResults, setShowResults] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
     const [exportingPdf, setExportingPdf] = useState(false);
-    const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
-    const [forceSeparateMode, setForceSeparateMode] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [publishingQuiz, setPublishingQuiz] = useState(false);
 
@@ -469,44 +465,14 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setExportModalOpen(false);
         if (!generatedAssessment) return;
         setExportingPdf(true);
-        // Yield UI thread so modal closes cleanly and loading overlay paints before PDF rendering starts
-        await new Promise((resolve) => setTimeout(resolve, 60));
-
         try {
-            const printPkg = await generatePrintPackage(generatedAssessment, {
+            await exportPaperSheet({
+                assessment: generatedAssessment,
                 classTitle,
                 subject,
+                includeAnswerKey: includeKey,
                 paperSize,
-                gradeLevel,
-                version: exportVersion,
-                forceSeparate: forceSeparateMode,
-                target: includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY",
             });
-
-            const cleanTitle = (generatedAssessment.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
-
-            if (includeKey) {
-                await sharePdfBytes(
-                    printPkg.pdfs.answerKeyPdf,
-                    `${cleanTitle}_AnswerKey_Set_${exportVersion}.pdf`,
-                    `Export Teacher Answer Key Set ${exportVersion} (${cleanTitle})`
-                );
-            } else if (printPkg.mode === "ALL_IN_ONE") {
-                await sharePdfBytes(
-                    printPkg.pdfs.studentPdf,
-                    `${cleanTitle}_TestPaper_Set_${exportVersion}.pdf`,
-                    `Export Scannable Test Paper Set ${exportVersion} (${cleanTitle})`
-                );
-            } else {
-                // In SEPARATE mode, share single merged document (Question Booklet + Answer Sheet)
-                // in one share intent to eliminate duplicate share dialog hangs or crashes
-                const pdfToShare = printPkg.pdfs.combinedStudentPdf || printPkg.pdfs.studentPdf;
-                await sharePdfBytes(
-                    pdfToShare,
-                    `${cleanTitle}_Exam_Booklet_and_AnswerSheet_Set_${exportVersion}.pdf`,
-                    `Export Test Paper & Answer Sheet Set ${exportVersion} (${cleanTitle})`
-                );
-            }
         } catch (err: any) {
             Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
         } finally {
@@ -516,50 +482,19 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     async function handlePublishQuiz() {
         if (!generatedAssessment || publishingQuiz) return;
-
-        // Check for physical answer box length overflow
-        const flagged = validateAnswerLengths(generatedAssessment);
-        if (flagged.length > 0) {
-            const sampleMsg = flagged.slice(0, 2).map((f) => `• Item ${f.questionNumber}: "${f.answer.slice(0, 20)}..." (${f.charCount} chars)`).join("\n");
-            const proceed = await new Promise<boolean>((resolve) => {
-                Alert.alert(
-                    "Long Answers Detected",
-                    `Some answers exceed the ~25 character physical box limit:\n\n${sampleMsg}\n\nDo you want to publish anyway?`,
-                    [
-                        { text: "Edit Answers", style: "cancel", onPress: () => resolve(false) },
-                        { text: "Publish Anyway", onPress: () => resolve(true) },
-                    ]
-                );
-            });
-            if (!proceed) return;
-        }
-
         setPublishingQuiz(true);
-        // Yield UI thread so busy spinner displays smoothly
-        await new Promise((resolve) => setTimeout(resolve, 60));
-
         try {
-            // Publishing only needs the LayoutJSON coordinate map for grading - skip heavy PDF document saves!
-            const printPkg = await generatePrintPackage(generatedAssessment, {
-                classTitle,
-                subject,
-                gradeLevel,
-                target: "LAYOUT_ONLY",
-            });
-
             const quizWithMeta = {
                 ...generatedAssessment,
                 subject,
                 difficulty,
                 questionType,
                 gradeLevel,
-                layoutJson: printPkg.layoutJson,
-                answerVariants: generateAnswerVariants(generatedAssessment),
             };
             await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
             Alert.alert(
                 "Quiz Published!",
-                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your cloud database archive.\n\nPrint Engine Layout: ${printPkg.fitMessage}.\n\nIt is ready for camera grading in the Grader tab!`,
+                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your cloud database archive. It is ready for camera grading in the Grader tab and synced across all your devices!`,
                 [
                     {
                         text: "Go to Grader to Scan",
@@ -1148,42 +1083,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 </View>
             </Modal>
 
-            {/* ── PDF Exporting / Publishing Busy Modal ── */}
-            <Modal
-                visible={exportingPdf || publishingQuiz}
-                transparent
-                animationType="fade"
-                statusBarTranslucent
-                onRequestClose={() => { }}
-            >
-                <View style={styles.loadingOverlay}>
-                    <View style={styles.loadingCard}>
-                        <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#2563EB") + "22" }]}>
-                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#2563EB" }]}>
-                                <Ionicons name={publishingQuiz ? "cloud-upload" : "print"} size={26} color="#FFFFFF" />
-                            </View>
-                        </View>
-                        <Text style={styles.loadingTitle}>
-                            {publishingQuiz ? "Publishing Assessment..." : "Preparing Test Paper..."}
-                        </Text>
-                        <Text style={styles.loadingSub}>
-                            {publishingQuiz
-                                ? "Saving quiz configuration and answer layout to your cloud grader archive."
-                                : `Formatting Set ${exportVersion} with high-precision scannable boxes...`}
-                        </Text>
-                        <View style={styles.spinnerWrap}>
-                            <ActivityIndicator size="large" color={accentColor || "#2563EB"} />
-                        </View>
-                        <View style={styles.loadingNoticeRow}>
-                            <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
-                            <Text style={styles.loadingNoticeText}>
-                                {publishingQuiz ? "Almost ready..." : "The PDF share dialog will open shortly."}
-                            </Text>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
             {/* ── Export Paper Sheet Modal ── */}
             <Modal
                 visible={exportModalOpen}
@@ -1203,105 +1102,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 Download, print, or share the physical test sheet formatted with scannable answer boxes.
                             </Text>
                         </View>
-
-                        {/* Anti-Cheating Exam Sets (Version A, B, C) */}
-                        <View style={{
-                            marginBottom: 14,
-                            backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                            borderRadius: 10,
-                            padding: 10,
-                            borderWidth: 1,
-                            borderColor: darkMode ? "#334155" : "#E2E8F0"
-                        }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
-                                <Ionicons name="shield-checkmark" size={14} color={accentColor || "#2563EB"} style={{ marginRight: 5 }} />
-                                <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>
-                                    Anti-Cheating Exam Sets
-                                </Text>
-                            </View>
-                            <Text style={{ fontSize: 11, color: textSub, marginBottom: 8, lineHeight: 15 }}>
-                                Distribute different sets to adjacent students in class so they cannot copy answers. Questions are shuffled with matching QR codes and answer keys.
-                            </Text>
-                            <View style={{ flexDirection: "row", gap: 8 }}>
-                                {[
-                                    { id: "A" as const, label: "Set A", badge: "Original" },
-                                    { id: "B" as const, label: "Set B", badge: "Shuffled" },
-                                    { id: "C" as const, label: "Set C", badge: "Alt Shuffle" },
-                                ].map((v) => {
-                                    const isSelected = exportVersion === v.id;
-                                    return (
-                                        <TouchableOpacity
-                                            key={v.id}
-                                            style={{
-                                                flex: 1,
-                                                paddingVertical: 8,
-                                                paddingHorizontal: 4,
-                                                borderRadius: 8,
-                                                borderWidth: isSelected ? 1.5 : 1,
-                                                borderColor: isSelected ? (accentColor || "#2563EB") : (darkMode ? "#475569" : "#CBD5E1"),
-                                                backgroundColor: isSelected ? (accentColor || "#2563EB") + "18" : (darkMode ? "#0F172A" : "#FFFFFF"),
-                                                alignItems: "center",
-                                            }}
-                                            onPress={() => setExportVersion(v.id)}
-                                        >
-                                            <Text style={{
-                                                fontSize: 13,
-                                                fontWeight: isSelected ? "700" : "600",
-                                                color: isSelected ? (accentColor || "#2563EB") : textMain,
-                                            }}>
-                                                {v.label}
-                                            </Text>
-                                            <Text style={{
-                                                fontSize: 9.5,
-                                                fontWeight: "500",
-                                                color: isSelected ? (accentColor || "#2563EB") : textSub,
-                                                marginTop: 1,
-                                            }}>
-                                                {v.badge}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 7, gap: 4 }}>
-                                <Ionicons name="information-circle-outline" size={12} color={textSub} />
-                                <Text style={{ fontSize: 10, color: textSub, flex: 1 }}>
-                                    {exportVersion === "A" && "Set A: Standard question order. Ideal if all students take the same set."}
-                                    {exportVersion === "B" && "Set B: Shuffled question order for row 2 or alternating seats."}
-                                    {exportVersion === "C" && "Set C: Alternate shuffled order for 3-set classroom distribution."}
-                                </Text>
-                            </View>
-                        </View>
-
-                        {/* Force separate toggle */}
-                        <TouchableOpacity
-                            style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                paddingVertical: 8,
-                                paddingHorizontal: 12,
-                                borderRadius: 8,
-                                backgroundColor: forceSeparateMode ? (accentColor || "#2563EB") + "15" : "#F3F4F6",
-                                marginBottom: 12,
-                            }}
-                            onPress={() => setForceSeparateMode(!forceSeparateMode)}
-                            activeOpacity={0.7}
-                        >
-                            <View style={{ flex: 1, marginRight: 8 }}>
-                                <Text style={{ fontSize: 12.5, fontWeight: "600", color: "#1F2937" }}>
-                                    Separate Booklet & Answer Sheet
-                                </Text>
-                                <Text style={{ fontSize: 10.5, color: "#6B7280" }}>
-                                    Print reusable question booklet + 1-page answer sheet
-                                </Text>
-                            </View>
-                            <Ionicons
-                                name={forceSeparateMode ? "checkbox" : "square-outline"}
-                                size={20}
-                                color={forceSeparateMode ? (accentColor || "#2563EB") : "#9CA3AF"}
-                            />
-                        </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.exportOptionBtn}

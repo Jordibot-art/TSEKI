@@ -1,0 +1,78 @@
+.page {
+  padding: 2rem;
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-primary);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, hsl(210, 80%, 60%), hsl(260, 70%, 55%));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.backBtn {
+  background: var(--bg-secondary);
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.3s;
+}
+.backBtn:hover {
+  background: var(--bg-tertiary);
+}
+
+.loader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.exportBtn, .importLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.exportBtn {
+  background: linear-gradient(135deg, hsl(120, 70%, 45%), hsl(140, 80%, 55%));
+  color: white;
+}
+.importLabel {
+  background: linear-gradient(135deg, hsl(340, 70%, 45%), hsl(280, 80%, 55%));
+  color: white;
+}
+
+.exportBtn:hover, .importLabel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+}
+
+.importLabel input {
+  display: none;
+}

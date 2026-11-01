@@ -1,17 +1,9 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
-import {
-  parseClasslistFile,
-  ParsedClasslistResult,
-  ParsedStudentRow,
-  isDuplicateStudent,
-  deriveSection,
-  generateExcelClasslistBase64,
-} from "../lib/classListParserService";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,14 +14,13 @@ import {
   Linking,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View,
+  View
 } from "react-native";
 import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
@@ -46,13 +37,20 @@ import {
   RosterAlert,
 } from "../lib/alertStore";
 import {
+  generateExcelClasslistBase64,
+  isDuplicateStudent,
+  parseClasslistFile,
+  ParsedClasslistResult,
+  ParsedStudentRow
+} from "../lib/classListParserService";
+import { generateStudentAdvice } from "../lib/pedagogicalAdvice";
+import { getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
+import {
   deleteClassroomQuizzes,
   getPublishedQuizzes,
   StoredQuiz,
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
-import { generateStudentAdvice } from "../lib/pedagogicalAdvice";
-import { getAllStudentQuizResults, getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Student = {
@@ -638,7 +636,7 @@ export default function ClassroomScreen() {
       for (const itemUri of existing) {
         const decoded = decodeURIComponent(itemUri).toLowerCase();
         if (decoded.endsWith(`/${lowerName}`) || decoded.endsWith(`%2f${lowerName}`)) {
-          await StorageAccessFramework.deleteAsync(itemUri).catch(() => {});
+          await StorageAccessFramework.deleteAsync(itemUri).catch(() => { });
         }
       }
     } catch {
@@ -880,7 +878,6 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
-      const results = id ? await getAllStudentQuizResults(id) : [];
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -888,12 +885,10 @@ export default function ClassroomScreen() {
         room: classroomRoom,
         schedule: classroomSchedule,
         students,
-        quizzes: publishedQuizzes,
-        quizResults: results,
       });
 
       const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_scores.xlsx`;
+      const fileName = `${cleanTitle}_classlist.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
       await saveDirectlyToPhone({
@@ -918,55 +913,17 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
-      const results = id ? await getAllStudentQuizResults(id) : [];
-      const quizTitles = Array.from(
-        new Set([
-          ...publishedQuizzes.map((q) => q.quizTitle.trim()),
-          ...results.map((r) => r.quizTitle.trim()),
-        ])
-      );
-
-      let header = "Item,Student's Name";
-      if (quizTitles.length > 0) {
-        header += "," + quizTitles.map((t) => `"${t}"`).join(",") + ",Total Score\n";
-      } else {
-        header += ",Score\n";
-      }
-
-      const scoreMap = new Map<string, number>();
-      for (const res of results) {
-        const qTitle = res.quizTitle ? res.quizTitle.trim() : "";
-        if (res.studentId) scoreMap.set(`${res.studentId}:::${qTitle}`, res.totalScore);
-        if (res.studentName) scoreMap.set(`${res.studentName.trim().toLowerCase()}:::${qTitle}`, res.totalScore);
-      }
-
+      const header = "Item,Name,Email,Attendance (%),Average Grade (%)\n";
       const rows = students
-        .map((s, idx) => {
-          let row = `${idx + 1},"${s.full_name}"`;
-          if (quizTitles.length > 0) {
-            let total = 0;
-            let hasAny = false;
-            for (const qt of quizTitles) {
-              const sc = (s.id && scoreMap.get(`${s.id}:::${qt}`)) ?? scoreMap.get(`${s.full_name.trim().toLowerCase()}:::${qt}`);
-              if (sc !== undefined) {
-                row += `,${sc}`;
-                total += sc;
-                hasAny = true;
-              } else {
-                row += ",-";
-              }
-            }
-            row += `,${hasAny ? total : "-"}`;
-          } else {
-            row += ",-";
-          }
-          return row;
-        })
+        .map(
+          (s, idx) =>
+            `${idx + 1},"${s.full_name}","${s.email || "N/A"}",${s.attendance ?? 100},${s.average ?? 0}`
+        )
         .join("\n");
 
       const csvContent = header + rows;
       const cleanTitle = (title || "classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_scores.csv`;
+      const fileName = `${cleanTitle}_roster.csv`;
       const mimeType = "text/csv";
 
       const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
@@ -1000,10 +957,9 @@ export default function ClassroomScreen() {
     try {
       setIsExporting(true);
       const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_scores.xlsx`;
+      const fileName = `${cleanTitle}_classlist.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-      const results = id ? await getAllStudentQuizResults(id) : [];
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -1011,8 +967,6 @@ export default function ClassroomScreen() {
         room: classroomRoom,
         schedule: classroomSchedule,
         students,
-        quizzes: publishedQuizzes,
-        quizResults: results,
       });
 
       const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
@@ -1203,8 +1157,8 @@ export default function ClassroomScreen() {
                     backgroundColor: isActive
                       ? cardColor
                       : darkMode
-                      ? "#374151"
-                      : "#F8FAFC",
+                        ? "#374151"
+                        : "#F8FAFC",
                   },
                   isActive && {
                     shadowColor: cardColor,
