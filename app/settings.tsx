@@ -18,6 +18,7 @@ import { useTheme } from "../context/ThemeContext";
 import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
 import { generatePrintPackage } from "../lib/printEngine";
 import { sharePdfBytes } from "../lib/printEngine/mobileShare";
+import { runOnDeviceSmokeTest } from "../lib/printEngine/smokeTest";
 import {
   deleteDraftQuiz,
   deletePublishedQuiz,
@@ -133,6 +134,7 @@ export default function SettingsScreen() {
   const [targetClassroomId, setTargetClassroomId] = useState("");
   const [classroomsList, setClassroomsList] = useState<Array<{ id: string; title: string; section?: string }>>([]);
   const [isShuffling, setIsShuffling] = useState(false);
+  const [runningSmokeTest, setRunningSmokeTest] = useState(false);
 
   // ── Load user ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -356,6 +358,31 @@ export default function SettingsScreen() {
       Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
     } finally {
       setExportingPdf(false);
+    }
+  }
+
+  // ── Print Engine Smoke Test (2-Page PDF) ───────────────────────────────────
+  async function handleRunSmokeTest() {
+    setRunningSmokeTest(true);
+    try {
+      const result = await runOnDeviceSmokeTest();
+      if (!result.success) {
+        Alert.alert("Smoke Test Failed", result.error || "Could not generate test PDF.");
+        return;
+      }
+      await sharePdfBytes(
+        result.pdfBytes,
+        "Tseki_SmokeTest_2Page.pdf",
+        "Tseki Print Engine Smoke Test (2-Page PDF)"
+      );
+      Alert.alert(
+        "Smoke Test Passed! 🚀",
+        `• Pages: ${result.pageCount}\n• Render Time: ${result.durationMs}ms (${(result.durationMs / 1000).toFixed(2)}s)\n• File Size: ${(result.byteSize / 1024).toFixed(1)} KB\n• Font: Embedded Noto Sans (Regular & Bold)\n• Mathematical & Greek Symbols: Verified\n\nThe 2-page PDF has opened in your system viewer.`
+      );
+    } catch (err: any) {
+      Alert.alert("Smoke Test Error", err.message || "Failed to run smoke test.");
+    } finally {
+      setRunningSmokeTest(false);
     }
   }
 
@@ -620,6 +647,32 @@ export default function SettingsScreen() {
               thumbColor="#FFFFFF"
             />
           </View>
+        </View>
+
+        {/* ── Print Engine Diagnostics ── */}
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>PRINT ENGINE DIAGNOSTICS</Text>
+        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+          <TouchableOpacity
+            style={styles.rowBase}
+            activeOpacity={0.7}
+            onPress={handleRunSmokeTest}
+            disabled={runningSmokeTest}
+          >
+            <View style={[styles.iconWrap, { backgroundColor: "#EEF2FF" }]}>
+              {runningSmokeTest ? (
+                <ActivityIndicator size="small" color="#4F46E5" />
+              ) : (
+                <Ionicons name="speedometer-outline" size={20} color="#4F46E5" />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: textMain }]}>Run 2-Page PDF Smoke Test</Text>
+              <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
+                {runningSmokeTest ? "Rendering 2-page PDF & embedded font..." : "Benchmark render speed & verify PDF viewer"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={textSub} />
+          </TouchableOpacity>
         </View>
 
         {/* ── Session ── */}
