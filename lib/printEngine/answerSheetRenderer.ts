@@ -168,13 +168,19 @@ function drawAnswerSheetHeader(
     const qrSize = 50;
     const qrX = width - MARGINS.right - 24 - qrSize;
     const qrY = startY - qrSize - 2;
-    const qrPosition = drawQRCode(page, {
+    drawQRCode(page, {
         q: quizId,
         v: version,
         t: 'answer_sheet',
         p: 1,
         n: 1,
     }, qrX, qrY, qrSize);
+    const qrPosition = {
+        x: qrX,
+        y: height - (qrY + qrSize),
+        width: qrSize,
+        height: qrSize,
+    };
 
     // Student Information line
     const infoY = startY - 60;
@@ -234,7 +240,7 @@ function drawAnswerSections(
     if (mc.length > 0) {
         const title = `${toRoman(sectionNum++)}. MULTIPLE CHOICE (items ${mc[0].questionNumber}-${mc[mc.length - 1].questionNumber}) - write A, B, C or D`;
         cursorY = drawSectionBanner(page, MARGINS.left, cursorY, printableWidth, title, fontBold);
-        cursorY = drawLetterGrid(page, MARGINS.left, cursorY, mc, font, fontBold, 'letter', layoutItems);
+        cursorY = drawLetterGrid(page, MARGINS.left, cursorY, mc, font, fontBold, 'letter', layoutItems, ctx.height);
         cursorY -= 8;
     }
 
@@ -242,7 +248,7 @@ function drawAnswerSections(
     if (tf.length > 0) {
         const title = `${toRoman(sectionNum++)}. TRUE OR FALSE (items ${tf[0].questionNumber}-${tf[tf.length - 1].questionNumber}) - write T or F`;
         cursorY = drawSectionBanner(page, MARGINS.left, cursorY, printableWidth, title, fontBold);
-        cursorY = drawLetterGrid(page, MARGINS.left, cursorY, tf, font, fontBold, 'tf', layoutItems);
+        cursorY = drawLetterGrid(page, MARGINS.left, cursorY, tf, font, fontBold, 'tf', layoutItems, ctx.height);
         cursorY -= 8;
     }
 
@@ -250,7 +256,7 @@ function drawAnswerSections(
     if (wb.length > 0) {
         const title = `${toRoman(sectionNum++)}. WORD BOX (items ${wb[0].questionNumber}-${wb[wb.length - 1].questionNumber}) - write the LETTER from the word bank`;
         cursorY = drawSectionBanner(page, MARGINS.left, cursorY, printableWidth, title, fontBold);
-        cursorY = drawLetterGrid(page, MARGINS.left, cursorY, wb, font, fontBold, 'word_box', layoutItems);
+        cursorY = drawLetterGrid(page, MARGINS.left, cursorY, wb, font, fontBold, 'word_box', layoutItems, ctx.height);
         cursorY -= 8;
     }
 
@@ -267,14 +273,14 @@ function drawAnswerSections(
         if (fb.length > 0) {
             const fbTitle = `${toRoman(sectionNum++)}. FILL IN THE BLANK (${fb[0].questionNumber}-${fb[fb.length - 1].questionNumber})`;
             leftBottomY = drawSectionBanner(page, col1X, cursorY, colWidth, fbTitle, fontBold);
-            leftBottomY = drawTextBoxColumn(page, col1X, leftBottomY, colWidth, fb, font, fontBold, 'text', layoutItems);
+            leftBottomY = drawTextBoxColumn(page, col1X, leftBottomY, colWidth, fb, font, fontBold, 'text', layoutItems, ctx.height);
         }
 
         // Right Column (Identification)
         if (id.length > 0) {
             const idTitle = `${toRoman(sectionNum++)}. IDENTIFICATION (${id[0].questionNumber}-${id[id.length - 1].questionNumber})`;
             rightBottomY = drawSectionBanner(page, col2X, cursorY, colWidth, idTitle, fontBold);
-            rightBottomY = drawTextBoxColumn(page, col2X, rightBottomY, colWidth, id, font, fontBold, 'text', layoutItems);
+            rightBottomY = drawTextBoxColumn(page, col2X, rightBottomY, colWidth, id, font, fontBold, 'text', layoutItems, ctx.height);
         }
 
         cursorY = Math.min(leftBottomY, rightBottomY) - 8;
@@ -284,7 +290,7 @@ function drawAnswerSections(
     if (en.length > 0) {
         const title = `${toRoman(sectionNum++)}. ENUMERATION (${en[0].questionNumber}-${en[en.length - 1].questionNumber}) - one answer per box`;
         cursorY = drawSectionBanner(page, MARGINS.left, cursorY, printableWidth, title, fontBold);
-        cursorY = drawEnumerationSection(page, MARGINS.left, cursorY, printableWidth, en, font, fontBold, layoutItems);
+        cursorY = drawEnumerationSection(page, MARGINS.left, cursorY, printableWidth, en, font, fontBold, layoutItems, ctx.height);
         cursorY -= 8;
     }
 
@@ -328,7 +334,8 @@ function drawLetterGrid(
     font: PDFFont,
     fontBold: PDFFont,
     itemType: 'letter' | 'tf' | 'word_box',
-    layoutItems: LayoutItem[]
+    layoutItems: LayoutItem[],
+    pageHeight: number
 ): number {
     const cfg = ANSWER_BOX_CONFIG.letter;
     let cursorY = startY;
@@ -373,13 +380,13 @@ function drawLetterGrid(
             borderWidth: 0.8,
         });
 
-        // Record physical box coordinates for optical OCR / Grader
+        // Record physical box coordinates for optical OCR / Grader (y measured from top of page)
         layoutItems.push({
             questionNumber: q.questionNumber,
             type: itemType,
             box: {
                 x: boxX,
-                y: boxY,
+                y: pageHeight - (boxY + cfg.inputHeight),
                 width: cfg.width,
                 height: cfg.inputHeight,
             },
@@ -405,7 +412,8 @@ function drawTextBoxColumn(
     font: PDFFont,
     fontBold: PDFFont,
     itemType: 'text',
-    layoutItems: LayoutItem[]
+    layoutItems: LayoutItem[],
+    pageHeight: number
 ): number {
     const boxHeight = 20;
     const numWidth = 24;
@@ -456,7 +464,7 @@ function drawTextBoxColumn(
             type: itemType,
             box: {
                 x: inputX,
-                y: boxY,
+                y: pageHeight - (boxY + boxHeight),
                 width: inputWidth,
                 height: boxHeight,
             },
@@ -477,7 +485,8 @@ function drawEnumerationSection(
     questions: ScannableQuestion[],
     font: PDFFont,
     fontBold: PDFFont,
-    layoutItems: LayoutItem[]
+    layoutItems: LayoutItem[],
+    pageHeight: number
 ): number {
     // 3 columns layout for enumeration items
     const colSpacing = 12;
@@ -554,7 +563,7 @@ function drawEnumerationSection(
                 type: 'text',
                 box: {
                     x: inputX,
-                    y: boxY,
+                    y: pageHeight - (boxY + boxHeight),
                     width: inputWidth,
                     height: boxHeight,
                 },

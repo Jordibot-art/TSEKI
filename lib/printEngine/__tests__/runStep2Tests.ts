@@ -39,10 +39,21 @@ async function runStep2Tests() {
     const corners = page1.markers.map((m) => m.corner).sort().join(',');
     assert(corners === 'BL,BR,TL,TR', `All 4 corners represented: ${corners}`);
 
+    // Assert top-measured coordinates for markers (y=0 at top)
+    const tl = page1.markers.find((m) => m.corner === 'TL')!;
+    const bl = page1.markers.find((m) => m.corner === 'BL')!;
+    assert(tl.y === 18, `TL marker has top-measured y=18 (got ${tl.y})`);
+    assert(bl.y === 792 - 18 - 14, `BL marker has top-measured y=760 (got ${bl.y})`);
+
     assert(page1.qrPosition.width === 50 && page1.qrPosition.height === 50, 'QR position captured with 50x50 size');
 
     // 12 MC + 8 TF + 5 WB + 5 FB + 6 ID + (3 + 4 + 4 + 4) Enum = 51 layout items
     assert(page1.items.length === 51, `All answer boxes captured in layout items (got ${page1.items.length}, expected 51)`);
+
+    // Verify top-down ordering: Item 1 near top has smaller y than Item 40 near bottom
+    const item1 = page1.items.find((i) => i.questionNumber === 1)!;
+    const item40 = page1.items.find((i) => i.questionNumber === 40)!;
+    assert(item1.box.y < item40.box.y, `Item 1 y (${item1.box.y.toFixed(1)}) < Item 40 y (${item40.box.y.toFixed(1)}) for top-down coordinates`);
 
     // Verify all box coordinates are within page bounds and away from corner markers
     let allBoxesValid = true;

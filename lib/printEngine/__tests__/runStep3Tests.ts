@@ -65,6 +65,7 @@ async function runStep3Tests() {
     const pkg = await generatePrintPackage(quiz40ItemMixed);
     const promptText = formatBoxesForGraderPrompt(pkg.layoutJson);
     assert(promptText.includes('LAYOUT COORDINATE MAP'), 'Prompt text has header');
+    assert(promptText.includes('y measured from top edge'), 'Prompt text documents y measured from top edge');
     assert(promptText.includes('Item 1 (letter): box at [x='), 'Prompt text includes item 1 box coordinates');
     assert(promptText.includes('Item 37.1 (text): box at [x='), 'Prompt text includes enumeration 37.1 box');
 

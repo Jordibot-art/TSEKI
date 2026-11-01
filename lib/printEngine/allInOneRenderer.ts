@@ -180,13 +180,19 @@ function drawAllInOneHeader(
     const qrSize = 48;
     const qrX = width - MARGINS.right - 24 - qrSize;
     const qrY = startY - qrSize - 2;
-    const qrPosition = drawQRCode(page, {
+    drawQRCode(page, {
         q: quizId,
         v: version,
         t: 'all_in_one',
         p: 1,
         n: 1,
     }, qrX, qrY, qrSize);
+    const qrPosition = {
+        x: qrX,
+        y: height - (qrY + qrSize),
+        width: qrSize,
+        height: qrSize,
+    };
 
     // Student information line
     const infoY = startY - 54;
@@ -363,7 +369,7 @@ function renderQuestionColumn(
             type: isLetter ? 'letter' : 'text',
             box: {
                 x: boxX,
-                y: boxY,
+                y: ctx.height - (boxY + boxHeight),
                 width: boxWidth,
                 height: boxHeight,
             },

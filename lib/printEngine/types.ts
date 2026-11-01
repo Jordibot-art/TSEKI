@@ -18,6 +18,11 @@ export interface PrintOptions {
 
 export interface BoxRect {
     x: number;
+    /**
+     * Vertical coordinate in points measured from the TOP edge of the page (y = 0 at top, increasing downward).
+     * Note: Standard PDF coordinates measure from the bottom, but LayoutJSON standardizes on top-relative y
+     * to match standard computer vision / camera image coordinate systems.
+     */
     y: number;
     width: number;
     height: number;

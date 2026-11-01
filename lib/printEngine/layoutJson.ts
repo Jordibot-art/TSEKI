@@ -111,11 +111,13 @@ export function generateAnswerVariants(assessment: GeneratedAssessment): AnswerV
 
 /**
  * Formats LayoutJSON bounding boxes into precise coordinates for Gemini Vision OCR prompt.
+ * Coordinates are formatted with y measured from the TOP edge of the page (y = 0 at top),
+ * matching standard image and computer vision coordinate systems.
  */
 export function formatBoxesForGraderPrompt(layoutJson: LayoutJSON): string {
     const lines: string[] = [
-        `LAYOUT COORDINATE MAP (Page Size: ${layoutJson.pageSize.width}x${layoutJson.pageSize.height} pt):`,
-        'Look at these exact physical bounding boxes on the paper to read student handwriting:',
+        `LAYOUT COORDINATE MAP (Page Size: ${layoutJson.pageSize.width}x${layoutJson.pageSize.height} pt, y measured from top edge):`,
+        'Look at these exact physical bounding boxes on the straightened paper to read student handwriting (y=0 is at top edge):',
     ];
 
     for (const page of layoutJson.pages) {
