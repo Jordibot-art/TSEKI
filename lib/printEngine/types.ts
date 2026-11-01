@@ -4,9 +4,12 @@ import { BondPaperSize } from './constants';
 import { GeneratedAssessment, QuestionType, ScannableQuestion, AnswerKeyItem } from '../quizGeneratorService';
 
 export type PrintMode = 'ALL_IN_ONE' | 'SEPARATE' | 'AUTO';
+export type PrintTarget = 'ALL' | 'STUDENT_ONLY' | 'ANSWER_KEY_ONLY' | 'LAYOUT_ONLY';
 
 export interface PrintOptions {
     mode?: PrintMode;             // default 'AUTO'
+    target?: PrintTarget;         // default 'ALL' - controls which PDFs are compiled
+    skipPdfSave?: boolean;        // if true, skips doc.save() compression when only layout coordinates are needed
     paperSize?: BondPaperSize;    // default 'short'
     version?: 'A' | 'B' | 'C';    // default 'A'
     forceSeparate?: boolean;      // overrides fit decision to separate
@@ -75,6 +78,7 @@ export interface PrintPackage {
     pdfs: {
         studentPdf: Uint8Array;
         answerSheetPdf?: Uint8Array;   // in SEPARATE mode
+        combinedStudentPdf?: Uint8Array; // in SEPARATE mode: single merged booklet + answer sheet PDF
         answerKeyPdf: Uint8Array;
     };
     layoutJson: LayoutJSON;

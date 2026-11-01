@@ -322,6 +322,7 @@ export default function SettingsScreen() {
         subject: quiz.subject || "General Subject",
         gradeLevel: quiz.gradeLevel,
         paperSize,
+        target: includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY",
       });
 
       const cleanTitle = (quiz.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
@@ -339,20 +340,12 @@ export default function SettingsScreen() {
           `Export Scannable Test Paper (${cleanTitle})`
         );
       } else {
-        if (printPkg.pdfs.answerSheetPdf) {
-          await sharePdfBytes(
-            printPkg.pdfs.answerSheetPdf,
-            `${cleanTitle}_AnswerSheet.pdf`,
-            `Export Scannable Answer Sheet (${cleanTitle})`
-          );
-        }
-        if (printPkg.pdfs.studentPdf) {
-          await sharePdfBytes(
-            printPkg.pdfs.studentPdf,
-            `${cleanTitle}_QuestionBooklet.pdf`,
-            `Export Question Booklet (${cleanTitle})`
-          );
-        }
+        const pdfToShare = printPkg.pdfs.combinedStudentPdf || printPkg.pdfs.studentPdf;
+        await sharePdfBytes(
+          pdfToShare,
+          `${cleanTitle}_ExamPaper.pdf`,
+          `Export Test Paper & Answer Sheet (${cleanTitle})`
+        );
       }
     } catch (err: any) {
       Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");

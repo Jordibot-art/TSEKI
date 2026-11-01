@@ -98,7 +98,7 @@ export async function renderAllInOnePDF(
         },
     ];
 
-    const pdfBytes = await doc.save();
+    const pdfBytes = options.skipPdfSave ? new Uint8Array() : await doc.save();
 
     return {
         pdfBytes,

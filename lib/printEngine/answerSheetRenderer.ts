@@ -84,7 +84,7 @@ export async function renderAnswerSheetPDF(
         items: layoutItems,
     });
 
-    const pdfBytes = await doc.save();
+    const pdfBytes = options.skipPdfSave ? new Uint8Array() : await doc.save();
 
     return {
         pdfBytes,

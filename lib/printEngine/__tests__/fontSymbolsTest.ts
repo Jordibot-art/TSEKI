@@ -101,9 +101,8 @@ async function runFontSymbolsTests() {
 
     console.log('\n5. Full generatePrintPackage with Unicode Symbols');
     const pkg = await generatePrintPackage(unicodeAssessment, { paperSize: 'short', version: 'A' });
-    assert(pkg.allInOnePdf !== null || pkg.bookletPdf !== null, 'Print package generated');
-    assert(pkg.answerSheetPdf !== null, 'Print package has answer sheet');
-    assert(pkg.answerKeyPdf !== null, 'Print package has answer key');
+    assert(pkg.pdfs.studentPdf.byteLength > 0, 'Print package has student PDF');
+    assert(pkg.pdfs.answerKeyPdf.byteLength > 0, 'Print package has answer key');
     const totalItems = pkg.layoutJson.pages.reduce((acc, p) => acc + p.items.length, 0);
     assert(totalItems > 0, `Layout JSON has ${totalItems} items across ${pkg.layoutJson.pages.length} pages`);
 

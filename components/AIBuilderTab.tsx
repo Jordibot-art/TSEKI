@@ -469,6 +469,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setExportModalOpen(false);
         if (!generatedAssessment) return;
         setExportingPdf(true);
+        // Yield UI thread so modal closes cleanly and loading overlay paints before PDF rendering starts
+        await new Promise((resolve) => setTimeout(resolve, 60));
+
         try {
             const printPkg = await generatePrintPackage(generatedAssessment, {
                 classTitle,
@@ -477,6 +480,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 gradeLevel,
                 version: exportVersion,
                 forceSeparate: forceSeparateMode,
+                target: includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY",
             });
 
             const cleanTitle = (generatedAssessment.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
@@ -484,30 +488,24 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             if (includeKey) {
                 await sharePdfBytes(
                     printPkg.pdfs.answerKeyPdf,
-                    `${cleanTitle}_AnswerKey_v${exportVersion}.pdf`,
-                    `Export Teacher Answer Key (${cleanTitle})`
+                    `${cleanTitle}_AnswerKey_Set_${exportVersion}.pdf`,
+                    `Export Teacher Answer Key Set ${exportVersion} (${cleanTitle})`
                 );
             } else if (printPkg.mode === "ALL_IN_ONE") {
                 await sharePdfBytes(
                     printPkg.pdfs.studentPdf,
-                    `${cleanTitle}_TestPaper_v${exportVersion}.pdf`,
-                    `Export Scannable Test Paper (${cleanTitle})`
+                    `${cleanTitle}_TestPaper_Set_${exportVersion}.pdf`,
+                    `Export Scannable Test Paper Set ${exportVersion} (${cleanTitle})`
                 );
             } else {
-                if (printPkg.pdfs.answerSheetPdf) {
-                    await sharePdfBytes(
-                        printPkg.pdfs.answerSheetPdf,
-                        `${cleanTitle}_AnswerSheet_v${exportVersion}.pdf`,
-                        `Export Scannable Answer Sheet (${cleanTitle})`
-                    );
-                }
-                if (printPkg.pdfs.studentPdf) {
-                    await sharePdfBytes(
-                        printPkg.pdfs.studentPdf,
-                        `${cleanTitle}_QuestionBooklet_v${exportVersion}.pdf`,
-                        `Export Question Booklet (${cleanTitle})`
-                    );
-                }
+                // In SEPARATE mode, share single merged document (Question Booklet + Answer Sheet)
+                // in one share intent to eliminate duplicate share dialog hangs or crashes
+                const pdfToShare = printPkg.pdfs.combinedStudentPdf || printPkg.pdfs.studentPdf;
+                await sharePdfBytes(
+                    pdfToShare,
+                    `${cleanTitle}_Exam_Booklet_and_AnswerSheet_Set_${exportVersion}.pdf`,
+                    `Export Test Paper & Answer Sheet Set ${exportVersion} (${cleanTitle})`
+                );
             }
         } catch (err: any) {
             Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
@@ -537,11 +535,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         }
 
         setPublishingQuiz(true);
+        // Yield UI thread so busy spinner displays smoothly
+        await new Promise((resolve) => setTimeout(resolve, 60));
+
         try {
+            // Publishing only needs the LayoutJSON coordinate map for grading - skip heavy PDF document saves!
             const printPkg = await generatePrintPackage(generatedAssessment, {
                 classTitle,
                 subject,
                 gradeLevel,
+                target: "LAYOUT_ONLY",
             });
 
             const quizWithMeta = {
@@ -1145,6 +1148,42 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 </View>
             </Modal>
 
+            {/* ── PDF Exporting / Publishing Busy Modal ── */}
+            <Modal
+                visible={exportingPdf || publishingQuiz}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => { }}
+            >
+                <View style={styles.loadingOverlay}>
+                    <View style={styles.loadingCard}>
+                        <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#2563EB") + "22" }]}>
+                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#2563EB" }]}>
+                                <Ionicons name={publishingQuiz ? "cloud-upload" : "print"} size={26} color="#FFFFFF" />
+                            </View>
+                        </View>
+                        <Text style={styles.loadingTitle}>
+                            {publishingQuiz ? "Publishing Assessment..." : "Preparing Test Paper..."}
+                        </Text>
+                        <Text style={styles.loadingSub}>
+                            {publishingQuiz
+                                ? "Saving quiz configuration and answer layout to your cloud grader archive."
+                                : `Formatting Set ${exportVersion} with high-precision scannable boxes...`}
+                        </Text>
+                        <View style={styles.spinnerWrap}>
+                            <ActivityIndicator size="large" color={accentColor || "#2563EB"} />
+                        </View>
+                        <View style={styles.loadingNoticeRow}>
+                            <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
+                            <Text style={styles.loadingNoticeText}>
+                                {publishingQuiz ? "Almost ready..." : "The PDF share dialog will open shortly."}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             {/* ── Export Paper Sheet Modal ── */}
             <Modal
                 visible={exportModalOpen}
@@ -1165,31 +1204,72 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             </Text>
                         </View>
 
-                        {/* Version selector */}
-                        <View style={{ marginBottom: 12 }}>
-                            <Text style={{ fontSize: 12, fontWeight: "600", color: "#4B5563", marginBottom: 6 }}>
-                                Paper Version:
+                        {/* Anti-Cheating Exam Sets (Version A, B, C) */}
+                        <View style={{
+                            marginBottom: 14,
+                            backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                            borderRadius: 10,
+                            padding: 10,
+                            borderWidth: 1,
+                            borderColor: darkMode ? "#334155" : "#E2E8F0"
+                        }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
+                                <Ionicons name="shield-checkmark" size={14} color={accentColor || "#2563EB"} style={{ marginRight: 5 }} />
+                                <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>
+                                    Anti-Cheating Exam Sets
+                                </Text>
+                            </View>
+                            <Text style={{ fontSize: 11, color: textSub, marginBottom: 8, lineHeight: 15 }}>
+                                Distribute different sets to adjacent students in class so they cannot copy answers. Questions are shuffled with matching QR codes and answer keys.
                             </Text>
                             <View style={{ flexDirection: "row", gap: 8 }}>
-                                {(["A", "B", "C"] as const).map((v) => (
-                                    <TouchableOpacity
-                                        key={v}
-                                        style={{
-                                            flex: 1,
-                                            paddingVertical: 7,
-                                            borderRadius: 8,
-                                            borderWidth: 1,
-                                            borderColor: exportVersion === v ? (accentColor || "#2563EB") : "#D1D5DB",
-                                            backgroundColor: exportVersion === v ? (accentColor || "#2563EB") + "15" : "#F9FAFB",
-                                            alignItems: "center",
-                                        }}
-                                        onPress={() => setExportVersion(v)}
-                                    >
-                                        <Text style={{ fontSize: 13, fontWeight: exportVersion === v ? "700" : "500", color: exportVersion === v ? (accentColor || "#2563EB") : "#374151" }}>
-                                            Version {v}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
+                                {[
+                                    { id: "A" as const, label: "Set A", badge: "Original" },
+                                    { id: "B" as const, label: "Set B", badge: "Shuffled" },
+                                    { id: "C" as const, label: "Set C", badge: "Alt Shuffle" },
+                                ].map((v) => {
+                                    const isSelected = exportVersion === v.id;
+                                    return (
+                                        <TouchableOpacity
+                                            key={v.id}
+                                            style={{
+                                                flex: 1,
+                                                paddingVertical: 8,
+                                                paddingHorizontal: 4,
+                                                borderRadius: 8,
+                                                borderWidth: isSelected ? 1.5 : 1,
+                                                borderColor: isSelected ? (accentColor || "#2563EB") : (darkMode ? "#475569" : "#CBD5E1"),
+                                                backgroundColor: isSelected ? (accentColor || "#2563EB") + "18" : (darkMode ? "#0F172A" : "#FFFFFF"),
+                                                alignItems: "center",
+                                            }}
+                                            onPress={() => setExportVersion(v.id)}
+                                        >
+                                            <Text style={{
+                                                fontSize: 13,
+                                                fontWeight: isSelected ? "700" : "600",
+                                                color: isSelected ? (accentColor || "#2563EB") : textMain,
+                                            }}>
+                                                {v.label}
+                                            </Text>
+                                            <Text style={{
+                                                fontSize: 9.5,
+                                                fontWeight: "500",
+                                                color: isSelected ? (accentColor || "#2563EB") : textSub,
+                                                marginTop: 1,
+                                            }}>
+                                                {v.badge}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 7, gap: 4 }}>
+                                <Ionicons name="information-circle-outline" size={12} color={textSub} />
+                                <Text style={{ fontSize: 10, color: textSub, flex: 1 }}>
+                                    {exportVersion === "A" && "Set A: Standard question order. Ideal if all students take the same set."}
+                                    {exportVersion === "B" && "Set B: Shuffled question order for row 2 or alternating seats."}
+                                    {exportVersion === "C" && "Set C: Alternate shuffled order for 3-set classroom distribution."}
+                                </Text>
                             </View>
                         </View>
 

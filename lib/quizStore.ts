@@ -157,7 +157,20 @@ export async function savePublishedQuiz(
             if (!dbError) {
                 newQuiz.isCloudSynced = true;
             } else {
-                console.warn("Could not save to Supabase archived_assessments:", dbError.message);
+                // If migration adding layout_json has not been run yet, retry without layout_json
+                if (dbError.message?.includes("layout_json") || dbError.code === "PGRST204") {
+                    const { layout_json, ...fallbackPayload } = dbPayload;
+                    const { error: retryError } = await supabase
+                        .from("archived_assessments")
+                        .upsert(fallbackPayload);
+                    if (!retryError) {
+                        newQuiz.isCloudSynced = true;
+                    } else {
+                        console.warn("Could not save to Supabase archived_assessments (retry):", retryError.message);
+                    }
+                } else {
+                    console.warn("Could not save to Supabase archived_assessments:", dbError.message);
+                }
             }
         }
     } catch (dbErr) {
