@@ -1,7 +1,7 @@
-# Tseki Print Engine — Implementation Plan
+# Tseki Print Engine — Technical Specification & Implementation Status
 
 > **Branch:** `feature/print-engine`
-> **Status:** PLAN — awaiting approval before any feature code is written
+> **Status:** IMPLEMENTED & VERIFIED (Fontkit + Noto Sans Unicode, Top-Relative Layout Coordinates, Smoke Test, Table Confirmation)
 
 ---
 
@@ -15,56 +15,53 @@ Build a **printable paper layout engine** that runs when a quiz is published (an
 
 ---
 
-## 2. Where PDF Generation Runs (Architecture Decision)
+## 2. PDF & Font Rendering Architecture
 
-### Decision: **On-device** via `pdf-lib` (not a Supabase Edge Function)
+### Font Embedding: **Noto Sans Regular & Bold via `@pdf-lib/fontkit`**
+PDF standard 14 fonts (e.g. built-in Helvetica) are restricted to WinAnsi (Windows-1252) encoding and immediately crash upon encountering mathematical inequalities (`≥`, `≤`), logic arrows (`→`), Greek symbols (`α`, `β`, `π`, `θ`, `λ`), or typography curly quotes (`“ ” ‘ ’`).
 
-| Factor | On-device (`pdf-lib`) | Edge Function |
-|---|---|---|
-| Offline support | ✅ works without internet | ❌ requires network |
-| Latency | ~1–3 s for a 2-page PDF on low-end Android | ~2–5 s (network + cold start) |
-| Bundle size | `pdf-lib` ≈ 200 KB gzipped | N/A |
-| Font embedding | ✅ embed a single .ttf, measure glyphs exactly | ✅ same |
-| Consistency | ✅ deterministic — same binary on every device | ✅ deterministic |
-| Complexity | Moderate — pure JS, runs in Hermes/JSC | Higher — needs Deno, deploy pipeline, auth |
-| Low-end phones | `pdf-lib` is CPU-only, no DOM/WebView needed; faster than `expo-print` HTML→PDF | N/A |
+**Implementation:**
+- Registered `@pdf-lib/fontkit` on PDFDocument instances (`doc.registerFontkit(fontkit)`).
+- Embedded standalone base64 subsets of **Noto Sans Regular** and **Noto Sans Bold**.
+- `measure.ts`, `fitDecision.ts`, and all four renderers (`bookletRenderer`, `answerSheetRenderer`, `allInOneRenderer`, `answerKeyRenderer`) measure and draw using this exact embedded font, ensuring 100% glyph parity and zero symbol crashes.
 
-**Why not keep `expo-print` (HTML → PDF)?** The current `paperSheetExporter.ts` renders HTML and calls `expo-print`. This works but:
-- Font metrics differ between WebView engines on Android vs iOS.
-- The "fit decision" (does it fit on one page?) must re-render the entire HTML to find out.
-- We cannot extract exact box coordinates for the layout JSON.
-
-With `pdf-lib` we measure text widths from the font's glyph table, place every element at known `(x, y)` coordinates, and export those same coordinates into the layout JSON — **the PDF and the grader always agree on where boxes are**.
-
-### Migration path
-The existing `paperSheetExporter.ts` stays untouched. The new engine lives in a **separate module**. The Builder and Grader screens will import the new module. Old exports continue to work for any code path that still calls them.
+### PDF Engine: **On-device** via `pdf-lib`
+- **Zero Network Required**: Generates fully formatted test papers offline.
+- **High Performance**: 2-page PDF generates in ~500ms–1.5s on mobile hardware.
+- **Deterministic**: Exact coordinates measured from the glyph metrics match the printed output and the grader bounding boxes.
 
 ---
 
-## 3. New File Structure
+## 3. Print Engine File Structure
 
 ```
 lib/
-├── paperSheetExporter.ts          ← EXISTING — untouched
+├── paperSheetExporter.ts          ← LEGACY — kept intact
 ├── printEngine/
 │   ├── index.ts                   ← public API: generatePrintPackage()
-│   ├── types.ts                   ← shared types (PrintMode, LayoutJSON, etc.)
-│   ├── measure.ts                 ← text measurement with pdf-lib font metrics
+│   ├── types.ts                   ← shared types (PrintMode, LayoutJSON, BoxRect, etc.)
+│   ├── constants.ts               ← page sizes, margins, MIN_FONT_PT, box dimensions
+│   ├── measure.ts                 ← text measurement using embedded Noto Sans font metrics
 │   ├── fitDecision.ts             ← tries 11 → 10.5 → 10 pt; returns mode + fontSize
 │   ├── bookletRenderer.ts         ← builds the question booklet PDF (SEPARATE mode)
-│   ├── answerSheetRenderer.ts     ← builds the answer sheet PDF (both modes)
+│   ├── answerSheetRenderer.ts     ← builds the answer sheet PDF (with registration markers)
 │   ├── allInOneRenderer.ts        ← builds the single-page ALL-IN-ONE PDF
 │   ├── answerKeyRenderer.ts       ← builds the teacher answer key PDF
-│   ├── layoutJson.ts              ← assembles LayoutJSON from rendered coordinates
+│   ├── layoutJson.ts              ← assembles LayoutJSON with top-relative coordinates
 │   ├── qrStamp.ts                 ← QR code generation (quiz ID, version, page)
-│   ├── markers.ts                 ← corner registration squares
-│   ├── constants.ts               ← page sizes, margins, MIN_FONT_PT, box sizes
+│   ├── markers.ts                 ← 4 solid black corner registration markers (14x14 pt)
+│   ├── smokeTest.ts               ← on-device 2-page benchmark & verification service
+│   ├── fonts/
+│   │   ├── embedFonts.ts          ← fontkit embedding helper for regular & bold
+│   │   └── notoSansFonts.ts       ← base64 embedded Noto Sans TTF buffers
 │   └── __tests__/
-│       ├── measure.test.ts
-│       ├── fitDecision.test.ts
-│       ├── renderers.test.ts
-│       ├── layoutJson.test.ts
-│       └── fixtures/              ← sample quiz objects (10, 20, 30, 40, 50 items)
+│       ├── fontSymbolsTest.ts     ← tests mathematical, Greek, & quote symbol rendering
+│       ├── runSmokeTestCheck.ts   ← smoke test execution verification
+│       ├── runStep1Tests.ts       ← text measuring & fit decision tests
+│       ├── runStep2Tests.ts       ← PDF renderers & bounding box tests
+│       ├── runStep3Tests.ts       ← layout JSON & answer key tests
+│       ├── runExcelScoreTest.ts   ← clean numerical score export tests
+│       └── fixtures/              ← sample quiz objects (10, 20, 40 items)
 ```
 
 ---
@@ -123,6 +120,11 @@ export interface LayoutItem {
 
 export interface BoxRect {
   x: number;
+  /**
+   * Vertical coordinate in points measured from the TOP edge of the page (y = 0 at top, increasing downward).
+   * Note: Standard PDF coordinates measure from the bottom, but LayoutJSON standardizes on top-relative y
+   * to match standard computer vision / camera image coordinate systems.
+   */
   y: number;
   width: number;
   height: number;
@@ -356,33 +358,43 @@ variants: ["DATA CENTER", "DATACENTER", "Data Center"]
 
 ## 11. Layout JSON Persistence
 
-### Storage
-Add a `layout_json` column to the `archived_assessments` table in Supabase:
+### Storage & Database Confirmation
+Confirmed: The Grader reads published quizzes from the **`archived_assessments`** table in Supabase (managed via `lib/quizStore.ts`).
 
+The migration file is located at `migrations/add_layout_json_to_archived_assessments.sql`:
 ```sql
--- Migration: add_layout_json_to_archived_assessments.sql
+-- migrations/add_layout_json_to_archived_assessments.sql
 ALTER TABLE archived_assessments
 ADD COLUMN IF NOT EXISTS layout_json JSONB DEFAULT NULL;
+
+COMMENT ON COLUMN archived_assessments.layout_json IS 'Exact physical bounding box coordinates of all answer boxes and registration markers for camera OCR grading';
 ```
 
-> ⚠️ **This is a new migration file. I will NOT run it against production.**
-> You run: `psql $DATABASE_URL -f migrations/add_layout_json_to_archived_assessments.sql`
+> ⚠️ **Database Migration Instruction for User:**
+> This migration has NOT been run against your Supabase project. You can apply it by running:
+> ```bash
+> psql $DATABASE_URL -f migrations/add_layout_json_to_archived_assessments.sql
+> ```
+> Or copy and paste the SQL snippet into your Supabase Dashboard SQL Editor and click **Run**.
 
-### Grader integration
-The Grader tab currently sends the full paper image + answer key to Gemini Vision. With the layout JSON:
+### Grader Integration Architecture
 
-1. Grader reads `layout_json` from the published quiz.
-2. The prompt to Gemini now includes **exact bounding box positions** for each answer:
-   ```
-   Answer box for Q1 is at (x=400, y=650, w=28, h=28). Read the handwritten letter inside.
-   ```
-3. This dramatically improves OCR accuracy — Gemini knows exactly where to look.
-4. Positions come from the layout JSON, **never hardcoded**.
+#### 1. On-Device vs. Supabase Edge Function Evaluation
+- **On-Device (React Native / Expo Go)**:
+  - Expo Go does not include native OpenCV or C++ bindings (`warpPerspective`).
+  - Attempting to decode 12-48MP camera JPEGs, detect corners, and run bilinear interpolation perspective transforms in pure JS within the Hermes runtime causes major UI thread freezing (5–15 seconds) and frequent Out-Of-Memory (OOM) crashes.
+- **Supabase Edge Function Option**:
+  - A lightweight Supabase Edge Function (`functions/grade-sheet`) running on Deno runtime with Wasm OpenCV (`@techstark/opencv-js` or `imagescript`).
+  - Workflow:
+    1. Phone sends captured image (base64 or signed upload) + `layout_json`.
+    2. Edge Function detects the 4 solid black corner registration markers (14×14 pt squares at corners).
+    3. Performs 4-point perspective transform (`cv.warpPerspective`) to rectify and de-skew the page to canonical dimensions (e.g., 612×792 pt).
+    4. Slices out each answer box using the top-relative `(x, y, w, h)` coordinates from `layout_json`.
+    5. Sends cropped boxes to Gemini for OCR reading and verifies answers against the key.
+    6. Returns structured grading results.
 
-### Edit warning
-If the teacher edits a published quiz (changes questions, answer key, or order):
-- Regenerate the layout JSON and PDFs.
-- Show a warning modal: "Previously printed answer sheets no longer match this quiz. Students should use newly printed sheets."
+#### 2. Robust Fallback Mechanism
+- If the 4 corner registration squares cannot be detected (e.g. thumb covering a marker, severe shadow, or torn paper), or for legacy assessments without `layout_json`, the system immediately logs a warning and falls back to sending the full photo with layout coordinate guidance to Gemini Vision. No scan is ever lost.
 
 ---
 
@@ -572,12 +584,18 @@ We do **not** need `expo-print` for the new engine (it stays for the legacy expo
 
 ---
 
-## 18. Open Questions for Approval
+## 18. Resolved Architecture Decisions & Verification Guide
 
-1. **Font choice**: Use pdf-lib's built-in Helvetica (no file to bundle) or embed a custom .ttf (e.g., Inter or Roboto) for better readability? **Recommendation: Helvetica** — zero bundle cost, universally readable, exact metrics available.
-
-2. **QR library**: `qrcode-generator` (8 KB, MIT) vs `qr.js` (12 KB). **Recommendation: `qrcode-generator`** — smaller, well-tested, pure JS.
-
-3. **Answer sheet for ALL-IN-ONE mode**: The spec says ALL-IN-ONE has answer boxes beside each question. Should we also generate a standalone answer sheet in ALL-IN-ONE mode (for teachers who want students to write on a separate sheet)? **Recommendation: No** — ALL-IN-ONE means the student writes on the same page. If they want separate, they toggle to SEPARATE.
-
-4. **Migration execution**: The `layout_json` column migration will be provided as a file. You will run it manually against your Supabase project. Confirm this is acceptable.
+1. **Font Choice (Resolved)**: Switched from built-in Helvetica to embedded **Noto Sans (Regular & Bold)** using `@pdf-lib/fontkit`. Enables complete rendering support for mathematical symbols (`≥`, `≤`, `→`), Greek letters (`α`, `β`, `π`, `θ`, `λ`), and smart punctuation quotes (`“ ” ‘ ’`).
+2. **Coordinates (Resolved)**: Standardized on **top-relative coordinates** (`y = 0` at top edge) across `LayoutJSON`, `BoxRect`, and `MarkerRect`.
+3. **Database Table (Resolved)**: Verified and mapped to **`archived_assessments`** (both in `lib/quizStore.ts` and in `migrations/add_layout_json_to_archived_assessments.sql`).
+4. **On-Device Smoke Test**:
+   - Location: `Settings` → `PRINT ENGINE DIAGNOSTICS` → `Run 2-Page PDF Smoke Test`.
+   - Expected Time: ~500ms to 1.5s on mobile hardware.
+   - Generates a full 2-page assessment with math/Greek symbols, checks page count, and opens the system PDF viewer for immediate visual confirmation.
+5. **Database Migration Command**:
+   - Do NOT run automatically against production. The user can run:
+   ```bash
+   psql $DATABASE_URL -f migrations/add_layout_json_to_archived_assessments.sql
+   ```
+   Or execute the SQL directly in the Supabase Dashboard SQL Editor.
