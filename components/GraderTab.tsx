@@ -291,7 +291,7 @@ export default function GraderTab({
             }
             const activeAnswerKey = published.answerKey;
 
-            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType);
+            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType, published.layoutJson);
             setGradingResult(result);
 
             // Match student if detected name matches a student in classroom roster

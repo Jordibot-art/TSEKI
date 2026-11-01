@@ -159,14 +159,14 @@ CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
    - Every question MUST have type: "identification"
    - options: [] (MUST BE AN EMPTY ARRAY - DO NOT PROVIDE CHOICES!)
    - answerBoxesRequired: 1
-   - correctAnswer: The exact concept, term, name, or word being tested (e.g. "Photosynthesis", "Isaac Newton")
+   - correctAnswer: The exact concept, term, name, or word being tested (e.g. "Photosynthesis", "Isaac Newton"). MUST be 1 to 3 words, MAXIMUM 25 characters to fit handwritten paper boxes!
 
 4. If Question Type Preference is "Enumeration":
    - Every question MUST have type: "enumeration"
    - questionText: clearly state how many items to enumerate (e.g. "Name 3 greenhouse gases:", "List the 4 cardinal directions:")
    - options: [] (MUST BE AN EMPTY ARRAY - DO NOT PROVIDE CHOICES!)
    - answerBoxesRequired: The number of items to enumerate (between 2 and 4)
-   - correctAnswer: Comma-separated list of items (e.g. "Carbon dioxide, Methane, Water vapor")
+   - correctAnswer: Comma-separated list of items (e.g. "Carbon dioxide, Methane, Water vapor"). Each individual item MUST be concise (under 25 characters)!
 
 5. If Question Type Preference is "Word Box" or "Word Bank":
    - Every question MUST have type: "word_box"

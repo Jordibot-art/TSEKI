@@ -16,6 +16,8 @@ import {
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
+import { generatePrintPackage } from "../lib/printEngine";
+import { sharePdfBytes } from "../lib/printEngine/mobileShare";
 import {
   deleteDraftQuiz,
   deletePublishedQuiz,
@@ -313,13 +315,43 @@ export default function SettingsScreen() {
     setExportModalVisible(false);
     setExportingPdf(true);
     try {
-      await exportPaperSheet({
-        assessment: quiz,
+      const printPkg = await generatePrintPackage(quiz, {
         classTitle: quiz.classTitle || "Classroom Assessment",
         subject: quiz.subject || "General Subject",
-        includeAnswerKey: includeKey,
+        gradeLevel: quiz.gradeLevel,
         paperSize,
       });
+
+      const cleanTitle = (quiz.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
+
+      if (includeKey) {
+        await sharePdfBytes(
+          printPkg.pdfs.answerKeyPdf,
+          `${cleanTitle}_AnswerKey.pdf`,
+          `Export Teacher Answer Key (${cleanTitle})`
+        );
+      } else if (printPkg.mode === "ALL_IN_ONE") {
+        await sharePdfBytes(
+          printPkg.pdfs.studentPdf,
+          `${cleanTitle}_TestPaper.pdf`,
+          `Export Scannable Test Paper (${cleanTitle})`
+        );
+      } else {
+        if (printPkg.pdfs.answerSheetPdf) {
+          await sharePdfBytes(
+            printPkg.pdfs.answerSheetPdf,
+            `${cleanTitle}_AnswerSheet.pdf`,
+            `Export Scannable Answer Sheet (${cleanTitle})`
+          );
+        }
+        if (printPkg.pdfs.studentPdf) {
+          await sharePdfBytes(
+            printPkg.pdfs.studentPdf,
+            `${cleanTitle}_QuestionBooklet.pdf`,
+            `Export Question Booklet (${cleanTitle})`
+          );
+        }
+      }
     } catch (err: any) {
       Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
     } finally {

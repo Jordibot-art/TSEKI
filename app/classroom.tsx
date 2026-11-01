@@ -52,7 +52,7 @@ import {
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
 import { generateStudentAdvice } from "../lib/pedagogicalAdvice";
-import { getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
+import { getAllStudentQuizResults, getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Student = {
@@ -880,6 +880,7 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
+      const results = id ? await getAllStudentQuizResults(id) : [];
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -887,10 +888,12 @@ export default function ClassroomScreen() {
         room: classroomRoom,
         schedule: classroomSchedule,
         students,
+        quizzes: publishedQuizzes,
+        quizResults: results,
       });
 
       const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_classlist.xlsx`;
+      const fileName = `${cleanTitle}_scores.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
       await saveDirectlyToPhone({
@@ -915,17 +918,55 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
-      const header = "Item,Name,Email,Attendance (%),Average Grade (%)\n";
+      const results = id ? await getAllStudentQuizResults(id) : [];
+      const quizTitles = Array.from(
+        new Set([
+          ...publishedQuizzes.map((q) => q.quizTitle.trim()),
+          ...results.map((r) => r.quizTitle.trim()),
+        ])
+      );
+
+      let header = "Item,Student's Name";
+      if (quizTitles.length > 0) {
+        header += "," + quizTitles.map((t) => `"${t}"`).join(",") + ",Total Score\n";
+      } else {
+        header += ",Score\n";
+      }
+
+      const scoreMap = new Map<string, number>();
+      for (const res of results) {
+        const qTitle = res.quizTitle ? res.quizTitle.trim() : "";
+        if (res.studentId) scoreMap.set(`${res.studentId}:::${qTitle}`, res.totalScore);
+        if (res.studentName) scoreMap.set(`${res.studentName.trim().toLowerCase()}:::${qTitle}`, res.totalScore);
+      }
+
       const rows = students
-        .map(
-          (s, idx) =>
-            `${idx + 1},"${s.full_name}","${s.email || "N/A"}",${s.attendance ?? 100},${s.average ?? 0}`
-        )
+        .map((s, idx) => {
+          let row = `${idx + 1},"${s.full_name}"`;
+          if (quizTitles.length > 0) {
+            let total = 0;
+            let hasAny = false;
+            for (const qt of quizTitles) {
+              const sc = (s.id && scoreMap.get(`${s.id}:::${qt}`)) ?? scoreMap.get(`${s.full_name.trim().toLowerCase()}:::${qt}`);
+              if (sc !== undefined) {
+                row += `,${sc}`;
+                total += sc;
+                hasAny = true;
+              } else {
+                row += ",-";
+              }
+            }
+            row += `,${hasAny ? total : "-"}`;
+          } else {
+            row += ",-";
+          }
+          return row;
+        })
         .join("\n");
 
       const csvContent = header + rows;
       const cleanTitle = (title || "classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_roster.csv`;
+      const fileName = `${cleanTitle}_scores.csv`;
       const mimeType = "text/csv";
 
       const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
@@ -959,9 +1000,10 @@ export default function ClassroomScreen() {
     try {
       setIsExporting(true);
       const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_classlist.xlsx`;
+      const fileName = `${cleanTitle}_scores.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+      const results = id ? await getAllStudentQuizResults(id) : [];
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -969,6 +1011,8 @@ export default function ClassroomScreen() {
         room: classroomRoom,
         schedule: classroomSchedule,
         students,
+        quizzes: publishedQuizzes,
+        quizResults: results,
       });
 
       const fileUri = `${FileSystem.cacheDirectory}${fileName}`;

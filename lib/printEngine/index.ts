@@ -1,5 +1,3 @@
-// lib/printEngine/index.ts
-
 import { decideFit } from './fitDecision';
 import { renderBookletPDF } from './bookletRenderer';
 import { renderAnswerSheetPDF } from './answerSheetRenderer';
@@ -17,6 +15,24 @@ export * from './qrStamp';
 export * from './bookletRenderer';
 export * from './answerSheetRenderer';
 export * from './allInOneRenderer';
+export * from './answerKeyRenderer';
+export * from './layoutJson';
+
+/**
+ * Encodes a Uint8Array to a base64 string safely across mobile, web, and node runtimes.
+ */
+export function uint8ArrayToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const len = bytes.byteLength;
+    const chunkSize = 8192;
+    for (let i = 0; i < len; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+        for (let j = 0; j < chunk.length; j++) {
+            binary += String.fromCharCode(chunk[j]);
+        }
+    }
+    return typeof btoa !== 'undefined' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
+}
 
 /**
  * Main public entry point for the printable paper layout engine.

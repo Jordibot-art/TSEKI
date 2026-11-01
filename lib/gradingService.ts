@@ -29,7 +29,8 @@ export interface GradingResponse {
 export async function gradeStudentTest(
     imageBase64: string,
     answerKey: any,
-    mimeType: "image/jpeg" | "image/png" = "image/jpeg"
+    mimeType: "image/jpeg" | "image/png" = "image/jpeg",
+    layoutJson?: any
 ): Promise<GradingResponse> {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
     if (!apiKey) {
@@ -48,9 +49,25 @@ export async function gradeStudentTest(
         0
     ) || keyArray.length;
 
+    let layoutPromptSection = "";
+    if (layoutJson && layoutJson.pages) {
+        const lines: string[] = [
+            `\nOPTICAL BOUNDING BOX COORDINATE MAP (Page Size: ${layoutJson.pageSize?.width || 612}x${layoutJson.pageSize?.height || 792} pt):`,
+            "Locate and read handwritten answers inside these exact physical boxes on the test paper:",
+        ];
+        for (const page of layoutJson.pages) {
+            for (const item of page.items || []) {
+                const b = item.box || {};
+                const label = item.subIndex !== undefined ? `Item ${item.questionNumber}.${item.subIndex}` : `Item ${item.questionNumber}`;
+                lines.push(`- ${label}: [x=${Math.round(b.x || 0)}, y=${Math.round(b.y || 0)}, w=${Math.round(b.width || 0)}, h=${Math.round(b.height || 0)}]`);
+            }
+        }
+        layoutPromptSection = lines.join("\n") + "\n";
+    }
+
     const systemInstruction = `You are an expert automated grading assistant. Your task is to analyze the provided image of a student's completed test paper and grade it against this official Answer Key:
 ${JSON.stringify(keyArray, null, 2)}
-
+${layoutPromptSection}
 INSTRUCTIONS:
 1. Extract the student's name from the top "Name:" line (field: "studentName").
 2. Read the student's handwritten answers located inside the black answer boxes on the paper.

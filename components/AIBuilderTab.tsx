@@ -16,6 +16,8 @@ import {
     View,
 } from "react-native";
 import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
+import { generatePrintPackage, validateAnswerLengths, generateAnswerVariants } from "../lib/printEngine";
+import { sharePdfBytes } from "../lib/printEngine/mobileShare";
 import {
     detectDocType,
     getDocBadgeInfo,
@@ -218,6 +220,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [showResults, setShowResults] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
     const [exportingPdf, setExportingPdf] = useState(false);
+    const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
+    const [forceSeparateMode, setForceSeparateMode] = useState(false);
     const [savingDraft, setSavingDraft] = useState(false);
     const [publishingQuiz, setPublishingQuiz] = useState(false);
 
@@ -466,13 +470,45 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         if (!generatedAssessment) return;
         setExportingPdf(true);
         try {
-            await exportPaperSheet({
-                assessment: generatedAssessment,
+            const printPkg = await generatePrintPackage(generatedAssessment, {
                 classTitle,
                 subject,
-                includeAnswerKey: includeKey,
                 paperSize,
+                gradeLevel,
+                version: exportVersion,
+                forceSeparate: forceSeparateMode,
             });
+
+            const cleanTitle = (generatedAssessment.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
+
+            if (includeKey) {
+                await sharePdfBytes(
+                    printPkg.pdfs.answerKeyPdf,
+                    `${cleanTitle}_AnswerKey_v${exportVersion}.pdf`,
+                    `Export Teacher Answer Key (${cleanTitle})`
+                );
+            } else if (printPkg.mode === "ALL_IN_ONE") {
+                await sharePdfBytes(
+                    printPkg.pdfs.studentPdf,
+                    `${cleanTitle}_TestPaper_v${exportVersion}.pdf`,
+                    `Export Scannable Test Paper (${cleanTitle})`
+                );
+            } else {
+                if (printPkg.pdfs.answerSheetPdf) {
+                    await sharePdfBytes(
+                        printPkg.pdfs.answerSheetPdf,
+                        `${cleanTitle}_AnswerSheet_v${exportVersion}.pdf`,
+                        `Export Scannable Answer Sheet (${cleanTitle})`
+                    );
+                }
+                if (printPkg.pdfs.studentPdf) {
+                    await sharePdfBytes(
+                        printPkg.pdfs.studentPdf,
+                        `${cleanTitle}_QuestionBooklet_v${exportVersion}.pdf`,
+                        `Export Question Booklet (${cleanTitle})`
+                    );
+                }
+            }
         } catch (err: any) {
             Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
         } finally {
@@ -482,19 +518,45 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     async function handlePublishQuiz() {
         if (!generatedAssessment || publishingQuiz) return;
+
+        // Check for physical answer box length overflow
+        const flagged = validateAnswerLengths(generatedAssessment);
+        if (flagged.length > 0) {
+            const sampleMsg = flagged.slice(0, 2).map((f) => `• Item ${f.questionNumber}: "${f.answer.slice(0, 20)}..." (${f.charCount} chars)`).join("\n");
+            const proceed = await new Promise<boolean>((resolve) => {
+                Alert.alert(
+                    "Long Answers Detected",
+                    `Some answers exceed the ~25 character physical box limit:\n\n${sampleMsg}\n\nDo you want to publish anyway?`,
+                    [
+                        { text: "Edit Answers", style: "cancel", onPress: () => resolve(false) },
+                        { text: "Publish Anyway", onPress: () => resolve(true) },
+                    ]
+                );
+            });
+            if (!proceed) return;
+        }
+
         setPublishingQuiz(true);
         try {
+            const printPkg = await generatePrintPackage(generatedAssessment, {
+                classTitle,
+                subject,
+                gradeLevel,
+            });
+
             const quizWithMeta = {
                 ...generatedAssessment,
                 subject,
                 difficulty,
                 questionType,
                 gradeLevel,
+                layoutJson: printPkg.layoutJson,
+                answerVariants: generateAnswerVariants(generatedAssessment),
             };
             await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
             Alert.alert(
                 "Quiz Published!",
-                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your cloud database archive. It is ready for camera grading in the Grader tab and synced across all your devices!`,
+                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your cloud database archive.\n\nPrint Engine Layout: ${printPkg.fitMessage}.\n\nIt is ready for camera grading in the Grader tab!`,
                 [
                     {
                         text: "Go to Grader to Scan",
@@ -1102,6 +1164,64 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 Download, print, or share the physical test sheet formatted with scannable answer boxes.
                             </Text>
                         </View>
+
+                        {/* Version selector */}
+                        <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 12, fontWeight: "600", color: "#4B5563", marginBottom: 6 }}>
+                                Paper Version:
+                            </Text>
+                            <View style={{ flexDirection: "row", gap: 8 }}>
+                                {(["A", "B", "C"] as const).map((v) => (
+                                    <TouchableOpacity
+                                        key={v}
+                                        style={{
+                                            flex: 1,
+                                            paddingVertical: 7,
+                                            borderRadius: 8,
+                                            borderWidth: 1,
+                                            borderColor: exportVersion === v ? (accentColor || "#2563EB") : "#D1D5DB",
+                                            backgroundColor: exportVersion === v ? (accentColor || "#2563EB") + "15" : "#F9FAFB",
+                                            alignItems: "center",
+                                        }}
+                                        onPress={() => setExportVersion(v)}
+                                    >
+                                        <Text style={{ fontSize: 13, fontWeight: exportVersion === v ? "700" : "500", color: exportVersion === v ? (accentColor || "#2563EB") : "#374151" }}>
+                                            Version {v}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
+                        {/* Force separate toggle */}
+                        <TouchableOpacity
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 8,
+                                backgroundColor: forceSeparateMode ? (accentColor || "#2563EB") + "15" : "#F3F4F6",
+                                marginBottom: 12,
+                            }}
+                            onPress={() => setForceSeparateMode(!forceSeparateMode)}
+                            activeOpacity={0.7}
+                        >
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                                <Text style={{ fontSize: 12.5, fontWeight: "600", color: "#1F2937" }}>
+                                    Separate Booklet & Answer Sheet
+                                </Text>
+                                <Text style={{ fontSize: 10.5, color: "#6B7280" }}>
+                                    Print reusable question booklet + 1-page answer sheet
+                                </Text>
+                            </View>
+                            <Ionicons
+                                name={forceSeparateMode ? "checkbox" : "square-outline"}
+                                size={20}
+                                color={forceSeparateMode ? (accentColor || "#2563EB") : "#9CA3AF"}
+                            />
+                        </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.exportOptionBtn}
