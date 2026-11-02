@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import * as XLSX from "xlsx";
 import {
   ArrowLeft,
   Users,
@@ -18,6 +19,10 @@ import {
   FileText,
   Clock,
   BarChart3,
+  Download,
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import styles from "./ClassroomDetailPage.module.css";
 
@@ -63,6 +68,15 @@ export default function ClassroomDetailPage() {
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+
+  // Excel import/export state
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkImportPreview, setBulkImportPreview] = useState<{ name: string; email: string }[]>([]);
+  const [bulkImportFileName, setBulkImportFileName] = useState("");
+  const [bulkImportResult, setBulkImportResult] = useState<{ success: number; failed: number } | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user && id) loadData();
@@ -142,6 +156,172 @@ export default function ClassroomDetailPage() {
     await supabase.from("students").delete().eq("id", studentId);
     await loadData();
     setSelectedStudent(null);
+  }
+
+  /* ── Excel Export ── */
+  function exportToExcel() {
+    setExporting(true);
+    try {
+      // Sheet 1: Student Roster with Scores
+      const rosterData = [
+        ["#", "Student Name", "Email", "Average Score (%)", "Status"],
+        ...students.map((s, i) => [
+          i + 1,
+          s.full_name,
+          s.email || "",
+          s.average > 0 ? Number(s.average.toFixed(1)) : 0,
+          s.average > 50 ? "On Track" : s.average > 0 ? "At Risk" : "No Data",
+        ]),
+      ];
+      const rosterSheet = XLSX.utils.aoa_to_sheet(rosterData);
+      // Set column widths
+      rosterSheet["!cols"] = [
+        { wch: 5 }, { wch: 30 }, { wch: 28 }, { wch: 18 }, { wch: 12 },
+      ];
+
+      // Sheet 2: Class Analytics Summary
+      const passCount = students.filter((s) => s.average >= 50).length;
+      const failCount = students.filter((s) => s.average > 0 && s.average < 50).length;
+      const noDataCount = students.filter((s) => s.average === 0).length;
+      const highest = students.length ? Math.max(...students.map((s) => s.average)) : 0;
+      const lowest = students.length
+        ? Math.min(...students.filter((s) => s.average > 0).map((s) => s.average))
+        : 0;
+
+      const analyticsData = [
+        ["Class Analytics — " + (classroom?.title || "")],
+        [],
+        ["Metric", "Value"],
+        ["Total Students", students.length],
+        ["Class Average", classAverage > 0 ? Number(classAverage.toFixed(1)) + "%" : "—"],
+        ["Highest Score", highest > 0 ? highest.toFixed(1) + "%" : "—"],
+        ["Lowest Score", lowest > 0 ? lowest.toFixed(1) + "%" : "—"],
+        ["On Track (≥50%)", passCount],
+        ["At Risk (<50%)", failCount],
+        ["No Data", noDataCount],
+        [],
+        ["Total Assessments", quizzes.length],
+      ];
+      const analyticsSheet = XLSX.utils.aoa_to_sheet(analyticsData);
+      analyticsSheet["!cols"] = [{ wch: 20 }, { wch: 18 }];
+
+      // Sheet 3: Assessment List
+      const assessmentData = [
+        ["Assessment Title", "Subject", "Status", "Questions", "Date Created"],
+        ...quizzes.map((q) => [
+          q.quiz_title,
+          q.subject || "General",
+          q.status,
+          q.questions?.length || 0,
+          new Date(q.created_at).toLocaleDateString(),
+        ]),
+      ];
+      const assessmentSheet = XLSX.utils.aoa_to_sheet(assessmentData);
+      assessmentSheet["!cols"] = [
+        { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, rosterSheet, "Student Scores");
+      XLSX.utils.book_append_sheet(wb, analyticsSheet, "Class Analytics");
+      XLSX.utils.book_append_sheet(wb, assessmentSheet, "Assessments");
+
+      const cleanTitle = (classroom?.title || "classroom").trim().replace(/[^a-zA-Z0-9_\-\s]/g, "").replace(/\s+/g, "_");
+      const fileName = `${cleanTitle}_report.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    } catch (err) {
+      console.error("Export error", err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /* ── Excel Bulk Import ── */
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkImportFileName(file.name);
+    setBulkImportResult(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        const preview: { name: string; email: string }[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          const name = String(row[0] || "").trim();
+          const email = String(row[1] || "").trim();
+          if (name) {
+            preview.push({ name, email });
+          }
+        }
+        setBulkImportPreview(preview);
+      } catch (err) {
+        console.error("Parse error", err);
+        setBulkImportPreview([]);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    // Reset the input so the same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleBulkImport() {
+    if (bulkImportPreview.length === 0) return;
+    setBulkImporting(true);
+    let success = 0;
+    let failed = 0;
+
+    try {
+      const inserts = bulkImportPreview.map((s) => ({
+        classroom_id: id,
+        full_name: s.name,
+        email: s.email || null,
+        average: 0,
+      }));
+
+      const { error } = await supabase.from("students").insert(inserts);
+      if (error) {
+        console.error("Bulk insert error", error);
+        failed = inserts.length;
+      } else {
+        success = inserts.length;
+      }
+
+      setBulkImportResult({ success, failed });
+      if (success > 0) await loadData();
+    } catch (err) {
+      console.error(err);
+      failed = bulkImportPreview.length;
+      setBulkImportResult({ success, failed });
+    } finally {
+      setBulkImporting(false);
+    }
+  }
+
+  function closeBulkImportModal() {
+    setShowBulkImportModal(false);
+    setBulkImportPreview([]);
+    setBulkImportFileName("");
+    setBulkImportResult(null);
+  }
+
+  function downloadTemplate() {
+    const templateData = [
+      ["Full Name", "Email (optional)"],
+      ["Juan Dela Cruz", "juan@email.com"],
+      ["Maria Santos", "maria@email.com"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
+    ws["!cols"] = [{ wch: 28 }, { wch: 28 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Students");
+    XLSX.writeFile(wb, "student_import_template.xlsx");
   }
 
   function getInitials(name: string) {
@@ -278,10 +458,29 @@ export default function ClassroomDetailPage() {
                 className={styles.searchInput}
               />
             </div>
-            <button className={styles.addBtn} onClick={() => setShowAddModal(true)}>
-              <Plus size={16} />
-              Add Student
-            </button>
+            <div className={styles.headerActions}>
+              <button
+                className={styles.excelBtn}
+                onClick={exportToExcel}
+                disabled={exporting || students.length === 0}
+                title="Export student scores & analytics to Excel"
+              >
+                <Download size={15} />
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+              <button
+                className={styles.excelBtnImport}
+                onClick={() => setShowBulkImportModal(true)}
+                title="Bulk import students from Excel"
+              >
+                <UploadCloud size={15} />
+                Import
+              </button>
+              <button className={styles.addBtn} onClick={() => setShowAddModal(true)}>
+                <Plus size={16} />
+                Add Student
+              </button>
+            </div>
           </div>
 
           {filteredStudents.length === 0 ? (
@@ -515,6 +714,113 @@ export default function ClassroomDetailPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Bulk Import Modal */}
+      {showBulkImportModal && createPortal(
+        <div className={styles.modalOverlay} onClick={closeBulkImportModal}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className={styles.modalHeader}>
+              <h2>Bulk Import Students</h2>
+              <button className={styles.modalClose} onClick={closeBulkImportModal}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              {/* Upload area */}
+              {bulkImportPreview.length === 0 && !bulkImportResult && (
+                <>
+                  <div className={styles.uploadZone}>
+                    <UploadCloud size={36} strokeWidth={1.4} />
+                    <p className={styles.uploadText}>
+                      Drop an Excel file or <strong>click to browse</strong>
+                    </p>
+                    <p className={styles.uploadHint}>
+                      File should have columns: <strong>Full Name</strong>, <strong>Email</strong> (optional)
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleFileSelect}
+                      className={styles.uploadInput}
+                    />
+                  </div>
+                  <button className={styles.templateBtn} onClick={downloadTemplate}>
+                    <Download size={14} />
+                    Download Template
+                  </button>
+                </>
+              )}
+
+              {/* Preview */}
+              {bulkImportPreview.length > 0 && !bulkImportResult && (
+                <>
+                  <div className={styles.importFileInfo}>
+                    <FileText size={16} />
+                    <span>{bulkImportFileName}</span>
+                    <span className={styles.importCount}>{bulkImportPreview.length} students found</span>
+                  </div>
+                  <div className={styles.importPreviewList}>
+                    {bulkImportPreview.slice(0, 10).map((s, i) => (
+                      <div key={i} className={styles.importPreviewRow}>
+                        <span className={styles.importPreviewName}>{s.name}</span>
+                        <span className={styles.importPreviewEmail}>{s.email || "—"}</span>
+                      </div>
+                    ))}
+                    {bulkImportPreview.length > 10 && (
+                      <p className={styles.importPreviewMore}>
+                        …and {bulkImportPreview.length - 10} more students
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Result */}
+              {bulkImportResult && (
+                <div className={styles.importResult}>
+                  {bulkImportResult.success > 0 ? (
+                    <>
+                      <CheckCircle2 size={40} className={styles.importResultSuccess} />
+                      <h3>{bulkImportResult.success} students imported successfully!</h3>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle size={40} className={styles.importResultError} />
+                      <h3>Import failed</h3>
+                      <p>{bulkImportResult.failed} students could not be imported.</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              {bulkImportResult ? (
+                <button className={styles.saveBtn} onClick={closeBulkImportModal}>
+                  Done
+                </button>
+              ) : (
+                <>
+                  <button className={styles.cancelBtn} onClick={closeBulkImportModal}>
+                    Cancel
+                  </button>
+                  {bulkImportPreview.length > 0 && (
+                    <button
+                      className={styles.saveBtn}
+                      onClick={handleBulkImport}
+                      disabled={bulkImporting}
+                    >
+                      {bulkImporting ? <Loader2 size={16} className={styles.spinner} /> : null}
+                      Import {bulkImportPreview.length} Students
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>,

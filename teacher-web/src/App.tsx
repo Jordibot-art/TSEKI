@@ -9,6 +9,7 @@ import ClassroomDetailPage from "./pages/ClassroomDetailPage";
 import AssessmentsPage from "./pages/AssessmentsPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ExcelPage from "./pages/ExcelPage";
+import SettingsPage from "./pages/SettingsPage";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {

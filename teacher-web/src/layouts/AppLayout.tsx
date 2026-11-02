@@ -15,7 +15,6 @@ import {
   Moon,
   CheckCircle2,
   ChevronLeft,
-  Download,
 } from "lucide-react";
 import styles from "./AppLayout.module.css";
 
@@ -24,7 +23,6 @@ const NAV_ITEMS = [
   { to: "/classrooms", label: "Classrooms", icon: GraduationCap },
   { to: "/assessments", label: "Assessments", icon: FileText },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/excel", label: "Excel", icon: Download },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

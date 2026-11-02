@@ -12,11 +12,6 @@ type StudentRecord = {
   average: number;
 };
 
-type Assessment = {
-  id: string;
-  quiz_title: string;
-};
-
 export default function ExcelPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -52,14 +47,7 @@ export default function ExcelPage() {
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Student Scores");
-    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([wbout], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "student_scores.xlsx";
-    a.click();
-    URL.revokeObjectURL(url);
+    XLSX.writeFile(wb, "student_scores.xlsx");
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
