@@ -38,13 +38,20 @@ import {
   StoredQuiz,
   updatePublishedQuiz,
 } from "../lib/quizStore";
+import {
+  BackupAIConfig,
+  DEFAULT_GROQ_MODELS,
+  DEFAULT_OLLAMA_MODELS,
+  DEFAULT_OPENROUTER_MODELS,
+  getAIConfig,
+  saveAIConfig,
+} from "../lib/ai/aiConfigService";
+import { testBackupConnection } from "../lib/ai/openAICompatibleClient";
 import { supabase } from "../supabase";
 
 // ── Theme Constants ───────────────────────────────────────────────────────────
 const ORANGE = "#FF6B00";
 const ORANGE_LIGHT = "#FFF7ED";
-const ORANGE_BORDER = "#FFEDD5";
-const TEXT_DARK = "#181920";
 
 
 function getInitials(name: string) {
@@ -137,11 +144,26 @@ export default function SettingsScreen() {
   const [quizToShuffle, setQuizToShuffle] = useState<StoredQuiz | null>(null);
   const [shuffleMode, setShuffleMode] = useState<"IN_PLACE" | "DUPLICATE">("IN_PLACE");
   const [newQuizTitle, setNewQuizTitle] = useState("");
-  const [targetClassroomId, setTargetClassroomId] = useState("");
-  const [classroomsList, setClassroomsList] = useState<Array<{ id: string; title: string; section?: string }>>([]);
+  const [classroomsList, setClassroomsList] = useState<{ id: string; title: string; section?: string }[]>([]);
   const [isShuffling, setIsShuffling] = useState(false);
 
-  // ── Load user ──────────────────────────────────────────────────────────────
+  // ── AI Engine & Backup Provider State ──────────────────────────────────────
+  const [aiConfig, setAiConfig] = useState<BackupAIConfig | null>(null);
+  const [aiModalVisible, setAiModalVisible] = useState(false);
+  const [aiProviderDraft, setAiProviderDraft] = useState<"openrouter" | "ollama" | "groq">("openrouter");
+  const [aiEnabledDraft, setAiEnabledDraft] = useState(true);
+  const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState("");
+  const [openRouterModelDraft, setOpenRouterModelDraft] = useState(DEFAULT_OPENROUTER_MODELS[0]);
+  const [ollamaUrlDraft, setOllamaUrlDraft] = useState("http://localhost:11434");
+  const [ollamaModelDraft, setOllamaModelDraft] = useState(DEFAULT_OLLAMA_MODELS[0]);
+  const [groqKeyDraft, setGroqKeyDraft] = useState("");
+  const [groqModelDraft, setGroqModelDraft] = useState(DEFAULT_GROQ_MODELS[0]);
+  const [showAiKey, setShowAiKey] = useState(false);
+  const [testingAi, setTestingAi] = useState(false);
+  const [testAiResult, setTestAiResult] = useState<{ success: boolean; message: string; latencyMs: number } | null>(null);
+  const [savingAi, setSavingAi] = useState(false);
+
+  // ── Load user & AI config ──────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -152,6 +174,12 @@ export default function SettingsScreen() {
         setInitials(name ? getInitials(name) : (user.email?.[0] ?? "T").toUpperCase());
       }
       setLoadingUser(false);
+      try {
+        const cfg = await getAIConfig();
+        setAiConfig(cfg);
+      } catch (err) {
+        console.warn("Failed to load AI config in settings:", err);
+      }
     })();
   }, []);
 
@@ -513,6 +541,73 @@ export default function SettingsScreen() {
     }
   }
 
+  // ── AI Backup handlers ─────────────────────────────────────────────────────
+  function handleOpenAiModal() {
+    if (aiConfig) {
+      setAiProviderDraft(aiConfig.provider);
+      setAiEnabledDraft(aiConfig.enabled);
+      setOpenRouterKeyDraft(aiConfig.openRouterKey || "");
+      setOpenRouterModelDraft(aiConfig.openRouterModel || DEFAULT_OPENROUTER_MODELS[0]);
+      setOllamaUrlDraft(aiConfig.ollamaBaseUrl || "http://localhost:11434");
+      setOllamaModelDraft(aiConfig.ollamaModel || DEFAULT_OLLAMA_MODELS[0]);
+      setGroqKeyDraft(aiConfig.groqKey || "");
+      setGroqModelDraft(aiConfig.groqModel || DEFAULT_GROQ_MODELS[0]);
+    }
+    setTestAiResult(null);
+    setAiModalVisible(true);
+  }
+
+  async function handleSaveAiConfig() {
+    setSavingAi(true);
+    try {
+      const updated: BackupAIConfig = {
+        enabled: aiEnabledDraft,
+        provider: aiProviderDraft,
+        openRouterKey: openRouterKeyDraft.trim(),
+        openRouterModel: openRouterModelDraft.trim() || DEFAULT_OPENROUTER_MODELS[0],
+        ollamaBaseUrl: ollamaUrlDraft.trim() || "http://localhost:11434",
+        ollamaModel: ollamaModelDraft.trim() || DEFAULT_OLLAMA_MODELS[0],
+        groqKey: groqKeyDraft.trim(),
+        groqModel: groqModelDraft.trim() || DEFAULT_GROQ_MODELS[0],
+      };
+      await saveAIConfig(updated);
+      setAiConfig(updated);
+      setAiModalVisible(false);
+      Alert.alert("Settings Saved", `Backup AI provider configured: ${updated.provider.toUpperCase()} (${updated.enabled ? "Active" : "Disabled"})`);
+    } catch (err: any) {
+      Alert.alert("Save Error", err.message || "Failed to update AI settings.");
+    } finally {
+      setSavingAi(false);
+    }
+  }
+
+  async function handleTestAi() {
+    setTestingAi(true);
+    setTestAiResult(null);
+    try {
+      const draftConfig: BackupAIConfig = {
+        enabled: aiEnabledDraft,
+        provider: aiProviderDraft,
+        openRouterKey: openRouterKeyDraft.trim(),
+        openRouterModel: openRouterModelDraft.trim() || DEFAULT_OPENROUTER_MODELS[0],
+        ollamaBaseUrl: ollamaUrlDraft.trim() || "http://localhost:11434",
+        ollamaModel: ollamaModelDraft.trim() || DEFAULT_OLLAMA_MODELS[0],
+        groqKey: groqKeyDraft.trim(),
+        groqModel: groqModelDraft.trim() || DEFAULT_GROQ_MODELS[0],
+      };
+      const res = await testBackupConnection(draftConfig);
+      setTestAiResult(res);
+    } catch (err: any) {
+      setTestAiResult({
+        success: false,
+        message: err.message || "Test connection failed.",
+        latencyMs: 0,
+      });
+    } finally {
+      setTestingAi(false);
+    }
+  }
+
   // ── Dynamic colors ─────────────────────────────────────────────────────────
   const bg = darkMode ? "#111827" : "#F9FAFB";
   const card = darkMode ? "#1F2937" : "#FFFFFF";
@@ -669,6 +764,63 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── AI Engine & Backup Provider ── */}
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>AI ENGINE & BACKUP PROVIDER</Text>
+        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+          {/* Primary Gemini Row */}
+          <View style={styles.rowBase}>
+            <View style={[styles.iconWrap, { backgroundColor: "#8B5CF622" }]}>
+              <Ionicons name="sparkles-outline" size={20} color="#8B5CF6" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: textMain }]}>Primary: Google Gemini</Text>
+              <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
+                gemini-3.5-flash-lite · gemini-3.6-flash
+              </Text>
+            </View>
+            <View style={[styles.quickBadge, { backgroundColor: "#10B98122" }]}>
+              <Text style={[styles.quickBadgeText, { color: "#10B981" }]}>ACTIVE</Text>
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: border }]} />
+
+          {/* Backup Provider Row */}
+          <TouchableOpacity
+            style={styles.rowBase}
+            activeOpacity={0.7}
+            onPress={handleOpenAiModal}
+          >
+            <View style={[styles.iconWrap, { backgroundColor: "#F59E0B22" }]}>
+              <Ionicons name="shield-checkmark-outline" size={20} color="#F59E0B" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: textMain }]}>
+                Backup: {aiConfig?.provider === "openrouter" ? "OpenRouter" : aiConfig?.provider === "ollama" ? "Ollama Local" : "Groq"}
+              </Text>
+              <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
+                {!aiConfig?.enabled
+                  ? "Automatic failover disabled"
+                  : aiConfig.provider === "openrouter"
+                  ? (aiConfig.openRouterKey ? "Free Cloud Models (Ready)" : "Tap to add free API key")
+                  : aiConfig.provider === "ollama"
+                  ? (aiConfig.ollamaBaseUrl || "http://localhost:11434")
+                  : (aiConfig.groqKey ? "Groq Cloud (Ready)" : "Tap to add API key")}
+              </Text>
+            </View>
+            <View style={[styles.quickBadge, {
+              backgroundColor: !aiConfig?.enabled ? "#6B728022" : (aiConfig?.provider === "openrouter" && !aiConfig.openRouterKey) ? "#3B82F622" : "#10B98122"
+            }]}>
+              <Text style={[styles.quickBadgeText, {
+                color: !aiConfig?.enabled ? "#6B7280" : (aiConfig?.provider === "openrouter" && !aiConfig.openRouterKey) ? "#3B82F6" : "#10B981"
+              }]}>
+                {!aiConfig?.enabled ? "OFF" : (aiConfig?.provider === "openrouter" && !aiConfig.openRouterKey) ? "SETUP" : "READY"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={textSub} />
+          </TouchableOpacity>
+        </View>
+
         {/* ── Print Engine Diagnostics ── */}
         <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>PRINT ENGINE DIAGNOSTICS</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
@@ -737,6 +889,284 @@ export default function SettingsScreen() {
                 {savingName
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
                   : <Text style={styles.saveBtnText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Backup AI Configuration Modal ── */}
+      <Modal visible={aiModalVisible} transparent animationType="slide" onRequestClose={() => setAiModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: card, maxHeight: "90%" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={[styles.iconWrap, { backgroundColor: "#F59E0B22", width: 34, height: 34, borderRadius: 8 }]}>
+                  <Ionicons name="shield-checkmark" size={18} color="#F59E0B" />
+                </View>
+                <Text style={[styles.modalTitle, { color: textMain, marginBottom: 0 }]}>Backup AI Provider</Text>
+              </View>
+              <TouchableOpacity onPress={() => setAiModalVisible(false)}>
+                <Ionicons name="close" size={22} color={textSub} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Failover Switch */}
+              <View style={[styles.aiSwitchRow, { borderColor: border }]}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: textMain }}>Automatic Failover</Text>
+                  <Text style={{ fontSize: 11, color: textSub, marginTop: 2 }}>
+                    Seamlessly switches if Google Gemini hits 429 quota limits or 503 high-demand busy errors
+                  </Text>
+                </View>
+                <Switch
+                  value={aiEnabledDraft}
+                  onValueChange={setAiEnabledDraft}
+                  trackColor={{ false: "#D1D5DB", true: themeColor }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+
+              {/* Provider Selector Tabs */}
+              <Text style={[styles.fieldLabel, { color: textSub, marginTop: 14 }]}>BACKUP PROVIDER</Text>
+              <View style={styles.aiProviderTabsRow}>
+                {(["openrouter", "ollama", "groq"] as const).map((prov) => {
+                  const isSelected = aiProviderDraft === prov;
+                  const label = prov === "openrouter" ? "OpenRouter" : prov === "ollama" ? "Ollama" : "Groq";
+                  const sub = prov === "openrouter" ? "Free Cloud" : prov === "ollama" ? "Local / LAN" : "Fast Cloud";
+                  return (
+                    <TouchableOpacity
+                      key={prov}
+                      style={[
+                        styles.aiProviderTab,
+                        {
+                          borderColor: isSelected ? themeColor : border,
+                          backgroundColor: isSelected ? themeColor + "14" : card,
+                        },
+                      ]}
+                      onPress={() => {
+                        setAiProviderDraft(prov);
+                        setTestAiResult(null);
+                      }}
+                    >
+                      <Text style={[styles.aiProviderTabTitle, { color: isSelected ? themeColor : textMain }]}>{label}</Text>
+                      <Text style={[styles.aiProviderTabSub, { color: isSelected ? themeColor : textSub }]}>{sub}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* OpenRouter Fields */}
+              {aiProviderDraft === "openrouter" && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>OPENROUTER API KEY</Text>
+                  <View style={[styles.pwRow, { backgroundColor: inputBg, borderColor: border }]}>
+                    <TextInput
+                      style={[styles.pwInput, { color: inputText }]}
+                      placeholder="sk-or-v1-..."
+                      placeholderTextColor={textSub}
+                      secureTextEntry={!showAiKey}
+                      value={openRouterKeyDraft}
+                      onChangeText={setOpenRouterKeyDraft}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <TouchableOpacity onPress={() => setShowAiKey(!showAiKey)}>
+                      <Ionicons name={showAiKey ? "eye-off-outline" : "eye-outline"} size={18} color={textSub} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ fontSize: 11, color: "#10B981", marginTop: 4 }}>
+                    {"Tip: Get a permanently free API key at openrouter.ai (no credit card required)"}
+                  </Text>
+
+                  <Text style={[styles.fieldLabel, { color: textSub, marginTop: 12 }]}>MODEL (FREE TIER CASCADE)</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
+                    placeholder="meta-llama/llama-3.3-70b-instruct:free"
+                    placeholderTextColor={textSub}
+                    value={openRouterModelDraft}
+                    onChangeText={setOpenRouterModelDraft}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+
+                  {/* Free model quick selector pills */}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {DEFAULT_OPENROUTER_MODELS.map((m) => {
+                      const isCur = openRouterModelDraft === m;
+                      const short = m.split("/")[1] || m;
+                      return (
+                        <TouchableOpacity
+                          key={m}
+                          style={[
+                            styles.aiModelPill,
+                            {
+                              backgroundColor: isCur ? themeColor + "20" : inputBg,
+                              borderColor: isCur ? themeColor : border,
+                            },
+                          ]}
+                          onPress={() => setOpenRouterModelDraft(m)}
+                        >
+                          <Text style={{ fontSize: 10.5, color: isCur ? themeColor : textSub, fontWeight: isCur ? "700" : "500" }}>
+                            {short}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {/* Ollama Fields */}
+              {aiProviderDraft === "ollama" && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>OLLAMA SERVER URL</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
+                    placeholder="http://localhost:11434"
+                    placeholderTextColor={textSub}
+                    value={ollamaUrlDraft}
+                    onChangeText={setOllamaUrlDraft}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <Text style={{ fontSize: 11, color: textSub, marginTop: 4 }}>
+                    {"For Android emulator use http://10.0.2.2:11434, or use your PC's LAN IP (http://192.168.x.x:11434)"}
+                  </Text>
+
+                  <Text style={[styles.fieldLabel, { color: textSub, marginTop: 12 }]}>MODEL NAME</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
+                    placeholder="llama3.2"
+                    placeholderTextColor={textSub}
+                    value={ollamaModelDraft}
+                    onChangeText={setOllamaModelDraft}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {DEFAULT_OLLAMA_MODELS.map((m) => {
+                      const isCur = ollamaModelDraft === m;
+                      return (
+                        <TouchableOpacity
+                          key={m}
+                          style={[
+                            styles.aiModelPill,
+                            {
+                              backgroundColor: isCur ? themeColor + "20" : inputBg,
+                              borderColor: isCur ? themeColor : border,
+                            },
+                          ]}
+                          onPress={() => setOllamaModelDraft(m)}
+                        >
+                          <Text style={{ fontSize: 10.5, color: isCur ? themeColor : textSub, fontWeight: isCur ? "700" : "500" }}>
+                            {m}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {/* Groq Fields */}
+              {aiProviderDraft === "groq" && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>GROQ API KEY</Text>
+                  <View style={[styles.pwRow, { backgroundColor: inputBg, borderColor: border }]}>
+                    <TextInput
+                      style={[styles.pwInput, { color: inputText }]}
+                      placeholder="gsk_..."
+                      placeholderTextColor={textSub}
+                      secureTextEntry={!showAiKey}
+                      value={groqKeyDraft}
+                      onChangeText={setGroqKeyDraft}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <TouchableOpacity onPress={() => setShowAiKey(!showAiKey)}>
+                      <Ionicons name={showAiKey ? "eye-off-outline" : "eye-outline"} size={18} color={textSub} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={[styles.fieldLabel, { color: textSub, marginTop: 12 }]}>MODEL NAME</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
+                    placeholder="llama-3.3-70b-versatile"
+                    placeholderTextColor={textSub}
+                    value={groqModelDraft}
+                    onChangeText={setGroqModelDraft}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              )}
+
+              {/* Test Connection Button & Result */}
+              <View style={{ marginTop: 14 }}>
+                <TouchableOpacity
+                  style={[styles.aiTestBtn, { borderColor: border }]}
+                  onPress={handleTestAi}
+                  disabled={testingAi}
+                >
+                  {testingAi ? (
+                    <ActivityIndicator size="small" color={themeColor} />
+                  ) : (
+                    <Ionicons name="flash-outline" size={16} color={themeColor} />
+                  )}
+                  <Text style={[styles.aiTestBtnText, { color: themeColor }]}>
+                    {testingAi ? "Testing Provider Connection..." : "Test Connection"}
+                  </Text>
+                </TouchableOpacity>
+
+                {testAiResult && (
+                  <View
+                    style={[
+                      styles.aiResultBanner,
+                      {
+                        backgroundColor: testAiResult.success ? "#10B98114" : "#EF444414",
+                        borderColor: testAiResult.success ? "#10B98140" : "#EF444440",
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={testAiResult.success ? "checkmark-circle" : "alert-circle"}
+                      size={18}
+                      color={testAiResult.success ? "#10B981" : "#EF4444"}
+                    />
+                    <Text
+                      style={[
+                        styles.aiResultText,
+                        { color: testAiResult.success ? "#10B981" : "#EF4444" },
+                      ]}
+                    >
+                      {testAiResult.message}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+
+            {/* Actions */}
+            <View style={[styles.modalActions, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { borderColor: border }]}
+                onPress={() => setAiModalVisible(false)}
+              >
+                <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: themeColor }]}
+                onPress={handleSaveAiConfig}
+                disabled={savingAi}
+              >
+                {savingAi ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveBtnText}>Save Configuration</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -896,7 +1326,7 @@ export default function SettingsScreen() {
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Draft Assessments</Text>
                   <Text style={[styles.hubEmptySub, { color: textSub }]}>
-                    Drafts are cached only on this device and automatically delete after 7 days (like Instagram). Generate a quiz in AI Builder and tap "Save as Draft" to store one here.
+                    {'Drafts are cached only on this device and automatically delete after 7 days (like Instagram). Generate a quiz in AI Builder and tap "Save as Draft" to store one here.'}
                   </Text>
                 </View>
               ) : (
@@ -1280,7 +1710,7 @@ export default function SettingsScreen() {
             <View style={styles.exportSheetHeader}>
               <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Physical Paper Sheet</Text>
               <Text style={[styles.exportSheetSub, { color: textSub }]}>
-                Select paper size to export or print single-sheet scannable test papers for "{selectedExportQuiz?.quizTitle}".
+                {`Select paper size to export or print single-sheet scannable test papers for "${selectedExportQuiz?.quizTitle}".`}
               </Text>
             </View>
 
@@ -1294,7 +1724,7 @@ export default function SettingsScreen() {
                 <Ionicons name="document-text" size={22} color={themeColor} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.exportOptionTitle, { color: textMain }]}>Short Bond Paper (8.5" × 11")</Text>
+                <Text style={[styles.exportOptionTitle, { color: textMain }]}>{'Short Bond Paper (8.5" × 11")'}</Text>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
                   Letter size • 2-column scannable format optimized for camera scanning
                 </Text>
@@ -1312,7 +1742,7 @@ export default function SettingsScreen() {
                 <Ionicons name="document-outline" size={22} color="#8B5CF6" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.exportOptionTitle, { color: textMain }]}>Long Bond Paper (8.5" × 13")</Text>
+                <Text style={[styles.exportOptionTitle, { color: textMain }]}>{'Long Bond Paper (8.5" × 13")'}</Text>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
                   Philippine Folio • Extra spacing for DepEd standard exams
                 </Text>
@@ -1451,7 +1881,7 @@ export default function SettingsScreen() {
                     </View>
                   </View>
                   <Text style={[styles.shuffleModeSub, { color: textSub }]}>
-                    Preserves Section 1's test sheet in the archive and generates an independent, randomized copy with its own title and assigned classroom.
+                    {"Preserves Section 1's test sheet in the archive and generates an independent, randomized copy with its own title and assigned classroom."}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -2108,4 +2538,69 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   shuffleSubmitText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  aiSwitchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  aiProviderTabsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 6,
+  },
+  aiProviderTab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: "center",
+  },
+  aiProviderTabTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  aiProviderTabSub: {
+    fontSize: 9.5,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  aiModelPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  aiTestBtn: {
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  aiTestBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  aiResultBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  aiResultText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
 });

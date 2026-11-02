@@ -9,9 +9,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts && npx tsx lib/printEngine/__tests__/runStep1Tests.ts && npx tsx lib/printEngine/__tests__/runStep2Tests.ts && npx tsx lib/printEngine/__tests__/runStep3Tests.ts && npx tsx lib/printEngine/__tests__/targetExportTest.ts && npx tsx lib/printEngine/__tests__/fontSymbolsTest.ts && npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
+    "test": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts && npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts && npx tsx lib/printEngine/__tests__/runStep1Tests.ts && npx tsx lib/printEngine/__tests__/runStep2Tests.ts && npx tsx lib/printEngine/__tests__/runStep3Tests.ts && npx tsx lib/printEngine/__tests__/targetExportTest.ts && npx tsx lib/printEngine/__tests__/fontSymbolsTest.ts && npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
     "test:excel": "npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts",
-    "test:print": "npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts"
+    "test:print": "npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
+    "test:ai": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

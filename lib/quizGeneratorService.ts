@@ -21,6 +21,7 @@ export interface GeneratedAssessment {
     quizTitle: string;
     questions: ScannableQuestion[];
     answerKey: AnswerKeyItem[];
+    generatedBy?: string;
 }
 
 export interface AssessmentGenerationParams {
@@ -36,6 +37,7 @@ export interface AssessmentGenerationParams {
     attachedFileName?: string;
     attachedFileType?: "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt";
     attachedFileText?: string;
+    onProviderUsed?: (provider: string, model: string) => void;
 }
 
 /**
@@ -46,12 +48,6 @@ export async function generateScannableQuiz(
     params: AssessmentGenerationParams
 ): Promise<GeneratedAssessment> {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    if (!apiKey) {
-        throw new Error("Missing Gemini API Key. Ensure EXPO_PUBLIC_GEMINI_API_KEY is configured in your .env file.");
-    }
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
 
     const count = params.questionCount || 10;
     const rawDiff = params.difficulty || "Medium (Application & Analysis)";
@@ -221,45 +217,155 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
     let result: any = null;
     let lastError: any = null;
 
-    // Try candidate models sequentially (fallback if one hits 429 quota or 404)
+    if (apiKey) {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
+
+        // Try candidate models sequentially (fallback if one hits 429 quota or 404)
+        for (const modelName of candidateModels) {
+            try {
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        temperature: 0.2,
+                    },
+                });
+
+                result = await model.generateContent(parts);
+                if (result) {
+                    try {
+                        const rawText = result.response.text().trim();
+                        const cleanJson = rawText
+                            .replace(/^```(?:json)?\s*/i, "")
+                            .replace(/\s*```$/i, "")
+                            .trim();
+
+                        const parsed: GeneratedAssessment = JSON.parse(cleanJson);
+                        if (parsed.quizTitle && Array.isArray(parsed.questions) && Array.isArray(parsed.answerKey)) {
+                            parsed.generatedBy = `Google Gemini (${modelName})`;
+                            params.onProviderUsed?.("gemini", modelName);
+                            return parsed;
+                        }
+                    } catch (parseErr) {
+                        console.warn(`[QuizGen] Failed to parse JSON from ${modelName}, trying next candidate...`, parseErr);
+                    }
+                }
+            } catch (apiErr: any) {
+                lastError = apiErr;
+                const errMsg = apiErr?.message || "";
+                const is429 = errMsg.includes("429") || errMsg.includes("quota");
+                const is503 = errMsg.includes("503");
+
+                console.warn(`[QuizGen] Gemini ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
+                continue;
+            }
+        }
+    } else {
+        lastError = new Error("Missing EXPO_PUBLIC_GEMINI_API_KEY.");
+    }
+
+    // ── Failover to Backup AI Provider (OpenRouter / Ollama / Groq) ───────────
+    console.warn("[QuizGen] All Gemini options exhausted or rate-limited. Activating backup AI provider...");
+    return await generateAssessmentWithBackupProvider(params, promptText, lastError);
+}
+
+/**
+ * Executes assessment generation via configured OpenAI-compatible backup provider.
+ */
+async function generateAssessmentWithBackupProvider(
+    params: AssessmentGenerationParams,
+    promptText: string,
+    geminiError?: any
+): Promise<GeneratedAssessment> {
+    const { getAIConfig, DEFAULT_OPENROUTER_MODELS, DEFAULT_OLLAMA_MODELS, DEFAULT_GROQ_MODELS } = await import("./ai/aiConfigService");
+    const { callOpenAICompatible, extractJsonFromResponse } = await import("./ai/openAICompatibleClient");
+
+    const backupConfig = await getAIConfig();
+    if (!backupConfig.enabled) {
+        throw geminiError || new Error("Gemini AI is unavailable, and backup AI is disabled in Settings.");
+    }
+
+    let candidateModels: string[] = [];
+    let apiKey: string | undefined = undefined;
+    let baseUrl: string | undefined = undefined;
+
+    if (backupConfig.provider === "openrouter") {
+        apiKey = backupConfig.openRouterKey?.trim();
+        if (!apiKey) {
+            throw new Error(
+                "Google Gemini is busy or rate-limited, but OpenRouter backup API key is missing. Please add your free OpenRouter API key in Settings."
+            );
+        }
+        candidateModels = Array.from(new Set([backupConfig.openRouterModel, ...DEFAULT_OPENROUTER_MODELS].filter(Boolean)));
+    } else if (backupConfig.provider === "ollama") {
+        baseUrl = backupConfig.ollamaBaseUrl;
+        candidateModels = Array.from(new Set([backupConfig.ollamaModel, ...DEFAULT_OLLAMA_MODELS].filter(Boolean)));
+    } else if (backupConfig.provider === "groq") {
+        apiKey = backupConfig.groqKey?.trim();
+        if (!apiKey) {
+            throw new Error(
+                "Google Gemini is busy or rate-limited, but Groq backup API key is missing. Please add your Groq API key in Settings."
+            );
+        }
+        candidateModels = Array.from(new Set([backupConfig.groqModel, ...DEFAULT_GROQ_MODELS].filter(Boolean)));
+    }
+
+    // If PDF was attached without pre-extracted text, extract readable text so backup model has access
+    let docContext = "";
+    if (params.attachedPdfBase64 && !params.attachedFileText) {
+        try {
+            const { extractStringsFromBinary } = await import("./documentParserService");
+            const extracted = extractStringsFromBinary(params.attachedPdfBase64);
+            if (extracted && extracted.length > 50) {
+                docContext = `\n--- EXTRACTED REFERENCE DOCUMENT TEXT (${params.attachedPdfName || "Attachment"}) ---\n${extracted.slice(0, 50000)}\n--- END REFERENCE DOCUMENT TEXT ---\n`;
+            }
+        } catch (e) {
+            console.warn("[QuizGen Backup] Could not extract text from PDF:", e);
+        }
+    }
+
+    const messages = [
+        {
+            role: "system" as const,
+            content: "You are an expert curriculum designer and psychometrician. You must generate valid JSON matching the requested educational assessment schema without any markdown formatting or commentary.",
+        },
+        {
+            role: "user" as const,
+            content: `${promptText}${docContext ? `\n\n${docContext}` : ""}`,
+        },
+    ];
+
+    let lastBackupErr: any = null;
     for (const modelName of candidateModels) {
         try {
-            const model = genAI.getGenerativeModel({
+            console.log(`[QuizGen Backup] Attempting generation via ${backupConfig.provider} (${modelName})...`);
+            const callRes = await callOpenAICompatible({
+                provider: backupConfig.provider,
                 model: modelName,
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    temperature: 0.2,
-                },
+                apiKey,
+                baseUrl,
+                messages,
+                responseFormatJson: true,
+                temperature: 0.2,
+                timeoutMs: 40000,
             });
 
-            result = await model.generateContent(parts);
-            if (result) break; // Succeeded!
-        } catch (apiErr: any) {
-            lastError = apiErr;
-            const errMsg = apiErr?.message || "";
-            const is429 = errMsg.includes("429") || errMsg.includes("quota");
-            const is503 = errMsg.includes("503");
-
-            console.warn(`[QuizGen] Model ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
+            const rawJson = callRes.json || extractJsonFromResponse(callRes.text);
+            if (rawJson && rawJson.quizTitle && Array.isArray(rawJson.questions) && Array.isArray(rawJson.answerKey)) {
+                rawJson.generatedBy = `${backupConfig.provider.toUpperCase()} (${modelName})`;
+                params.onProviderUsed?.(backupConfig.provider, modelName);
+                return rawJson as GeneratedAssessment;
+            }
+        } catch (bErr: any) {
+            lastBackupErr = bErr;
+            console.warn(`[QuizGen Backup] Model ${modelName} failed:`, bErr?.message);
             continue;
         }
     }
 
-    if (!result) {
-        throw lastError || new Error("No response received from AI quiz generator.");
-    }
-
-    const rawText = result.response.text().trim();
-    const cleanJson = rawText
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-
-    const parsed: GeneratedAssessment = JSON.parse(cleanJson);
-
-    if (!parsed.quizTitle || !Array.isArray(parsed.questions) || !Array.isArray(parsed.answerKey)) {
-        throw new Error("Invalid assessment schema returned from Gemini.");
-    }
-
-    return parsed;
+    throw new Error(
+        `Gemini AI was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup provider ${backupConfig.provider.toUpperCase()} also failed: ${lastBackupErr?.message || "All models failed"}`
+    );
 }
+

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
+import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -41,11 +42,6 @@ import {
 import { saveDraftQuiz, savePublishedQuiz, shuffleAssessmentQuestions } from "../lib/quizStore";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
-const SUBJECTS = [
-    "Mathematics", "Science", "English", "History", "Filipino",
-    "Social Studies", "Physics", "Chemistry", "Biology", "Geography",
-    "Economics", "Technology", "Physical Education", "Arts", "Music",
-];
 const GRADE_LEVELS = [
     "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6",
     "Grade 7", "Grade 8", "Grade 9", "Grade 10",
@@ -188,6 +184,7 @@ type Props = {
 };
 
 export default function AIBuilderTab({ classroomId, classTitle, classSubject, accentColor, onQuizPublished }: Props) {
+    const router = useRouter();
     const { darkMode } = useTheme();
     const bg = darkMode ? "#111827" : "#F9FAFB";
     const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
@@ -363,11 +360,20 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             setShowResults(true);
         } catch (error: any) {
             console.error("Generation error:", error);
-            const is503 = error?.message?.includes("503") || error?.status === 503;
-            if (is503) {
+            const errMsg = error?.message || "";
+            const is503 = errMsg.includes("503") || error?.status === 503;
+            const is429 = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("rate");
+            if (is503 || is429) {
                 Alert.alert(
-                    "AI Server Busy",
-                    "Google's Gemini service is currently experiencing temporary high demand spikes. Please wait a few moments and try generating again."
+                    "Primary AI Unavailable",
+                    `Google's Gemini service is currently ${is429 ? "rate-limited" : "experiencing high demand"}.\n\nYou can configure a backup AI provider (like OpenRouter with free models, or Ollama) in Settings so quizzes can always generate without interruption.`,
+                    [
+                        { text: "Dismiss", style: "cancel" },
+                        {
+                            text: "Open Settings",
+                            onPress: () => router.push("/settings"),
+                        },
+                    ]
                 );
             } else {
                 Alert.alert("Error generating quiz", error.message);
@@ -1040,6 +1046,11 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             <Text style={[styles.resultsBannerSub, { color: textSub }]}>
                                 {generatedAssessment?.questions.length || questionCount} Questions • {difficulty} • Scannable Paper Layout
                             </Text>
+                            {generatedAssessment?.generatedBy && (
+                                <Text style={{ fontSize: 10.5, color: accentColor, fontWeight: "700", marginTop: 2 }}>
+                                    Engine: {generatedAssessment.generatedBy}
+                                </Text>
+                            )}
                         </View>
                         <TouchableOpacity
                             onPress={handleShuffleGeneratedQuiz}

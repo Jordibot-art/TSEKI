@@ -98,15 +98,9 @@ export async function gradeStudentTest(
     layoutJson?: LayoutJSON
 ): Promise<GradingResponse> {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    if (!apiKey) {
-        throw new Error("Missing Gemini API Key. Ensure EXPO_PUBLIC_GEMINI_API_KEY is configured in your .env file.");
-    }
 
     // Strip data URL prefix if present (e.g., 'data:image/jpeg;base64,...')
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
 
     const keyArray: any[] = Array.isArray(answerKey) ? answerKey : (answerKey?.answerKey || []);
     const totalPossiblePoints = keyArray.reduce(
@@ -179,41 +173,56 @@ You MUST return the final result as a strict, valid JSON object with this exact 
     let result: any = null;
     let lastError: any = null;
 
-    for (const modelName of candidateModels) {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: modelName,
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    temperature: 0.1,
-                },
-            });
+    if (apiKey) {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
 
-            result = await model.generateContent(parts);
-            if (result) break;
-        } catch (apiErr: any) {
-            lastError = apiErr;
-            const errMsg = apiErr?.message || "";
-            const is429 = errMsg.includes("429") || errMsg.includes("quota");
-            const is503 = errMsg.includes("503");
-            console.warn(`[Grading] Model ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
-            continue;
+        for (const modelName of candidateModels) {
+            try {
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        temperature: 0.1,
+                    },
+                });
+
+                result = await model.generateContent(parts);
+                if (result) break;
+            } catch (apiErr: any) {
+                lastError = apiErr;
+                const errMsg = apiErr?.message || "";
+                const is429 = errMsg.includes("429") || errMsg.includes("quota");
+                const is503 = errMsg.includes("503");
+                console.warn(`[Grading] Gemini ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
+                continue;
+            }
+        }
+    } else {
+        lastError = new Error("Missing EXPO_PUBLIC_GEMINI_API_KEY.");
+    }
+
+    let parsed: any = null;
+
+    if (result) {
+        try {
+            const rawText = result.response.text().trim();
+            const cleanJson = rawText
+                .replace(/^```(?:json)?\s*/i, "")
+                .replace(/\s*```$/i, "")
+                .trim();
+            parsed = JSON.parse(cleanJson);
+        } catch (e) {
+            console.warn("[Grading] Failed to parse JSON from Gemini:", e);
         }
     }
 
-    if (!result) {
-        throw lastError || new Error("No response received from AI grader.");
+    // Failover to backup vision AI if Gemini was exhausted or failed
+    if (!parsed) {
+        console.warn("[Grading] Gemini vision unavailable. Failing over to backup vision AI provider...");
+        parsed = await gradeWithBackupVisionAI(cleanBase64, mimeType, systemInstruction, lastError);
     }
 
-    const rawText = result.response.text().trim();
-
-    // Clean any markdown code blocks if present (e.g. ```json ... ```)
-    const cleanJson = rawText
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-
-    const parsed = JSON.parse(cleanJson);
     const parsedResults: any[] = Array.isArray(parsed.results) ? parsed.results : [];
 
     const variantMap = new Map<number, string[]>(
@@ -281,3 +290,100 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         results: verifiedResults,
     };
 }
+
+/**
+ * Executes multimodal vision grading via configured OpenAI-compatible backup provider.
+ */
+async function gradeWithBackupVisionAI(
+    cleanBase64: string,
+    mimeType: "image/jpeg" | "image/png",
+    systemInstruction: string,
+    geminiError?: any
+): Promise<any> {
+    const {
+        getAIConfig,
+        DEFAULT_OPENROUTER_VISION_MODELS,
+        DEFAULT_OLLAMA_VISION_MODELS,
+        DEFAULT_GROQ_VISION_MODELS,
+    } = await import("./ai/aiConfigService");
+    const { callOpenAICompatible, extractJsonFromResponse } = await import("./ai/openAICompatibleClient");
+
+    const backupConfig = await getAIConfig();
+    if (!backupConfig.enabled) {
+        throw geminiError || new Error("Gemini AI is unavailable, and backup AI is disabled in Settings.");
+    }
+
+    let candidateModels: string[] = [];
+    let apiKey: string | undefined = undefined;
+    let baseUrl: string | undefined = undefined;
+
+    if (backupConfig.provider === "openrouter") {
+        apiKey = backupConfig.openRouterKey?.trim();
+        if (!apiKey) {
+            throw new Error(
+                "Gemini Vision is busy or rate-limited, and OpenRouter API key is missing. Please configure your key in Settings."
+            );
+        }
+        candidateModels = DEFAULT_OPENROUTER_VISION_MODELS;
+    } else if (backupConfig.provider === "ollama") {
+        baseUrl = backupConfig.ollamaBaseUrl;
+        candidateModels = DEFAULT_OLLAMA_VISION_MODELS;
+    } else if (backupConfig.provider === "groq") {
+        apiKey = backupConfig.groqKey?.trim();
+        if (!apiKey) {
+            throw new Error(
+                "Gemini Vision is busy or rate-limited, and Groq API key is missing. Please configure your key in Settings."
+            );
+        }
+        candidateModels = DEFAULT_GROQ_VISION_MODELS;
+    }
+
+    const messages = [
+        {
+            role: "user" as const,
+            content: [
+                {
+                    type: "text" as const,
+                    text: systemInstruction,
+                },
+                {
+                    type: "image_url" as const,
+                    image_url: {
+                        url: `data:${mimeType};base64,${cleanBase64}`,
+                    },
+                },
+            ],
+        },
+    ];
+
+    let lastBackupErr: any = null;
+    for (const modelName of candidateModels) {
+        try {
+            console.log(`[Grading Backup] Attempting vision extraction via ${backupConfig.provider} (${modelName})...`);
+            const callRes = await callOpenAICompatible({
+                provider: backupConfig.provider,
+                model: modelName,
+                apiKey,
+                baseUrl,
+                messages,
+                responseFormatJson: true,
+                temperature: 0.1,
+                timeoutMs: 45000,
+            });
+
+            const parsed = callRes.json || extractJsonFromResponse(callRes.text);
+            if (parsed && Array.isArray(parsed.results)) {
+                return parsed;
+            }
+        } catch (bErr: any) {
+            lastBackupErr = bErr;
+            console.warn(`[Grading Backup] Vision model ${modelName} failed:`, bErr?.message);
+            continue;
+        }
+    }
+
+    throw new Error(
+        `Gemini Vision was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup vision provider ${backupConfig.provider.toUpperCase()} also failed: ${lastBackupErr?.message || "All models failed"}`
+    );
+}
+
