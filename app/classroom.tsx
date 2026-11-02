@@ -83,17 +83,7 @@ function getInitials(name: string) {
     .slice(0, 2);
 }
 
-function getStudentAvatar(name: string) {
-  const lower = name.toLowerCase();
-  if (lower.includes("sarah") || lower.includes("jenkins")) {
-    return "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80";
-  }
-  if (lower.includes("michael") || lower.includes("chang")) {
-    return "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80";
-  }
-  if (lower.includes("emily") || lower.includes("davis")) {
-    return "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80";
-  }
+function getStudentAvatar(_name: string): string | null {
   return null;
 }
 

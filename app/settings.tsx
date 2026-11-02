@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -24,29 +25,16 @@ import {
   sharePdfBytes,
   writeCachedPdf,
 } from "../lib/printEngine/mobileShare";
-import { runOnDeviceSmokeTest } from "../lib/printEngine/smokeTest";
 import {
   deleteDraftQuiz,
   deletePublishedQuiz,
-  duplicateAsShuffledQuiz,
   enrichQuizzesWithClassrooms,
   getAllDraftQuizzes,
   getAllPublishedQuizzes,
   getDraftTimeRemaining,
   publishDraftQuiz,
-  shuffleAssessmentQuestions,
   StoredQuiz,
-  updatePublishedQuiz,
 } from "../lib/quizStore";
-import {
-  BackupAIConfig,
-  DEFAULT_GROQ_MODELS,
-  DEFAULT_OLLAMA_MODELS,
-  DEFAULT_OPENROUTER_MODELS,
-  getAIConfig,
-  saveAIConfig,
-} from "../lib/ai/aiConfigService";
-import { testBackupConnection } from "../lib/ai/openAICompatibleClient";
 import { supabase } from "../supabase";
 
 // ── Theme Constants ───────────────────────────────────────────────────────────
@@ -138,32 +126,10 @@ export default function SettingsScreen() {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [selectedExportQuiz, setSelectedExportQuiz] = useState<StoredQuiz | null>(null);
+  const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
+  const [forceSeparateMode, setForceSeparateMode] = useState(false);
 
-  // ── Shuffle Modal State ────────────────────────────────────────────────────
-  const [shuffleModalVisible, setShuffleModalVisible] = useState(false);
-  const [quizToShuffle, setQuizToShuffle] = useState<StoredQuiz | null>(null);
-  const [shuffleMode, setShuffleMode] = useState<"IN_PLACE" | "DUPLICATE">("IN_PLACE");
-  const [newQuizTitle, setNewQuizTitle] = useState("");
-  const [classroomsList, setClassroomsList] = useState<{ id: string; title: string; section?: string }[]>([]);
-  const [isShuffling, setIsShuffling] = useState(false);
-
-  // ── AI Engine & Backup Provider State ──────────────────────────────────────
-  const [aiConfig, setAiConfig] = useState<BackupAIConfig | null>(null);
-  const [aiModalVisible, setAiModalVisible] = useState(false);
-  const [aiProviderDraft, setAiProviderDraft] = useState<"openrouter" | "ollama" | "groq">("openrouter");
-  const [aiEnabledDraft, setAiEnabledDraft] = useState(true);
-  const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState("");
-  const [openRouterModelDraft, setOpenRouterModelDraft] = useState(DEFAULT_OPENROUTER_MODELS[0]);
-  const [ollamaUrlDraft, setOllamaUrlDraft] = useState("http://localhost:11434");
-  const [ollamaModelDraft, setOllamaModelDraft] = useState(DEFAULT_OLLAMA_MODELS[0]);
-  const [groqKeyDraft, setGroqKeyDraft] = useState("");
-  const [groqModelDraft, setGroqModelDraft] = useState(DEFAULT_GROQ_MODELS[0]);
-  const [showAiKey, setShowAiKey] = useState(false);
-  const [testingAi, setTestingAi] = useState(false);
-  const [testAiResult, setTestAiResult] = useState<{ success: boolean; message: string; latencyMs: number } | null>(null);
-  const [savingAi, setSavingAi] = useState(false);
-
-  // ── Load user & AI config ──────────────────────────────────────────────────
+  // ── Load user ──────────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -174,12 +140,6 @@ export default function SettingsScreen() {
         setInitials(name ? getInitials(name) : (user.email?.[0] ?? "T").toUpperCase());
       }
       setLoadingUser(false);
-      try {
-        const cfg = await getAIConfig();
-        setAiConfig(cfg);
-      } catch (err) {
-        console.warn("Failed to load AI config in settings:", err);
-      }
     })();
   }, []);
 
@@ -286,6 +246,7 @@ export default function SettingsScreen() {
                   `"${draft.quizTitle}" has been published to ${draft.classTitle || "Classroom"} and is now in Archive.`
                 );
                 await loadAssessments();
+                setAssessmentTab("ARCHIVE");
                 if (inspectedQuiz?.id === draft.id) {
                   setInspectedQuiz(published);
                 }
@@ -345,26 +306,38 @@ export default function SettingsScreen() {
     );
   }
 
-  const [runningSmokeTest, setRunningSmokeTest] = useState(false);
 
   // ── Export PDF Paper Sheet ─────────────────────────────────────────────────
-  async function handleExportPaper(quiz: StoredQuiz, includeKey: boolean = false, paperSize: BondPaperSize = "short") {
+  // ── Export PDF Paper Sheet ─────────────────────────────────────────────────
+  async function handleExportPaper(
+    quiz: StoredQuiz,
+    includeKey: boolean = false,
+    paperSize: BondPaperSize = "short",
+    versionOverride?: "A" | "B" | "C"
+  ) {
+    if (exportingPdf) return;
     setExportModalVisible(false);
+
+    const activeVersion = versionOverride || exportVersion;
     const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
-    const cacheKey = computeAssessmentCacheKey(quiz, {
-      paperSize,
-      version: "A",
-      target,
-      forceSeparate: false,
-    }, includeKey ? "key" : "student");
+    const cacheKey = computeAssessmentCacheKey(
+      quiz,
+      {
+        paperSize,
+        version: activeVersion,
+        target,
+        forceSeparate: forceSeparateMode,
+      },
+      includeKey ? "key" : "student"
+    );
 
     const safeTitle = (quiz.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
     const suggestedFileName = includeKey
-      ? `${safeTitle}_Answer_Key.pdf`
-      : `${safeTitle}_Student_Paper_${paperSize.toUpperCase()}.pdf`;
+      ? `${safeTitle}_Answer_Key_Set_${activeVersion}.pdf`
+      : `${safeTitle}_Set_${activeVersion}_${paperSize.toUpperCase()}.pdf`;
     const dialogTitle = includeKey
-      ? `${quiz.quizTitle} — Teacher Answer Key`
-      : `${quiz.quizTitle} — Student Paper`;
+      ? `${quiz.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
+      : `${quiz.quizTitle} — Student Paper (Set ${activeVersion})`;
 
     // 1. Instant check in cache (0ms) - If already cached, no loading screen!
     const cachedUri = await getCachedPdfUri(cacheKey);
@@ -376,31 +349,36 @@ export default function SettingsScreen() {
     // 2. Uncached build fallback
     setExportingPdf(true);
     try {
+      await new Promise((r) => setTimeout(r, 60));
       const printPkg = await generatePrintPackage(quiz, {
         paperSize,
-        version: "A",
+        version: activeVersion,
         classTitle: quiz.classTitle || "Classroom Assessment",
         subject: quiz.subject || "General Subject",
+        gradeLevel: quiz.gradeLevel,
+        forceSeparate: forceSeparateMode,
         quizId: quiz.id || `QZ-${Date.now().toString().slice(-6)}`,
         target,
       });
 
-      if (includeKey) {
-        await writeCachedPdf(cacheKey, printPkg.answerKeyPdf);
-        await sharePdfBytes(
-          printPkg.answerKeyPdf,
-          suggestedFileName,
-          dialogTitle
-        );
-      } else {
-        const studentBytes = printPkg.combinedStudentPdf || printPkg.studentPdf;
-        await writeCachedPdf(cacheKey, studentBytes);
-        await sharePdfBytes(
-          studentBytes,
-          suggestedFileName,
-          dialogTitle
-        );
+      const bytesToExport = includeKey
+        ? printPkg.answerKeyPdf
+        : (printPkg.combinedStudentPdf || printPkg.studentPdf);
+
+      if (!bytesToExport || bytesToExport.length === 0) {
+        throw new Error("Generated PDF has no content.");
       }
+
+      const fileUri = await writeCachedPdf(cacheKey, bytesToExport);
+      const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
+
+      setExportingPdf(false);
+
+      await shareCachedPdfUri(
+        shareUri || fileUri,
+        dialogTitle,
+        suggestedFileName
+      );
     } catch (err: any) {
       Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
     } finally {
@@ -408,205 +386,6 @@ export default function SettingsScreen() {
     }
   }
 
-  async function handleRunSmokeTest() {
-    setRunningSmokeTest(true);
-    try {
-      const res = await runOnDeviceSmokeTest();
-      if (!res.success) {
-        Alert.alert("Smoke Test Failed", res.error || "Unknown error during 2-page PDF build.");
-        return;
-      }
-
-      await sharePdfBytes(
-        res.pdfBytes,
-        "Tseki_SmokeTest_2Page.pdf",
-        `Smoke Test Verified (${res.pageCount} pages, ${res.durationMs}ms)`
-      );
-
-      Alert.alert(
-        "Print Engine Verified!",
-        `Generated ${res.pageCount}-page PDF (${Math.round(res.byteSize / 1024)} KB) in ${res.durationMs}ms.\n\n• Font Load: ${res.fontLoadMs}ms\n• Layout Pass (LAYOUT_ONLY): ${res.layoutPassMs}ms\n• 2-Page PDF Build: ${res.pdfBuildMs}ms\n• File Write: ${res.fileWriteMs}ms\n• Symbols (≥ ≤ → α β π “ ”) rendered cleanly`
-      );
-    } catch (err: any) {
-      Alert.alert("Smoke Test Error", err.message || "Could not run smoke test.");
-    } finally {
-      setRunningSmokeTest(false);
-    }
-  }
-
-  // ── Shuffle Assessment Handlers ────────────────────────────────────────────
-  async function openShuffleModal(quiz: StoredQuiz) {
-    setQuizToShuffle(quiz);
-    setShuffleMode("IN_PLACE");
-    setNewQuizTitle(`${quiz.quizTitle} (Set B)`);
-    setTargetClassroomId(quiz.classroomId || "");
-    setShuffleModalVisible(true);
-
-    try {
-      const { data } = await supabase
-        .from("classrooms")
-        .select("id, title, section")
-        .order("title", { ascending: true });
-      if (data) {
-        setClassroomsList(data);
-      }
-    } catch (err) {
-      console.warn("Could not load classrooms for shuffle:", err);
-    }
-  }
-
-  async function handleExecuteShuffle() {
-    if (!quizToShuffle) return;
-    setIsShuffling(true);
-
-    try {
-      if (shuffleMode === "IN_PLACE") {
-        const shuffled = shuffleAssessmentQuestions(quizToShuffle);
-        const updated = await updatePublishedQuiz(quizToShuffle.classroomId, quizToShuffle.id, {
-          questions: shuffled.questions,
-          answerKey: shuffled.answerKey,
-        });
-
-        if (updated) {
-          await loadAssessments();
-          if (inspectedQuiz?.id === quizToShuffle.id) {
-            setInspectedQuiz(updated);
-          }
-          setShuffleModalVisible(false);
-          Alert.alert(
-            "Questions Shuffled!",
-            `Successfully randomized question order for "${quizToShuffle.quizTitle}". Questions and answer keys have been re-indexed 1 to ${shuffled.questions.length}.\n\nReady to print for Section 2!`,
-            [
-              {
-                text: "Print / Export PDF Now",
-                onPress: () => {
-                  setSelectedExportQuiz(updated);
-                  setExportModalVisible(true);
-                },
-              },
-              {
-                text: "Inspect Questions",
-                onPress: () => {
-                  setInspectedQuiz(updated);
-                  setInspectModalVisible(true);
-                },
-              },
-              { text: "Done", style: "cancel" },
-            ]
-          );
-        } else {
-          Alert.alert("Shuffle Error", "Failed to update assessment with shuffled questions.");
-        }
-      } else {
-        // DUPLICATE AS SET B
-        const targetClass = classroomsList.find((c) => c.id === targetClassroomId);
-        const targetClassTitle = targetClass ? targetClass.title : quizToShuffle.classTitle;
-
-        const newQuiz = await duplicateAsShuffledQuiz(quizToShuffle, {
-          newTitle: newQuizTitle.trim() || `${quizToShuffle.quizTitle} (Set B)`,
-          targetClassroomId: targetClassroomId || quizToShuffle.classroomId,
-          targetClassTitle: targetClassTitle,
-        });
-
-        await loadAssessments();
-        setShuffleModalVisible(false);
-
-        Alert.alert(
-          "Shuffled Version Created!",
-          `Created "${newQuiz.quizTitle}" with randomized questions for ${targetClassTitle || "Section 2"}.\n\nOriginal quiz remains intact!`,
-          [
-            {
-              text: "Print / Export PDF Now",
-              onPress: () => {
-                setSelectedExportQuiz(newQuiz);
-                setExportModalVisible(true);
-              },
-            },
-            {
-              text: "Inspect New Quiz",
-              onPress: () => {
-                setInspectedQuiz(newQuiz);
-                setInspectModalVisible(true);
-              },
-            },
-            { text: "Done", style: "cancel" },
-          ]
-        );
-      }
-    } catch (err: any) {
-      console.error("Shuffle error:", err);
-      Alert.alert("Shuffle Error", err.message || "Failed to shuffle assessment.");
-    } finally {
-      setIsShuffling(false);
-    }
-  }
-
-  // ── AI Backup handlers ─────────────────────────────────────────────────────
-  function handleOpenAiModal() {
-    if (aiConfig) {
-      setAiProviderDraft(aiConfig.provider);
-      setAiEnabledDraft(aiConfig.enabled);
-      setOpenRouterKeyDraft(aiConfig.openRouterKey || "");
-      setOpenRouterModelDraft(aiConfig.openRouterModel || DEFAULT_OPENROUTER_MODELS[0]);
-      setOllamaUrlDraft(aiConfig.ollamaBaseUrl || "http://localhost:11434");
-      setOllamaModelDraft(aiConfig.ollamaModel || DEFAULT_OLLAMA_MODELS[0]);
-      setGroqKeyDraft(aiConfig.groqKey || "");
-      setGroqModelDraft(aiConfig.groqModel || DEFAULT_GROQ_MODELS[0]);
-    }
-    setTestAiResult(null);
-    setAiModalVisible(true);
-  }
-
-  async function handleSaveAiConfig() {
-    setSavingAi(true);
-    try {
-      const updated: BackupAIConfig = {
-        enabled: aiEnabledDraft,
-        provider: aiProviderDraft,
-        openRouterKey: openRouterKeyDraft.trim(),
-        openRouterModel: openRouterModelDraft.trim() || DEFAULT_OPENROUTER_MODELS[0],
-        ollamaBaseUrl: ollamaUrlDraft.trim() || "http://localhost:11434",
-        ollamaModel: ollamaModelDraft.trim() || DEFAULT_OLLAMA_MODELS[0],
-        groqKey: groqKeyDraft.trim(),
-        groqModel: groqModelDraft.trim() || DEFAULT_GROQ_MODELS[0],
-      };
-      await saveAIConfig(updated);
-      setAiConfig(updated);
-      setAiModalVisible(false);
-      Alert.alert("Settings Saved", `Backup AI provider configured: ${updated.provider.toUpperCase()} (${updated.enabled ? "Active" : "Disabled"})`);
-    } catch (err: any) {
-      Alert.alert("Save Error", err.message || "Failed to update AI settings.");
-    } finally {
-      setSavingAi(false);
-    }
-  }
-
-  async function handleTestAi() {
-    setTestingAi(true);
-    setTestAiResult(null);
-    try {
-      const draftConfig: BackupAIConfig = {
-        enabled: aiEnabledDraft,
-        provider: aiProviderDraft,
-        openRouterKey: openRouterKeyDraft.trim(),
-        openRouterModel: openRouterModelDraft.trim() || DEFAULT_OPENROUTER_MODELS[0],
-        ollamaBaseUrl: ollamaUrlDraft.trim() || "http://localhost:11434",
-        ollamaModel: ollamaModelDraft.trim() || DEFAULT_OLLAMA_MODELS[0],
-        groqKey: groqKeyDraft.trim(),
-        groqModel: groqModelDraft.trim() || DEFAULT_GROQ_MODELS[0],
-      };
-      const res = await testBackupConnection(draftConfig);
-      setTestAiResult(res);
-    } catch (err: any) {
-      setTestAiResult({
-        success: false,
-        message: err.message || "Test connection failed.",
-        latencyMs: 0,
-      });
-    } finally {
-      setTestingAi(false);
-    }
-  }
 
   // ── Dynamic colors ─────────────────────────────────────────────────────────
   const bg = darkMode ? "#111827" : "#F9FAFB";
@@ -764,87 +543,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── AI Engine & Backup Provider ── */}
-        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>AI ENGINE & BACKUP PROVIDER</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          {/* Primary Gemini Row */}
-          <View style={styles.rowBase}>
-            <View style={[styles.iconWrap, { backgroundColor: "#8B5CF622" }]}>
-              <Ionicons name="sparkles-outline" size={20} color="#8B5CF6" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: textMain }]}>Primary: Google Gemini</Text>
-              <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
-                gemini-3.5-flash-lite · gemini-3.6-flash
-              </Text>
-            </View>
-            <View style={[styles.quickBadge, { backgroundColor: "#10B98122" }]}>
-              <Text style={[styles.quickBadgeText, { color: "#10B981" }]}>ACTIVE</Text>
-            </View>
-          </View>
 
-          <View style={[styles.divider, { backgroundColor: border }]} />
-
-          {/* Backup Provider Row */}
-          <TouchableOpacity
-            style={styles.rowBase}
-            activeOpacity={0.7}
-            onPress={handleOpenAiModal}
-          >
-            <View style={[styles.iconWrap, { backgroundColor: "#F59E0B22" }]}>
-              <Ionicons name="shield-checkmark-outline" size={20} color="#F59E0B" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: textMain }]}>
-                Backup: {aiConfig?.provider === "openrouter" ? "OpenRouter" : aiConfig?.provider === "ollama" ? "Ollama Local" : "Groq"}
-              </Text>
-              <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
-                {!aiConfig?.enabled
-                  ? "Automatic failover disabled"
-                  : aiConfig.provider === "openrouter"
-                  ? (aiConfig.openRouterKey ? "Free Cloud Models (Ready)" : "Tap to add free API key")
-                  : aiConfig.provider === "ollama"
-                  ? (aiConfig.ollamaBaseUrl || "http://localhost:11434")
-                  : (aiConfig.groqKey ? "Groq Cloud (Ready)" : "Tap to add API key")}
-              </Text>
-            </View>
-            <View style={[styles.quickBadge, {
-              backgroundColor: !aiConfig?.enabled ? "#6B728022" : (aiConfig?.provider === "openrouter" && !aiConfig.openRouterKey) ? "#3B82F622" : "#10B98122"
-            }]}>
-              <Text style={[styles.quickBadgeText, {
-                color: !aiConfig?.enabled ? "#6B7280" : (aiConfig?.provider === "openrouter" && !aiConfig.openRouterKey) ? "#3B82F6" : "#10B981"
-              }]}>
-                {!aiConfig?.enabled ? "OFF" : (aiConfig?.provider === "openrouter" && !aiConfig.openRouterKey) ? "SETUP" : "READY"}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={textSub} />
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Print Engine Diagnostics ── */}
-        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>PRINT ENGINE DIAGNOSTICS</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <TouchableOpacity
-            style={styles.rowBase}
-            onPress={handleRunSmokeTest}
-            disabled={runningSmokeTest}
-          >
-            <View style={[styles.iconWrap, { backgroundColor: "#10B98122" }]}>
-              {runningSmokeTest ? (
-                <ActivityIndicator size="small" color="#10B981" />
-              ) : (
-                <Ionicons name="print-outline" size={20} color="#10B981" />
-              )}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: textMain }]}>Run 2-Page PDF Smoke Test</Text>
-              <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
-                Verifies Noto Sans fontkit symbols (≥ ≤ → α β π) & layout speed
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={textSub} />
-          </TouchableOpacity>
-        </View>
 
         {/* ── Session ── */}
         <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>SESSION</Text>
@@ -895,283 +594,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* ── Backup AI Configuration Modal ── */}
-      <Modal visible={aiModalVisible} transparent animationType="slide" onRequestClose={() => setAiModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: card, maxHeight: "90%" }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <View style={[styles.iconWrap, { backgroundColor: "#F59E0B22", width: 34, height: 34, borderRadius: 8 }]}>
-                  <Ionicons name="shield-checkmark" size={18} color="#F59E0B" />
-                </View>
-                <Text style={[styles.modalTitle, { color: textMain, marginBottom: 0 }]}>Backup AI Provider</Text>
-              </View>
-              <TouchableOpacity onPress={() => setAiModalVisible(false)}>
-                <Ionicons name="close" size={22} color={textSub} />
-              </TouchableOpacity>
-            </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Failover Switch */}
-              <View style={[styles.aiSwitchRow, { borderColor: border }]}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "700", color: textMain }}>Automatic Failover</Text>
-                  <Text style={{ fontSize: 11, color: textSub, marginTop: 2 }}>
-                    Seamlessly switches if Google Gemini hits 429 quota limits or 503 high-demand busy errors
-                  </Text>
-                </View>
-                <Switch
-                  value={aiEnabledDraft}
-                  onValueChange={setAiEnabledDraft}
-                  trackColor={{ false: "#D1D5DB", true: themeColor }}
-                  thumbColor="#FFFFFF"
-                />
-              </View>
-
-              {/* Provider Selector Tabs */}
-              <Text style={[styles.fieldLabel, { color: textSub, marginTop: 14 }]}>BACKUP PROVIDER</Text>
-              <View style={styles.aiProviderTabsRow}>
-                {(["openrouter", "ollama", "groq"] as const).map((prov) => {
-                  const isSelected = aiProviderDraft === prov;
-                  const label = prov === "openrouter" ? "OpenRouter" : prov === "ollama" ? "Ollama" : "Groq";
-                  const sub = prov === "openrouter" ? "Free Cloud" : prov === "ollama" ? "Local / LAN" : "Fast Cloud";
-                  return (
-                    <TouchableOpacity
-                      key={prov}
-                      style={[
-                        styles.aiProviderTab,
-                        {
-                          borderColor: isSelected ? themeColor : border,
-                          backgroundColor: isSelected ? themeColor + "14" : card,
-                        },
-                      ]}
-                      onPress={() => {
-                        setAiProviderDraft(prov);
-                        setTestAiResult(null);
-                      }}
-                    >
-                      <Text style={[styles.aiProviderTabTitle, { color: isSelected ? themeColor : textMain }]}>{label}</Text>
-                      <Text style={[styles.aiProviderTabSub, { color: isSelected ? themeColor : textSub }]}>{sub}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* OpenRouter Fields */}
-              {aiProviderDraft === "openrouter" && (
-                <View style={{ marginTop: 12 }}>
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>OPENROUTER API KEY</Text>
-                  <View style={[styles.pwRow, { backgroundColor: inputBg, borderColor: border }]}>
-                    <TextInput
-                      style={[styles.pwInput, { color: inputText }]}
-                      placeholder="sk-or-v1-..."
-                      placeholderTextColor={textSub}
-                      secureTextEntry={!showAiKey}
-                      value={openRouterKeyDraft}
-                      onChangeText={setOpenRouterKeyDraft}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                    <TouchableOpacity onPress={() => setShowAiKey(!showAiKey)}>
-                      <Ionicons name={showAiKey ? "eye-off-outline" : "eye-outline"} size={18} color={textSub} />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={{ fontSize: 11, color: "#10B981", marginTop: 4 }}>
-                    {"Tip: Get a permanently free API key at openrouter.ai (no credit card required)"}
-                  </Text>
-
-                  <Text style={[styles.fieldLabel, { color: textSub, marginTop: 12 }]}>MODEL (FREE TIER CASCADE)</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
-                    placeholder="meta-llama/llama-3.3-70b-instruct:free"
-                    placeholderTextColor={textSub}
-                    value={openRouterModelDraft}
-                    onChangeText={setOpenRouterModelDraft}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-
-                  {/* Free model quick selector pills */}
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                    {DEFAULT_OPENROUTER_MODELS.map((m) => {
-                      const isCur = openRouterModelDraft === m;
-                      const short = m.split("/")[1] || m;
-                      return (
-                        <TouchableOpacity
-                          key={m}
-                          style={[
-                            styles.aiModelPill,
-                            {
-                              backgroundColor: isCur ? themeColor + "20" : inputBg,
-                              borderColor: isCur ? themeColor : border,
-                            },
-                          ]}
-                          onPress={() => setOpenRouterModelDraft(m)}
-                        >
-                          <Text style={{ fontSize: 10.5, color: isCur ? themeColor : textSub, fontWeight: isCur ? "700" : "500" }}>
-                            {short}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-              )}
-
-              {/* Ollama Fields */}
-              {aiProviderDraft === "ollama" && (
-                <View style={{ marginTop: 12 }}>
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>OLLAMA SERVER URL</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
-                    placeholder="http://localhost:11434"
-                    placeholderTextColor={textSub}
-                    value={ollamaUrlDraft}
-                    onChangeText={setOllamaUrlDraft}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <Text style={{ fontSize: 11, color: textSub, marginTop: 4 }}>
-                    {"For Android emulator use http://10.0.2.2:11434, or use your PC's LAN IP (http://192.168.x.x:11434)"}
-                  </Text>
-
-                  <Text style={[styles.fieldLabel, { color: textSub, marginTop: 12 }]}>MODEL NAME</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
-                    placeholder="llama3.2"
-                    placeholderTextColor={textSub}
-                    value={ollamaModelDraft}
-                    onChangeText={setOllamaModelDraft}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                    {DEFAULT_OLLAMA_MODELS.map((m) => {
-                      const isCur = ollamaModelDraft === m;
-                      return (
-                        <TouchableOpacity
-                          key={m}
-                          style={[
-                            styles.aiModelPill,
-                            {
-                              backgroundColor: isCur ? themeColor + "20" : inputBg,
-                              borderColor: isCur ? themeColor : border,
-                            },
-                          ]}
-                          onPress={() => setOllamaModelDraft(m)}
-                        >
-                          <Text style={{ fontSize: 10.5, color: isCur ? themeColor : textSub, fontWeight: isCur ? "700" : "500" }}>
-                            {m}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-              )}
-
-              {/* Groq Fields */}
-              {aiProviderDraft === "groq" && (
-                <View style={{ marginTop: 12 }}>
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>GROQ API KEY</Text>
-                  <View style={[styles.pwRow, { backgroundColor: inputBg, borderColor: border }]}>
-                    <TextInput
-                      style={[styles.pwInput, { color: inputText }]}
-                      placeholder="gsk_..."
-                      placeholderTextColor={textSub}
-                      secureTextEntry={!showAiKey}
-                      value={groqKeyDraft}
-                      onChangeText={setGroqKeyDraft}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                    <TouchableOpacity onPress={() => setShowAiKey(!showAiKey)}>
-                      <Ionicons name={showAiKey ? "eye-off-outline" : "eye-outline"} size={18} color={textSub} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={[styles.fieldLabel, { color: textSub, marginTop: 12 }]}>MODEL NAME</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
-                    placeholder="llama-3.3-70b-versatile"
-                    placeholderTextColor={textSub}
-                    value={groqModelDraft}
-                    onChangeText={setGroqModelDraft}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-              )}
-
-              {/* Test Connection Button & Result */}
-              <View style={{ marginTop: 14 }}>
-                <TouchableOpacity
-                  style={[styles.aiTestBtn, { borderColor: border }]}
-                  onPress={handleTestAi}
-                  disabled={testingAi}
-                >
-                  {testingAi ? (
-                    <ActivityIndicator size="small" color={themeColor} />
-                  ) : (
-                    <Ionicons name="flash-outline" size={16} color={themeColor} />
-                  )}
-                  <Text style={[styles.aiTestBtnText, { color: themeColor }]}>
-                    {testingAi ? "Testing Provider Connection..." : "Test Connection"}
-                  </Text>
-                </TouchableOpacity>
-
-                {testAiResult && (
-                  <View
-                    style={[
-                      styles.aiResultBanner,
-                      {
-                        backgroundColor: testAiResult.success ? "#10B98114" : "#EF444414",
-                        borderColor: testAiResult.success ? "#10B98140" : "#EF444440",
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={testAiResult.success ? "checkmark-circle" : "alert-circle"}
-                      size={18}
-                      color={testAiResult.success ? "#10B981" : "#EF4444"}
-                    />
-                    <Text
-                      style={[
-                        styles.aiResultText,
-                        { color: testAiResult.success ? "#10B981" : "#EF4444" },
-                      ]}
-                    >
-                      {testAiResult.message}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-
-            {/* Actions */}
-            <View style={[styles.modalActions, { marginTop: 16 }]}>
-              <TouchableOpacity
-                style={[styles.cancelBtn, { borderColor: border }]}
-                onPress={() => setAiModalVisible(false)}
-              >
-                <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: themeColor }]}
-                onPress={handleSaveAiConfig}
-                disabled={savingAi}
-              >
-                {savingAi ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.saveBtnText}>Save Configuration</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* ── Change Password Modal ── */}
       <Modal visible={pwVisible} transparent animationType="slide" onRequestClose={() => setPwVisible(false)}>
@@ -1487,14 +910,6 @@ export default function SettingsScreen() {
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={[styles.shuffleBtn, { borderColor: themeColor + "44", backgroundColor: themeColor + "10" }]}
-                        onPress={() => openShuffleModal(quiz)}
-                      >
-                        <Ionicons name="shuffle-outline" size={15} color={themeColor} />
-                        <Text style={[styles.shuffleBtnText, { color: themeColor }]} numberOfLines={1}>Shuffle</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
                         style={[styles.exportPdfBtn, { backgroundColor: "#1F2937" }]}
                         onPress={() => {
                           setSelectedExportQuiz(quiz);
@@ -1547,17 +962,6 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.hubHeaderRightActions}>
-              {inspectedQuiz?.status === "ARCHIVE" && (
-                <TouchableOpacity
-                  style={[styles.inspectHeaderShuffleBtn, { backgroundColor: themeColor + "18", borderColor: themeColor + "40" }]}
-                  onPress={() => inspectedQuiz && openShuffleModal(inspectedQuiz)}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Shuffle Questions"
-                >
-                  <Ionicons name="shuffle" size={14} color={themeColor} />
-                  <Text style={[styles.inspectHeaderShuffleText, { color: themeColor }]}>Shuffle</Text>
-                </TouchableOpacity>
-              )}
               <TouchableOpacity
                 style={[styles.hubCloseBtn, { backgroundColor: border }]}
                 onPress={() => setInspectModalVisible(false)}
@@ -1661,34 +1065,19 @@ export default function SettingsScreen() {
                 <Text style={styles.inspectFooterPublishText}>Publish Quiz to Classroom</Text>
               </TouchableOpacity>
             ) : (
-              <View style={styles.inspectFooterArchiveRow}>
-                <TouchableOpacity
-                  style={[styles.inspectFooterShuffleBtn, { borderColor: themeColor, backgroundColor: themeColor + "14" }]}
-                  onPress={() => {
-                    if (inspectedQuiz) {
-                      openShuffleModal(inspectedQuiz);
-                    }
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="shuffle" size={16} color={themeColor} />
-                  <Text style={[styles.inspectFooterShuffleText, { color: themeColor }]}>Shuffle Questions</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.inspectFooterExportBtn, { backgroundColor: themeColor, flex: 1.2 }]}
-                  onPress={() => {
-                    if (inspectedQuiz) {
-                      setSelectedExportQuiz(inspectedQuiz);
-                      setExportModalVisible(true);
-                    }
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="print-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.inspectFooterExportText}>Export / Print PDF</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[styles.inspectFooterExportBtn, { backgroundColor: themeColor }]}
+                onPress={() => {
+                  if (inspectedQuiz) {
+                    setSelectedExportQuiz(inspectedQuiz);
+                    setExportModalVisible(true);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="print-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.inspectFooterExportText}>Export / Print PDF</Text>
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -1706,13 +1095,77 @@ export default function SettingsScreen() {
           activeOpacity={1}
           onPress={() => setExportModalVisible(false)}
         >
-          <View style={[styles.exportSheet, { backgroundColor: card }]}>
+          <Pressable
+            style={[styles.exportSheet, { backgroundColor: card }]}
+            onPress={(e) => {
+              e.stopPropagation?.();
+            }}
+          >
             <View style={styles.exportSheetHeader}>
-              <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Physical Paper Sheet</Text>
+              <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
               <Text style={[styles.exportSheetSub, { color: textSub }]}>
-                {`Select paper size to export or print single-sheet scannable test papers for "${selectedExportQuiz?.quizTitle}".`}
+                Download, print, or share the physical test sheet formatted with scannable answer boxes.
               </Text>
             </View>
+
+            {/* Anti-Cheating Version Selector (Set A / B / C) */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>TEST VERSION (SET):</Text>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                {(["A", "B", "C"] as const).map((ver) => (
+                  <TouchableOpacity
+                    key={ver}
+                    onPress={() => setExportVersion(ver)}
+                    activeOpacity={0.7}
+                    style={{
+                      paddingHorizontal: 14,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: exportVersion === ver ? themeColor : border,
+                      backgroundColor: exportVersion === ver ? themeColor + "18" : inputBg,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: "700",
+                        color: exportVersion === ver ? themeColor : textMain,
+                      }}
+                    >
+                      Set {ver}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Force Separate Answer Sheet Toggle */}
+            <TouchableOpacity
+              onPress={() => setForceSeparateMode((prev) => !prev)}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                backgroundColor: inputBg,
+                borderWidth: 1,
+                borderColor: border,
+                marginBottom: 12,
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
+                Always use separate Question Booklet + Answer Sheet
+              </Text>
+              <Ionicons
+                name={forceSeparateMode ? "checkbox" : "square-outline"}
+                size={20}
+                color={forceSeparateMode ? themeColor : textSub}
+              />
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.exportOptionBtn, { borderColor: border }]}
@@ -1720,16 +1173,16 @@ export default function SettingsScreen() {
               activeOpacity={0.7}
               disabled={exportingPdf}
             >
-              <View style={[styles.exportOptionIcon, { backgroundColor: themeColor + "18" }]}>
-                <Ionicons name="document-text" size={22} color={themeColor} />
+              <View style={[styles.exportOptionIcon, { backgroundColor: (themeColor || "#2563EB") + "18" }]}>
+                <Ionicons name="document-text" size={22} color={themeColor || "#2563EB"} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.exportOptionTitle, { color: textMain }]}>{'Short Bond Paper (8.5" × 11")'}</Text>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
-                  Letter size • 2-column scannable format optimized for camera scanning
+                  1 single sheet (Letter size) • 2-column scannable layout for 1-shot camera scanning
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color={textSub} />
+              <Ionicons name="download-outline" size={20} color="#6B7280" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1744,10 +1197,10 @@ export default function SettingsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.exportOptionTitle, { color: textMain }]}>{'Long Bond Paper (8.5" × 13")'}</Text>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
-                  Philippine Folio • Extra spacing for DepEd standard exams
+                  1 single sheet (Philippine Folio) • Fits all questions with extra spacing on 1 page
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color={textSub} />
+              <Ionicons name="download-outline" size={20} color="#6B7280" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1762,212 +1215,20 @@ export default function SettingsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.exportOptionTitle, { color: textMain }]}>Teacher Answer Key Paper (PDF)</Text>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
-                  Pre-filled answer key sheet with correct letters in scannable boxes
+                  1 single sheet with correct answers pre-printed in the boxes for grading reference
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color={textSub} />
+              <Ionicons name="download-outline" size={20} color="#6B7280" />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.exportCancelBtn, { borderColor: border }]}
               onPress={() => setExportModalVisible(false)}
+              activeOpacity={0.7}
             >
               <Text style={[styles.exportCancelText, { color: textSub }]}>Cancel</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ── Shuffle Assessment Modal ── */}
-      <Modal
-        visible={shuffleModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => !isShuffling && setShuffleModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.exportBackdrop}
-          activeOpacity={1}
-          onPress={() => !isShuffling && setShuffleModalVisible(false)}
-        >
-          <TouchableOpacity activeOpacity={1} style={[styles.shuffleSheet, { backgroundColor: card }]}>
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 10 }}
-            >
-              {/* Modal Drag Indicator */}
-              <View style={styles.sheetHandle} />
-
-              <View style={styles.shuffleHeader}>
-                <View style={[styles.shuffleIconWrap, { backgroundColor: themeColor + "18" }]}>
-                  <Ionicons name="shuffle" size={24} color={themeColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.shuffleTitle, { color: textMain }]}>Shuffle Questions</Text>
-                  <Text style={[styles.shuffleSubtitle, { color: textSub }]}>
-                    Randomize question order & scannable answer keys for Section 2 / Set B
-                  </Text>
-                </View>
-              </View>
-
-              {/* Quiz Info Box */}
-              {quizToShuffle && (
-                <View style={[styles.shuffleQuizInfoBox, { backgroundColor: inputBg, borderColor: border }]}>
-                  <Ionicons name="document-text-outline" size={18} color={themeColor} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.shuffleQuizTitle, { color: textMain }]} numberOfLines={1}>
-                      {quizToShuffle.quizTitle}
-                    </Text>
-                    <Text style={[styles.shuffleQuizMeta, { color: textSub }]}>
-                      {quizToShuffle.questions.length} Questions • {quizToShuffle.classTitle || "Classroom"} • DepEd Scannable
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Shuffle Mode Selection */}
-              <Text style={[styles.shuffleSectionLabel, { color: textSub }]}>CHOOSE SHUFFLE MODE</Text>
-
-              {/* Mode 1: In-Place */}
-              <TouchableOpacity
-                style={[
-                  styles.shuffleModeCard,
-                  {
-                    borderColor: shuffleMode === "IN_PLACE" ? themeColor : border,
-                    backgroundColor: shuffleMode === "IN_PLACE" ? themeColor + "0C" : card,
-                  },
-                ]}
-                onPress={() => setShuffleMode("IN_PLACE")}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.radioCircle, { borderColor: shuffleMode === "IN_PLACE" ? themeColor : border }]}>
-                  {shuffleMode === "IN_PLACE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Shuffle Current Assessment</Text>
-                    <View style={[styles.quickBadge, { backgroundColor: "#10B98120" }]}>
-                      <Text style={styles.quickBadgeText}>QUICK PRINT</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.shuffleModeSub, { color: textSub }]}>
-                    Reorders questions 1 through {quizToShuffle?.questions.length || 10} directly in this quiz and updates the camera grader answer key. Perfect if you just finished Section 1 and need to print immediately for Section 2.
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Mode 2: Duplicate as Set B */}
-              <TouchableOpacity
-                style={[
-                  styles.shuffleModeCard,
-                  {
-                    borderColor: shuffleMode === "DUPLICATE" ? themeColor : border,
-                    backgroundColor: shuffleMode === "DUPLICATE" ? themeColor + "0C" : card,
-                  },
-                ]}
-                onPress={() => setShuffleMode("DUPLICATE")}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.radioCircle, { borderColor: shuffleMode === "DUPLICATE" ? themeColor : border }]}>
-                  {shuffleMode === "DUPLICATE" && <View style={[styles.radioDot, { backgroundColor: themeColor }]} />}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={[styles.shuffleModeTitle, { color: textMain }]}>Create New Shuffled Set (Set B)</Text>
-                    <View style={[styles.quickBadge, { backgroundColor: "#3B82F620" }]}>
-                      <Text style={[styles.quickBadgeText, { color: "#2563EB" }]}>PRESERVE SET A</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.shuffleModeSub, { color: textSub }]}>
-                    {"Preserves Section 1's test sheet in the archive and generates an independent, randomized copy with its own title and assigned classroom."}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Additional inputs if DUPLICATE */}
-              {shuffleMode === "DUPLICATE" && (
-                <View style={styles.duplicateConfigWrap}>
-                  <Text style={[styles.inputFieldLabel, { color: textSub }]}>NEW SET TITLE</Text>
-                  <TextInput
-                    style={[styles.shuffleTextInput, { backgroundColor: inputBg, color: textMain, borderColor: border }]}
-                    value={newQuizTitle}
-                    onChangeText={setNewQuizTitle}
-                    placeholder="e.g. Science Quiz (Set B)"
-                    placeholderTextColor={textSub}
-                  />
-
-                  {classroomsList.length > 0 && (
-                    <>
-                      <Text style={[styles.inputFieldLabel, { color: textSub, marginTop: 10 }]}>ASSIGN TO CLASSROOM / SECTION</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.classroomChipsRow}>
-                        {classroomsList.map((c) => {
-                          const isSelected = targetClassroomId === c.id;
-                          return (
-                            <TouchableOpacity
-                              key={c.id}
-                              style={[
-                                styles.classroomChip,
-                                {
-                                  borderColor: isSelected ? themeColor : border,
-                                  backgroundColor: isSelected ? themeColor + "18" : inputBg,
-                                },
-                              ]}
-                              onPress={() => setTargetClassroomId(c.id)}
-                            >
-                              <Ionicons
-                                name="school-outline"
-                                size={12}
-                                color={isSelected ? themeColor : textSub}
-                              />
-                              <Text
-                                style={[
-                                  styles.classroomChipText,
-                                  { color: isSelected ? themeColor : textMain, fontWeight: isSelected ? "700" : "500" },
-                                ]}
-                              >
-                                {c.title} {c.section ? `(${c.section})` : ""}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
-                    </>
-                  )}
-                </View>
-              )}
-
-              {/* Actions */}
-              <View style={styles.shuffleActionsRow}>
-                <TouchableOpacity
-                  style={[styles.shuffleCancelBtn, { borderColor: border }]}
-                  onPress={() => setShuffleModalVisible(false)}
-                  disabled={isShuffling}
-                >
-                  <Text style={[styles.shuffleCancelText, { color: textSub }]}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.shuffleSubmitBtn, { backgroundColor: themeColor }]}
-                  onPress={handleExecuteShuffle}
-                  disabled={isShuffling}
-                  activeOpacity={0.8}
-                >
-                  {isShuffling ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="shuffle" size={17} color="#FFFFFF" />
-                      <Text style={styles.shuffleSubmitText}>
-                        {shuffleMode === "IN_PLACE" ? "Shuffle Questions Now" : "Create & Save Set B"}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </TouchableOpacity>
+          </Pressable>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -2230,17 +1491,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inspectBtnText: { fontSize: 13, fontWeight: "600" },
-  shuffleBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 5,
-  },
-  shuffleBtnText: { fontSize: 13, fontWeight: "700" },
   actionPublishBtn: {
     flex: 1,
     flexDirection: "row",
@@ -2252,7 +1502,7 @@ const styles = StyleSheet.create({
   },
   actionPublishText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
   exportPdfBtn: {
-    flex: 1.2,
+    flex: 1.4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2273,16 +1523,6 @@ const styles = StyleSheet.create({
   },
 
   /* ── Question Inspector ── */
-  inspectHeaderShuffleBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  inspectHeaderShuffleText: { fontSize: 12, fontWeight: "700" },
   inspectQuestionCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -2328,21 +1568,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopWidth: 1,
   },
-  inspectFooterArchiveRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  inspectFooterShuffleBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    gap: 6,
-  },
-  inspectFooterShuffleText: { fontSize: 14, fontWeight: "700" },
   inspectFooterPublishBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -2405,202 +1630,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   exportCancelText: { fontSize: 14, fontWeight: "600" },
-
-  /* ── Shuffle Modal Styles ── */
-  shuffleSheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 22,
-    paddingBottom: 36,
-    maxHeight: "90%",
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#D1D5DB",
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  shuffleHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
-  },
-  shuffleIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shuffleTitle: { fontSize: 18, fontWeight: "800" },
-  shuffleSubtitle: { fontSize: 12, marginTop: 2, lineHeight: 16 },
-  shuffleQuizInfoBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  shuffleQuizTitle: { fontSize: 13, fontWeight: "700" },
-  shuffleQuizMeta: { fontSize: 11, marginTop: 2 },
-  shuffleSectionLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-    marginBottom: 10,
-  },
-  shuffleModeCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    marginBottom: 10,
-  },
-  radioCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  shuffleModeTitle: { fontSize: 14, fontWeight: "700" },
-  shuffleModeSub: { fontSize: 12, marginTop: 3, lineHeight: 17 },
-  quickBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  quickBadgeText: { fontSize: 9, fontWeight: "800", color: "#059669" },
-  duplicateConfigWrap: {
-    marginTop: 4,
-    marginBottom: 12,
-    paddingHorizontal: 2,
-  },
-  inputFieldLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.6, marginBottom: 6 },
-  shuffleTextInput: {
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    fontSize: 13,
-  },
-  classroomChipsRow: {
-    flexDirection: "row",
-    marginTop: 4,
-    marginBottom: 6,
-  },
-  classroomChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  classroomChipText: { fontSize: 12 },
-  shuffleActionsRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 12,
-  },
-  shuffleCancelBtn: {
-    flex: 1,
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shuffleCancelText: { fontSize: 14, fontWeight: "600" },
-  shuffleSubmitBtn: {
-    flex: 2,
-    height: 46,
-    borderRadius: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  shuffleSubmitText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
-  aiSwitchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    marginTop: 4,
-  },
-  aiProviderTabsRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 6,
-  },
-  aiProviderTab: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    alignItems: "center",
-  },
-  aiProviderTabTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  aiProviderTabSub: {
-    fontSize: 9.5,
-    marginTop: 2,
-    fontWeight: "500",
-  },
-  aiModelPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  aiTestBtn: {
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  aiTestBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  aiResultBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: 8,
-  },
-  aiResultText: {
-    flex: 1,
-    fontSize: 11.5,
-    lineHeight: 16,
-    fontWeight: "600",
-  },
 });

@@ -39,7 +39,7 @@ import {
     QuestionType,
     ScannableQuestion,
 } from "../lib/quizGeneratorService";
-import { saveDraftQuiz, savePublishedQuiz, shuffleAssessmentQuestions } from "../lib/quizStore";
+import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const GRADE_LEVELS = [
@@ -684,8 +684,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
             Alert.alert(
                 "Quiz Published!",
-                `"${generatedAssessment.quizTitle}" is published to ${classTitle} with scannable layout coordinates (${printPkg.fitMessage}). Ready for camera grading in the Grader tab!`,
+                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your Archive with scannable layout coordinates (${printPkg.fitMessage}). Ready for camera grading in the Grader tab!`,
                 [
+                    {
+                        text: "Export PDF Now",
+                        onPress: () => setExportModalOpen(true),
+                    },
                     {
                         text: "Go to Grader to Scan",
                         onPress: () => onQuizPublished?.(generatedAssessment.quizTitle),
@@ -725,16 +729,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         } finally {
             setSavingDraft(false);
         }
-    }
-
-    function handleShuffleGeneratedQuiz() {
-        if (!generatedAssessment || generatedAssessment.questions.length <= 1) return;
-        const shuffled = shuffleAssessmentQuestions(generatedAssessment);
-        setGeneratedAssessment(shuffled);
-        Alert.alert(
-            "Questions Shuffled!",
-            `Randomized the question order (1 to ${shuffled.questions.length}) and synchronized the answer key. Ready to export or publish!`
-        );
     }
 
     const canGenerate = (attachedFile !== null || lessonNotes.trim().length > 0) && !generating;
@@ -1068,29 +1062,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 </Text>
                             )}
                         </View>
-                        <TouchableOpacity
-                            onPress={handleShuffleGeneratedQuiz}
-                            style={{ padding: 6, marginRight: 2 }}
-                            accessibilityLabel="Shuffle Questions"
-                        >
-                            <Ionicons name="shuffle" size={21} color={accentColor} />
-                        </TouchableOpacity>
                         <TouchableOpacity onPress={handleReset} style={{ padding: 6 }}>
                             <Ionicons name="refresh" size={20} color={accentColor} />
                         </TouchableOpacity>
-                    </View>
-
-                    {/* Quick Shuffle Toolbar & Print Cache Status Chip */}
-                    <View style={styles.resultsActionsToolbar}>
-                        <TouchableOpacity
-                            style={[styles.quickShuffleBtn, { borderColor: accentColor + "55", backgroundColor: accentColor + "12" }]}
-                            onPress={handleShuffleGeneratedQuiz}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons name="shuffle" size={15} color={accentColor} />
-                            <Text style={[styles.quickShuffleBtnText, { color: accentColor }]}>Shuffle Questions (1..N)</Text>
-                        </TouchableOpacity>
-
                     </View>
 
                     {/* ── Scannable Question Cards ── */}
@@ -2681,25 +2655,6 @@ const styles = StyleSheet.create({
     addQCancelText: {
         fontSize: 14,
         fontWeight: "600",
-    },
-    resultsActionsToolbar: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        marginBottom: 12,
-    },
-    quickShuffleBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 10,
-        borderWidth: 1.5,
-    },
-    quickShuffleBtnText: {
-        fontSize: 13,
-        fontWeight: "700",
     },
 
     /* ── Word Box / Word Bank Styles ── */

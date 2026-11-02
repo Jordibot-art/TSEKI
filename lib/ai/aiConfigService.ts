@@ -58,13 +58,15 @@ export const DEFAULT_OLLAMA_VISION_MODELS = [
 ];
 
 export const DEFAULT_GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
 ];
 
 export const DEFAULT_GROQ_VISION_MODELS = [
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama-3.2-11b-vision-preview",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
 ];
 
 function normalizeOpenRouterModel(model?: string | null): string {
@@ -130,8 +132,8 @@ export async function getAIConfig(): Promise<BackupAIConfig> {
                 STORAGE_KEYS.GROQ_MODEL,
             ]);
 
-            const envProvider = (process.env.EXPO_PUBLIC_BACKUP_AI_PROVIDER || "openrouter").toLowerCase() as AIProvider;
-            const validProvider = (providerStr[1] as AIProvider) || (["openrouter", "ollama", "groq"].includes(envProvider) ? envProvider : "openrouter");
+            const envProvider = (process.env.EXPO_PUBLIC_BACKUP_AI_PROVIDER || "groq").toLowerCase() as AIProvider;
+            const validProvider = (providerStr[1] as AIProvider) || (["groq", "openrouter", "ollama"].includes(envProvider) ? envProvider : "groq");
 
             return {
                 enabled: enabledStr[1] !== null ? enabledStr[1] === "true" : true,
@@ -148,10 +150,10 @@ export async function getAIConfig(): Promise<BackupAIConfig> {
         console.warn("[AIConfig] Failed to load from storage, using environment defaults:", err);
     }
 
-    const envProvider = (process.env.EXPO_PUBLIC_BACKUP_AI_PROVIDER || "openrouter").toLowerCase() as AIProvider;
+    const envProvider = (process.env.EXPO_PUBLIC_BACKUP_AI_PROVIDER || "groq").toLowerCase() as AIProvider;
     return {
         enabled: true,
-        provider: ["openrouter", "ollama", "groq"].includes(envProvider) ? envProvider : "openrouter",
+        provider: ["groq", "openrouter", "ollama"].includes(envProvider) ? envProvider : "groq",
         openRouterKey: process.env.EXPO_PUBLIC_OPENROUTER_API_KEY || "",
         openRouterModel: normalizeOpenRouterModel(process.env.EXPO_PUBLIC_OPENROUTER_MODEL),
         ollamaBaseUrl: process.env.EXPO_PUBLIC_OLLAMA_BASE_URL || "http://localhost:11434",

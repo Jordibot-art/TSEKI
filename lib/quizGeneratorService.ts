@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiApiKey } from "./ai/geminiKey";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "identification" | "enumeration" | "word_box";
@@ -47,7 +48,7 @@ export interface AssessmentGenerationParams {
 export async function generateScannableQuiz(
     params: AssessmentGenerationParams
 ): Promise<GeneratedAssessment> {
-    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    const apiKey = getGeminiApiKey();
 
     const count = params.questionCount || 10;
     const rawDiff = params.difficulty || "Medium (Application & Analysis)";
@@ -219,7 +220,7 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
 
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"];
 
         // Try candidate models sequentially (fallback if one hits 429 quota or 404)
         for (const modelName of candidateModels) {
@@ -279,7 +280,7 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
 /**
  * Executes assessment generation via configured OpenAI-compatible backup provider.
  */
-async function generateAssessmentWithBackupProvider(
+export async function generateAssessmentWithBackupProvider(
     params: AssessmentGenerationParams,
     promptText: string,
     geminiError?: any

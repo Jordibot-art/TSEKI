@@ -20,7 +20,6 @@ import {
   analyzeQuizForClass,
   ClassQuizAnalysis,
   DifficultyLevel,
-  generateDemoQuizAnalysis,
   QuestionAnalysisSummary,
 } from "../lib/questionAnalysis";
 import { ItemAnalysisModal } from "./ItemAnalysisModal";
@@ -46,17 +45,7 @@ type TrackerTabProps = {
   onNavigateToGrader?: (quizTitle?: string) => void;
 };
 
-function getStudentAvatar(name: string) {
-  const lower = name.toLowerCase();
-  if (lower.includes("sarah") || lower.includes("jenkins")) {
-    return "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80";
-  }
-  if (lower.includes("michael") || lower.includes("chang")) {
-    return "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80";
-  }
-  if (lower.includes("emily") || lower.includes("davis")) {
-    return "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80";
-  }
+function getStudentAvatar(_name: string): string | null {
   return null;
 }
 
@@ -681,7 +670,7 @@ export default function TrackerTab({
                 <Text style={[styles.miniHeaderPillText, { color: accentColor }]}>ITEM ANALYSIS</Text>
               </View>
               <Text style={[styles.headerSubText, { color: textSub }]}>
-                {itemAnalysis?.totalStudentsGraded ?? students.length} Submissions
+                {itemAnalysis?.totalStudentsGraded ?? 0} Submissions
               </Text>
             </View>
             <Text style={[styles.cardTitle, { color: textMain }]}>Question Performance & Difficulty</Text>
@@ -738,8 +727,20 @@ export default function TrackerTab({
           </ScrollView>
         )}
 
-        {/* ── 3 Key Item Metrics ── */}
-        <View style={styles.analysisKpiRow}>
+        {!itemAnalysis || itemAnalysis.questionBreakdown.length === 0 ? (
+          <View style={[styles.emptyItemBox, { backgroundColor: darkMode ? "#1F2937" : "#F8FAFC", paddingVertical: 28, alignItems: "center", borderRadius: 12, marginVertical: 8 }]}>
+            <Ionicons name="document-text-outline" size={36} color={textSub} style={{ marginBottom: 8 }} />
+            <Text style={{ color: textMain, fontWeight: "700", fontSize: 14 }}>
+              No Graded Test Papers Yet
+            </Text>
+            <Text style={{ color: textSub, fontSize: 12, textAlign: "center", marginTop: 4, paddingHorizontal: 24, lineHeight: 18 }}>
+              Scan or grade student test sheets using the Grader tab to generate item difficulty indices (p-values) and distractor diagnostics.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* ── 3 Key Item Metrics ── */}
+            <View style={styles.analysisKpiRow}>
           {/* Card 1: Top Most Missed Question */}
           <View style={[styles.analysisKpiCard, { backgroundColor: darkMode ? "#450A0A30" : "#FEF2F2", borderColor: "#FCA5A5" }]}>
             <View style={styles.analysisKpiHeader}>
@@ -1153,18 +1154,20 @@ export default function TrackerTab({
           </View>
         )}
 
-        {/* Bottom Full Matrix Trigger Link */}
-        <TouchableOpacity
-          style={[styles.fullMatrixFooterBtn, { borderColor: subBorder }]}
-          onPress={() => setItemAnalysisModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="bar-chart-outline" size={15} color={accentColor} />
-          <Text style={[styles.fullMatrixFooterText, { color: accentColor }]}>
-            Open Complete Item Analysis Report & Distractor Breakdown
-          </Text>
-          <Ionicons name="chevron-forward" size={15} color={accentColor} />
-        </TouchableOpacity>
+            {/* Bottom Full Matrix Trigger Link */}
+            <TouchableOpacity
+              style={[styles.fullMatrixFooterBtn, { borderColor: subBorder }]}
+              onPress={() => setItemAnalysisModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="bar-chart-outline" size={15} color={accentColor} />
+              <Text style={[styles.fullMatrixFooterText, { color: accentColor }]}>
+                Open Complete Item Analysis Report & Distractor Breakdown
+              </Text>
+              <Ionicons name="chevron-forward" size={15} color={accentColor} />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* ── Item Analysis Deep Modal ── */}

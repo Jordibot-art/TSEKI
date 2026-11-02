@@ -171,9 +171,6 @@ export async function analyzeQuizForClass(
   const quizResults = await getQuizResults(classroomId, quizTitle);
   
   if (quizResults.length === 0) {
-    if (publishedQuiz || (rosterStudents && rosterStudents.length > 0)) {
-      return generateDemoQuizAnalysis(quizTitle, undefined, rosterStudents, publishedQuiz);
-    }
     return null;
   }
 

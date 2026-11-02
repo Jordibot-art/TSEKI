@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiApiKey } from "./ai/geminiKey";
 import { LayoutJSON } from "./printEngine/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export async function gradeStudentTest(
     mimeType: "image/jpeg" | "image/png" = "image/jpeg",
     layoutJson?: LayoutJSON
 ): Promise<GradingResponse> {
-    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    const apiKey = getGeminiApiKey();
 
     // Strip data URL prefix if present (e.g., 'data:image/jpeg;base64,...')
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
@@ -203,7 +204,7 @@ You MUST return the final result as a strict, valid JSON object with this exact 
 
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash"];
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"];
 
         for (const modelName of candidateModels) {
             try {

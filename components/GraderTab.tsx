@@ -295,55 +295,7 @@ export default function GraderTab({
         }
     }
 
-    // ── Load Demo Student Sheet (Matches User Reference) ───────────────────────
-    function handleLoadDemo() {
-        setSourceModalOpen(false);
-        setGradingLoading(true);
-        setTimeout(() => {
-            setGradingLoading(false);
-            setIsRecorded(false);
-            setScannedImageUri(null);
-            setGradingResult({
-                studentName: "Sarah Jenkins",
-                totalScore: 8,
-                maxScore: 10,
-                results: [
-                    { questionNumber: 1, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1, confidence: 0.95 },
-                    { questionNumber: 2, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1, confidence: 0.92 },
-                    { questionNumber: 3, studentAnswer: "C", correctAnswer: "C", isCorrect: true, pointsAwarded: 1, confidence: 0.96 },
-                    {
-                        questionNumber: 4,
-                        studentAnswer: "A, C",
-                        correctAnswer: "A",
-                        isCorrect: false,
-                        pointsAwarded: 0,
-                        confidence: 0.50,
-                        flaggedForReview: true,
-                        flagReason: "double_mark",
-                        flagDetails: "Both bubbles [A] and [C] are filled on the answer sheet. Please verify student's true intent.",
-                        detectedOptions: ["A", "C"],
-                    },
-                    { questionNumber: 5, studentAnswer: "D", correctAnswer: "D", isCorrect: true, pointsAwarded: 1, confidence: 0.98 },
-                    { questionNumber: 6, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1, confidence: 0.94 },
-                    {
-                        questionNumber: 7,
-                        studentAnswer: "C",
-                        correctAnswer: "C",
-                        isCorrect: true,
-                        pointsAwarded: 1,
-                        confidence: 0.58,
-                        flaggedForReview: true,
-                        flagReason: "unclear",
-                        flagDetails: "Faint or smudged pencil marking detected for bubble [C].",
-                        detectedOptions: ["C"],
-                    },
-                    { questionNumber: 8, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1, confidence: 0.97 },
-                    { questionNumber: 9, studentAnswer: "D", correctAnswer: "D", isCorrect: true, pointsAwarded: 1, confidence: 0.91 },
-                    { questionNumber: 10, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1, confidence: 0.96 },
-                ],
-            });
-        }, 700);
-    }
+
 
     // ── Run AI Grading ─────────────────────────────────────────────────────────
     async function processGrading(base64Data: string, mimeType: "image/jpeg" | "image/png") {
@@ -604,7 +556,7 @@ export default function GraderTab({
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.cardHeaderSub}>SCANNED STUDENT SHEET</Text>
                                 <Text style={styles.cardStudentName} numberOfLines={1}>
-                                    {gradingResult.studentName || "Sarah Jenkins"}
+                                    {gradingResult.studentName || "Student"}
                                 </Text>
                             </View>
                             <View style={[styles.scoreBadgePill, { backgroundColor: accentColor || "#F97316" }]}>
@@ -916,21 +868,6 @@ export default function GraderTab({
                             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                         </TouchableOpacity>
 
-                        {/* Demo Sheet Option */}
-                        <TouchableOpacity
-                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border }]}
-                            onPress={handleLoadDemo}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.sheetBtnIcon, { backgroundColor: "#6366F118" }]}>
-                                <Ionicons name="sparkles" size={20} color="#6366F1" />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Load Demo (Sarah Jenkins - 2 Flagged Bubbles)</Text>
-                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Includes double-shaded & faint marks to test manual fix</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-                        </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.sheetCancelBtn}

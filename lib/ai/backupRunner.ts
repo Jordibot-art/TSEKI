@@ -78,7 +78,8 @@ function buildAttempts(provider: AIProvider, models: string[]) {
  * explicitly selected, because a missing local server would just time out.
  */
 export function buildProviderPlans(config: BackupAIConfig, kind: BackupTaskKind): ProviderPlan[] {
-    const order: AIProvider[] = uniq([config.provider, "openrouter", "groq"]) as AIProvider[];
+    // Failover priority: Groq first (high speed LPU), then OpenRouter / OpenAI
+    const order: AIProvider[] = uniq(["groq", config.provider, "openrouter"]) as AIProvider[];
     const plans: ProviderPlan[] = [];
 
     for (const provider of order) {
