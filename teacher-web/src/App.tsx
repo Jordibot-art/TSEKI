@@ -1,16 +1,16 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { CheckCircle2, Loader2 } from "lucide-react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import AppLayout from "./layouts/AppLayout";
-import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
-import ClassroomsPage from "./pages/ClassroomsPage";
-import ClassroomDetailPage from "./pages/ClassroomDetailPage";
-import AssessmentsPage from "./pages/AssessmentsPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
+import AssessmentsPage from "./pages/AssessmentsPage";
+import ClassroomDetailPage from "./pages/ClassroomDetailPage";
+import ClassroomsPage from "./pages/ClassroomsPage";
+import DashboardPage from "./pages/DashboardPage";
 import ExcelPage from "./pages/ExcelPage";
+import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
-import { CheckCircle2, Loader2 } from "lucide-react";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -110,7 +110,7 @@ export default function App() {
               <Route path="classrooms" element={<ClassroomsPage />} />
               <Route path="classrooms/:id" element={<ClassroomDetailPage />} />
               <Route path="assessments" element={<AssessmentsPage />} />
-          <Route path="excel" element={<ExcelPage />} />
+              <Route path="excel" element={<ExcelPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

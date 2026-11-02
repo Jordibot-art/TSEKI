@@ -15,7 +15,16 @@ import {
   View,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
-import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
+import { BondPaperSize } from "../lib/paperSheetExporter";
+import { generatePrintPackage } from "../lib/printEngine";
+import {
+  computeAssessmentCacheKey,
+  getCachedPdfUri,
+  shareCachedPdfUri,
+  sharePdfBytes,
+  writeCachedPdf,
+} from "../lib/printEngine/mobileShare";
+import { runOnDeviceSmokeTest } from "../lib/printEngine/smokeTest";
 import {
   deleteDraftQuiz,
   deletePublishedQuiz,
@@ -308,22 +317,92 @@ export default function SettingsScreen() {
     );
   }
 
+  const [runningSmokeTest, setRunningSmokeTest] = useState(false);
+
   // ── Export PDF Paper Sheet ─────────────────────────────────────────────────
   async function handleExportPaper(quiz: StoredQuiz, includeKey: boolean = false, paperSize: BondPaperSize = "short") {
     setExportModalVisible(false);
+    const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
+    const cacheKey = computeAssessmentCacheKey(quiz, {
+      paperSize,
+      version: "A",
+      target,
+      forceSeparate: false,
+    }, includeKey ? "key" : "student");
+
+    const safeTitle = (quiz.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
+    const suggestedFileName = includeKey
+      ? `${safeTitle}_Answer_Key.pdf`
+      : `${safeTitle}_Student_Paper_${paperSize.toUpperCase()}.pdf`;
+    const dialogTitle = includeKey
+      ? `${quiz.quizTitle} — Teacher Answer Key`
+      : `${quiz.quizTitle} — Student Paper`;
+
+    // 1. Instant check in cache (0ms) - If already cached, no loading screen!
+    const cachedUri = await getCachedPdfUri(cacheKey);
+    if (cachedUri) {
+      shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch(console.warn);
+      return;
+    }
+
+    // 2. Uncached build fallback
     setExportingPdf(true);
     try {
-      await exportPaperSheet({
-        assessment: quiz,
+      const printPkg = await generatePrintPackage(quiz, {
+        paperSize,
+        version: "A",
         classTitle: quiz.classTitle || "Classroom Assessment",
         subject: quiz.subject || "General Subject",
-        includeAnswerKey: includeKey,
-        paperSize,
+        quizId: quiz.id || `QZ-${Date.now().toString().slice(-6)}`,
+        target,
       });
+
+      if (includeKey) {
+        await writeCachedPdf(cacheKey, printPkg.answerKeyPdf);
+        await sharePdfBytes(
+          printPkg.answerKeyPdf,
+          suggestedFileName,
+          dialogTitle
+        );
+      } else {
+        const studentBytes = printPkg.combinedStudentPdf || printPkg.studentPdf;
+        await writeCachedPdf(cacheKey, studentBytes);
+        await sharePdfBytes(
+          studentBytes,
+          suggestedFileName,
+          dialogTitle
+        );
+      }
     } catch (err: any) {
       Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
     } finally {
       setExportingPdf(false);
+    }
+  }
+
+  async function handleRunSmokeTest() {
+    setRunningSmokeTest(true);
+    try {
+      const res = await runOnDeviceSmokeTest();
+      if (!res.success) {
+        Alert.alert("Smoke Test Failed", res.error || "Unknown error during 2-page PDF build.");
+        return;
+      }
+
+      await sharePdfBytes(
+        res.pdfBytes,
+        "Tseki_SmokeTest_2Page.pdf",
+        `Smoke Test Verified (${res.pageCount} pages, ${res.durationMs}ms)`
+      );
+
+      Alert.alert(
+        "Print Engine Verified!",
+        `Generated ${res.pageCount}-page PDF (${Math.round(res.byteSize / 1024)} KB) in ${res.durationMs}ms.\n\n• Font Load: ${res.fontLoadMs}ms\n• Layout Pass (LAYOUT_ONLY): ${res.layoutPassMs}ms\n• 2-Page PDF Build: ${res.pdfBuildMs}ms\n• File Write: ${res.fileWriteMs}ms\n• Symbols (≥ ≤ → α β π “ ”) rendered cleanly`
+      );
+    } catch (err: any) {
+      Alert.alert("Smoke Test Error", err.message || "Could not run smoke test.");
+    } finally {
+      setRunningSmokeTest(false);
     }
   }
 
@@ -588,6 +667,31 @@ export default function SettingsScreen() {
               thumbColor="#FFFFFF"
             />
           </View>
+        </View>
+
+        {/* ── Print Engine Diagnostics ── */}
+        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>PRINT ENGINE DIAGNOSTICS</Text>
+        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+          <TouchableOpacity
+            style={styles.rowBase}
+            onPress={handleRunSmokeTest}
+            disabled={runningSmokeTest}
+          >
+            <View style={[styles.iconWrap, { backgroundColor: "#10B98122" }]}>
+              {runningSmokeTest ? (
+                <ActivityIndicator size="small" color="#10B981" />
+              ) : (
+                <Ionicons name="print-outline" size={20} color="#10B981" />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: textMain }]}>Run 2-Page PDF Smoke Test</Text>
+              <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
+                Verifies Noto Sans fontkit symbols (≥ ≤ → α β π) & layout speed
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={textSub} />
+          </TouchableOpacity>
         </View>
 
         {/* ── Session ── */}

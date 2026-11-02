@@ -137,14 +137,20 @@ export default function ClassroomsPage() {
         encodedSection = encodedSection ? `${encodedSection} || ${schedule.trim()}` : `|| ${schedule.trim()}`;
       }
 
-      await supabase.from("classrooms").insert({
+      const payload: any = {
         teacher_id: user!.id,
         title: title.trim(),
         subject: subject.trim() || null,
         section: encodedSection || null,
         room: room.trim() || null,
         color: selectedColor,
-      });
+      };
+
+      const { error } = await supabase.from("classrooms").insert(payload);
+      if (error && (error.message?.includes("color") || error.code === "PGRST204" || error.message?.includes("schema cache"))) {
+        delete payload.color;
+        await supabase.from("classrooms").insert(payload);
+      }
 
       setShowModal(false);
       resetForm();

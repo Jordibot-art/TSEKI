@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { GeneratedAssessment } from "./quizGeneratorService";
 import { supabase } from "../supabase";
+import { AnswerVariant, LayoutJSON } from "./printEngine/types";
+import { GeneratedAssessment } from "./quizGeneratorService";
 
 export interface StoredQuiz extends GeneratedAssessment {
     id: string;
@@ -16,6 +17,8 @@ export interface StoredQuiz extends GeneratedAssessment {
     status?: "DRAFT" | "PUBLISHED" | "ARCHIVE";
     updatedAt?: string;
     isCloudSynced?: boolean;
+    layoutJson?: LayoutJSON;
+    answerVariants?: AnswerVariant[];
 }
 
 const STORAGE_PREFIX = "tseki_quizzes_";
@@ -83,6 +86,7 @@ function mapDbRowToStoredQuiz(row: any): StoredQuiz {
         gradeLevel: row.grade_level,
         questions: Array.isArray(row.questions) ? row.questions : [],
         answerKey: Array.isArray(row.answer_key) ? row.answer_key : [],
+        layoutJson: row.layout_json || undefined,
         status: "ARCHIVE",
         createdAt: row.created_at || new Date().toISOString(),
         updatedAt: row.updated_at || new Date().toISOString(),
@@ -103,6 +107,7 @@ function mapStoredQuizToDbPayload(quiz: StoredQuiz, teacherId: string): any {
         grade_level: quiz.gradeLevel || null,
         questions: quiz.questions || [],
         answer_key: quiz.answerKey || [],
+        layout_json: quiz.layoutJson || null,
         status: "ARCHIVE",
         updated_at: new Date().toISOString(),
     };
@@ -133,6 +138,8 @@ export async function savePublishedQuiz(
         difficulty: (assessment as any).difficulty,
         questionType: (assessment as any).questionType,
         gradeLevel: (assessment as any).gradeLevel,
+        layoutJson: (assessment as any).layoutJson,
+        answerVariants: (assessment as any).answerVariants,
         createdAt: (assessment as any).createdAt || nowIso,
         updatedAt: nowIso,
         status: "ARCHIVE",
@@ -152,7 +159,20 @@ export async function savePublishedQuiz(
             if (!dbError) {
                 newQuiz.isCloudSynced = true;
             } else {
-                console.warn("Could not save to Supabase archived_assessments:", dbError.message);
+                // If migration adding layout_json has not been run yet, retry without layout_json
+                if (dbError.message?.includes("layout_json") || dbError.code === "PGRST204") {
+                    const { layout_json, ...fallbackPayload } = dbPayload;
+                    const { error: retryError } = await supabase
+                        .from("archived_assessments")
+                        .upsert(fallbackPayload);
+                    if (!retryError) {
+                        newQuiz.isCloudSynced = true;
+                    } else {
+                        console.warn("Could not save to Supabase archived_assessments (retry):", retryError.message);
+                    }
+                } else {
+                    console.warn("Could not save to Supabase archived_assessments:", dbError.message);
+                }
             }
         }
     } catch (dbErr) {

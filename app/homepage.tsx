@@ -53,6 +53,28 @@ type ClassCard = {
 
 const CARD_COLORS = ["#FF6B00", "#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#EC4899"];
 
+// Local persistence for classroom theme colors (graceful fallback if Supabase table lacks color column)
+const CLASSROOM_COLORS_KEY = "tseki_classroom_colors";
+
+async function getClassroomColors(): Promise<Record<string, string>> {
+  try {
+    const raw = await AsyncStorage.getItem(CLASSROOM_COLORS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveClassroomColor(classroomId: string, color: string): Promise<void> {
+  try {
+    const map = await getClassroomColors();
+    map[classroomId] = color;
+    await AsyncStorage.setItem(CLASSROOM_COLORS_KEY, JSON.stringify(map));
+  } catch (err) {
+    console.warn("Failed to persist classroom color locally:", err);
+  }
+}
+
 // ── Orange & White Theme Palette ────────────────────────────────
 const ORANGE = "#FF6B00";
 const ORANGE_LIGHT = "#FFF7ED";
@@ -116,22 +138,33 @@ export default function HomePage() {
   );
 
   async function loadClassrooms() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    try {
+      let user = (await supabase.auth.getUser()).data?.user;
+      if (!user) {
+        user = (await supabase.auth.getSession()).data?.session?.user ?? null;
+      }
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
-    const teacherName =
-      user.user_metadata?.full_name ||
-      user.user_metadata?.username ||
-      user.user_metadata?.name ||
-      user.email?.split("@")[0] ||
-      "";
-    setUserName(teacherName);
+      const teacherName =
+        user.user_metadata?.full_name ||
+        user.user_metadata?.username ||
+        user.user_metadata?.name ||
+        user.email?.split("@")[0] ||
+        "";
+      setUserName(teacherName);
 
-    const { data: classrooms, error } = await supabase
-      .from("classrooms")
-      .select("*")
-      .eq("teacher_id", user.id)
-      .order("created_at", { ascending: true });
+      const { data: classrooms, error } = await supabase
+        .from("classrooms")
+        .select("*")
+        .eq("teacher_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Failed to load classrooms from database:", error);
+      }
 
     if (!error && classrooms) {
       const classroomIds = classrooms.map((row: any) => row.id);
@@ -245,6 +278,8 @@ export default function HomePage() {
         );
       }
 
+      const localColors = await getClassroomColors();
+
       setCards(
         classrooms.map((row: any, i: number) => {
           const realStudentCount = studentCounts[row.id];
@@ -263,6 +298,8 @@ export default function HomePage() {
             parsedSchedule = (parts[1] || "").toUpperCase();
           }
 
+          const cardColor = row.color || localColors[row.id] || CARD_COLORS[i % CARD_COLORS.length];
+
           return {
             id: row.id,
             title: (row.title || "").toUpperCase(),
@@ -270,7 +307,7 @@ export default function HomePage() {
             section: parsedSection,
             room: (row.room || "").toUpperCase(),
             schedule: parsedSchedule,
-            color: row.color || CARD_COLORS[i % CARD_COLORS.length],
+            color: cardColor,
             students: displayStudents,
             quizzes: displayQuizzes,
             flagged: displayFlagged,
@@ -278,8 +315,12 @@ export default function HomePage() {
         })
       );
     }
+  } catch (err) {
+    console.error("Unexpected error in loadClassrooms:", err);
+  } finally {
     setLoading(false);
   }
+}
 
   const unreadAlertsCount = alerts.filter((a) => !a.isRead).length;
 
@@ -384,52 +425,115 @@ export default function HomePage() {
     if (!classTitle.trim() || saving) return;
 
     setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
+    try {
+      // 1. Resolve authenticated teacher (with getSession fallback for AsyncStorage cached session)
+      let user = (await supabase.auth.getUser()).data?.user;
+      if (!user) {
+        user = (await supabase.auth.getSession()).data?.session?.user ?? null;
+      }
 
-    const finalTitle = classTitle.trim().toUpperCase();
-    const finalSubject = subject.trim() ? subject.trim().toUpperCase() : "";
-    const finalSection = section.trim() ? section.trim().toUpperCase() : "";
-    const finalRoom = room.trim() ? room.trim().toUpperCase() : "";
-    const finalSchedule = schedule.trim() ? schedule.trim().toUpperCase() : "";
+      if (!user) {
+        Alert.alert(
+          "Session Expired",
+          "You must be signed in to create a class. Please log in again."
+        );
+        setSaving(false);
+        return;
+      }
 
-    let encodedSection = finalSection;
-    if (finalSchedule) {
-      encodedSection = encodedSection ? `${encodedSection} || ${finalSchedule}` : `|| ${finalSchedule}`;
-    }
+      const finalTitle = classTitle.trim().toUpperCase();
+      const finalSubject = subject.trim() ? subject.trim().toUpperCase() : "";
+      const finalSection = section.trim() ? section.trim().toUpperCase() : "";
+      const finalRoom = room.trim() ? room.trim().toUpperCase() : "";
+      const finalSchedule = schedule.trim() ? schedule.trim().toUpperCase() : "";
 
-    const { data, error } = await supabase
-      .from("classrooms")
-      .insert({
+      let encodedSection = finalSection;
+      if (finalSchedule) {
+        encodedSection = encodedSection ? `${encodedSection} || ${finalSchedule}` : `|| ${finalSchedule}`;
+      }
+
+      // 2. Insert into Supabase classrooms table
+      const insertPayload: any = {
         teacher_id: user.id,
         title: finalTitle,
         subject: finalSubject || null,
         section: encodedSection || null,
         room: finalRoom || null,
         color: selectedColor,
-      })
-      .select()
-      .single();
-
-    if (!error && data) {
-      const newCard: ClassCard = {
-        id: data.id,
-        title: data.title,
-        subject: data.subject || "",
-        section: finalSection,
-        room: data.room || "",
-        schedule: finalSchedule,
-        color: data.color || selectedColor,
-        students: 0,
-        quizzes: 0,
-        flagged: 0,
       };
-      setCards((prev) => [...prev, newCard]);
-    }
 
-    Keyboard.dismiss();
-    setSaving(false);
-    setModalVisible(false);
+      let { data, error } = await supabase
+        .from("classrooms")
+        .insert(insertPayload)
+        .select();
+
+      // If 'color' column does not exist yet in Supabase schema cache, retry without 'color'
+      if (
+        error &&
+        (error.message?.includes("color") ||
+          error.code === "PGRST204" ||
+          error.message?.includes("schema cache"))
+      ) {
+        delete insertPayload.color;
+        const retryResult = await supabase
+          .from("classrooms")
+          .insert(insertPayload)
+          .select();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
+
+      if (error) {
+        console.error("Failed to build class in Supabase:", error);
+        Alert.alert(
+          "Could Not Build Class",
+          error.message || "Failed to save classroom to database."
+        );
+        setSaving(false);
+        return;
+      }
+
+      const created = data && data.length > 0 ? data[0] : null;
+      if (created) {
+        await saveClassroomColor(created.id, selectedColor);
+
+        const newCard: ClassCard = {
+          id: created.id,
+          title: created.title,
+          subject: created.subject || "",
+          section: finalSection,
+          room: created.room || "",
+          schedule: finalSchedule,
+          color: selectedColor,
+          students: 0,
+          quizzes: 0,
+          flagged: 0,
+        };
+        setCards((prev) => [...prev, newCard]);
+      }
+
+      // 3. Re-sync with database to ensure counts and references are accurate
+      await loadClassrooms();
+
+      // 4. Reset form fields and close modal
+      setClassTitle("");
+      setSubject("");
+      setSection("");
+      setRoom("");
+      setSchedule("");
+      setSelectedColor(CARD_COLORS[0]);
+
+      Keyboard.dismiss();
+      setModalVisible(false);
+    } catch (err: any) {
+      console.error("Unexpected error in handleBuildClass:", err);
+      Alert.alert(
+        "Build Class Error",
+        err.message || "An unexpected error occurred while building the class."
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -601,6 +705,26 @@ export default function HomePage() {
             </View>
           </Pressable>
         ))}
+
+        {/* ── Empty State ── */}
+        {!loading && cards.length === 0 && (
+          <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 48, paddingHorizontal: 24 }}>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: ORANGE + "18", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+              <Ionicons name="school-outline" size={32} color={ORANGE} />
+            </View>
+            <Text style={{ fontSize: 17, fontWeight: "700", color: textMain, marginBottom: 6 }}>No Classrooms Yet</Text>
+            <Text style={{ fontSize: 13, color: textSub, textAlign: "center", lineHeight: 18, marginBottom: 20 }}>
+              Tap &quot;New Class&quot; above or the button below to build your first course and start grading!
+            </Text>
+            <TouchableOpacity
+              style={[styles.buildBtn, { backgroundColor: ORANGE, paddingHorizontal: 20, height: 44 }]}
+              onPress={openModal}
+            >
+              <Ionicons name="add-circle" size={18} color="#FFFFFF" />
+              <Text style={styles.buildBtnText}>Build Classroom</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* ── Fixed Bottom Info Banner ── */}
@@ -612,7 +736,7 @@ export default function HomePage() {
           <View style={styles.bannerTextContent}>
             <Text style={[styles.bannerTitle, { color: textMain }]}>{getTeacherGreeting(userName)}</Text>
             <Text style={[styles.bannerBody, { color: textSub }]} numberOfLines={3}>
-              I'm here to automate grading and flag struggling students! Open a class, tap the camera tab to grade sheets instantly, or use the AI Generator to build standard-based quizzes.
+              I&apos;m here to automate grading and flag struggling students! Open a class, tap the camera tab to grade sheets instantly, or use the AI Generator to build standard-based quizzes.
             </Text>
           </View>
         </View>
@@ -959,7 +1083,7 @@ export default function HomePage() {
             <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
             <Text style={[styles.confirmModalDesc, { color: textSub }]}>
               Are you sure you want to permanently delete{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>"{classToDelete?.title}"</Text>?
+              <Text style={{ fontWeight: "700", color: textMain }}>&ldquo;{classToDelete?.title}&rdquo;</Text>?
               {"\n\n"}This will permanently remove all enrolled students, quizzes, answer keys, and grade records.
             </Text>
 

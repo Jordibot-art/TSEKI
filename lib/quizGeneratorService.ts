@@ -57,8 +57,8 @@ export async function generateScannableQuiz(
     const rawDiff = params.difficulty || "Medium (Application & Analysis)";
     const diffCategory: "Easy" | "Medium" | "Hard" =
         rawDiff.toLowerCase().includes("easy") ? "Easy" :
-            rawDiff.toLowerCase().includes("hard") ? "Hard" :
-                "Medium";
+        rawDiff.toLowerCase().includes("hard") ? "Hard" :
+        "Medium";
 
     const subj = params.subject || "General Education";
     const grade = params.gradeLevel || "Grade 10";
@@ -128,7 +128,7 @@ ${lessonNotesInstruction}
 `;
     }
 
-    let promptText = `
+    const promptText = `
 You are an expert curriculum designer and psychometrician. Generate an educational assessment based on the requested materials and the STRICT cognitive difficulty guidelines below.
 
 Assessment Parameters:
@@ -156,17 +156,17 @@ CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
    - correctAnswer: Single letter "T" or "F"
 
 3. If Question Type Preference is "Identification" or "Fill in the Blank":
-   - Every question MUST have type: "identification"
+   - Every question MUST have type: "identification" (or "fill_blank" if Fill in the Blank)
    - options: [] (MUST BE AN EMPTY ARRAY - DO NOT PROVIDE CHOICES!)
    - answerBoxesRequired: 1
-   - correctAnswer: The exact concept, term, name, or word being tested (e.g. "Photosynthesis", "Isaac Newton")
+   - correctAnswer: The exact concept, term, name, or word being tested (e.g. "Photosynthesis", "Isaac Newton"). MUST be 1 to 3 words, MAXIMUM 25 characters to fit handwritten paper boxes!
 
 4. If Question Type Preference is "Enumeration":
    - Every question MUST have type: "enumeration"
    - questionText: clearly state how many items to enumerate (e.g. "Name 3 greenhouse gases:", "List the 4 cardinal directions:")
    - options: [] (MUST BE AN EMPTY ARRAY - DO NOT PROVIDE CHOICES!)
    - answerBoxesRequired: The number of items to enumerate (between 2 and 4)
-   - correctAnswer: Comma-separated list of items (e.g. "Carbon dioxide, Methane, Water vapor")
+   - correctAnswer: Comma-separated list of items (e.g. "Carbon dioxide, Methane, Water vapor"). Each individual item MUST be concise (1 to 3 words, under 25 characters)!
 
 5. If Question Type Preference is "Word Box" or "Word Bank":
    - Every question MUST have type: "word_box"
@@ -179,10 +179,10 @@ CRITICAL QUESTION TYPE RULES (Strictly match "${qType}"):
 6. If Question Type Preference is "Mixed Assessment" or contains "Mixed Assessment":
    - If specific parts/types are listed (e.g. "include ONLY these parts sequentially: Part I. Multiple Choice, Part II. Enumeration, Part III. True / False"):
      * You MUST ONLY include the specified question types. Do NOT generate any unselected question types.
-     * Organize the questions sequentially into sections matching those types (e.g. Part I questions first, Part II questions next, Part III questions after), maintaining continuous overall question numbering (1, 2, 3... up to ${count}).
-     * Distribute the total question count evenly across the chosen parts.
+     * Organize the questions sequentially into sections in the EXACT order the parts are listed (e.g. Part I questions first, Part II questions next, Part III questions after), maintaining continuous overall question numbering (1, 2, 3... up to ${count}).
+     * If exact per-part item counts are specified in parentheses (e.g. "Part I. Multiple Choice (5 items)"), generate that exact number of items for each part. Otherwise distribute the total question count evenly across the chosen parts.
    - If no specific parts are specified, create a balanced pedagogical mix across Multiple Choice, True / False, Identification, Word Box, and Enumeration.
-   - Each individual question MUST strictly follow its respective formatting rules from items 1 to 5 above.
+   - Each individual question MUST strictly follow its respective formatting rules from items 1 to 5 above (including the strict 1-3 words, <= 25 characters limit on text/enumeration answers).
 
 You MUST return ONLY a strict, valid JSON object. Do not include markdown formatting (like \`\`\`json). The JSON must perfectly follow this structure so it can be rendered into a scannable test paper:
 
@@ -191,7 +191,7 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
   "questions": [
     {
       "questionNumber": 1,
-      "type": "multiple_choice", // Must be one of: "multiple_choice", "true_false", "identification", "enumeration", "word_box"
+      "type": "multiple_choice", // Must be one of: "multiple_choice", "true_false", "fill_blank", "identification", "enumeration", "word_box"
       "questionText": "What is the capital of France?",
       "options": ["A) London", "B) Paris", "C) Berlin", "D) Rome"], // Leave empty [] if identification or enumeration. For word_box: plain words WITHOUT letter prefixes e.g. ["Paris", "London", "Berlin", "Rome"]
       "answerBoxesRequired": 1 // 1 for MC/TF/Identification/WordBox, 2-4 for Enumeration
@@ -238,7 +238,6 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
             lastError = apiErr;
             const errMsg = apiErr?.message || "";
             const is429 = errMsg.includes("429") || errMsg.includes("quota");
-            const is404 = errMsg.includes("404") || errMsg.includes("not found");
             const is503 = errMsg.includes("503");
 
             console.warn(`[QuizGen] Model ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);

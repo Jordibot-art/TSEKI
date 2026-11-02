@@ -8,6 +8,7 @@ import {
     KeyboardAvoidingView,
     Modal,
     Platform,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -22,7 +23,14 @@ import {
     parseDocumentFile,
     SupportedDocType,
 } from "../lib/documentParserService";
-import { BondPaperSize, exportPaperSheet } from "../lib/paperSheetExporter";
+import { BondPaperSize } from "../lib/paperSheetExporter";
+import { generatePrintPackage, validateAnswerLengths } from "../lib/printEngine";
+import {
+    computeAssessmentCacheKey,
+    getCachedPdfUri,
+    shareCachedPdfUri,
+    writeCachedPdf,
+} from "../lib/printEngine/mobileShare";
 import {
     AnswerKeyItem,
     GeneratedAssessment,
@@ -202,6 +210,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [gradeLevel, setGradeLevel] = useState("Grade 11 (SHS)");
     const [questionType, setQuestionType] = useState("Multiple Choice");
     const [mixedTypes, setMixedTypes] = useState<string[]>(["multiple_choice", "enumeration", "true_false"]);
+    const [mixedPartCounts, setMixedPartCounts] = useState<Record<string, number>>({});
     const [questionCount, setQuestionCount] = useState("20 Questions");
     const [difficulty, setDifficulty] = useState("Medium (Application & Analysis)");
     const [attachedFile, setAttachedFile] = useState<{
@@ -218,8 +227,41 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [showResults, setShowResults] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
     const [exportingPdf, setExportingPdf] = useState(false);
+    const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
+    const [forceSeparateMode, setForceSeparateMode] = useState(false);
+    const [editingAnswerQNum, setEditingAnswerQNum] = useState<number | null>(null);
+    const [editingAnswerText, setEditingAnswerText] = useState("");
     const [savingDraft, setSavingDraft] = useState(false);
     const [publishingQuiz, setPublishingQuiz] = useState(false);
+
+    // Keep per-part item split synchronized when questionCount or mixedTypes changes
+    const totalCountNumeric = parseInt(questionCount.split(" ")[0], 10) || 20;
+    useEffect(() => {
+        if (mixedTypes.length === 0) return;
+        const base = Math.floor(totalCountNumeric / mixedTypes.length);
+        const rem = totalCountNumeric % mixedTypes.length;
+        const nextCounts: Record<string, number> = {};
+        mixedTypes.forEach((key, idx) => {
+            nextCounts[key] = base + (idx === 0 ? rem : 0);
+        });
+        setMixedPartCounts(nextCounts);
+    }, [totalCountNumeric, mixedTypes]);
+
+    function adjustPartCount(partKey: string, delta: number) {
+        const idx = mixedTypes.indexOf(partKey);
+        if (idx === -1 || mixedTypes.length < 2) return;
+        const currentVal = mixedPartCounts[partKey] ?? 1;
+        const nextVal = currentVal + delta;
+        if (nextVal < 1) return;
+        const otherKey = mixedTypes[(idx + 1) % mixedTypes.length];
+        const otherVal = mixedPartCounts[otherKey] ?? 1;
+        if (otherVal - delta < 1) return;
+        setMixedPartCounts((prev) => ({
+            ...prev,
+            [partKey]: nextVal,
+            [otherKey]: otherVal - delta,
+        }));
+    }
 
     // ── Manual Add Question state ─────────────────────────────────────────────
     const [addQuestionModalOpen, setAddQuestionModalOpen] = useState(false);
@@ -290,14 +332,17 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
             const count = parseInt(questionCount.split(" ")[0], 10) || 10;
 
-            // Build the effective question type string
+            // Build the effective question type string preserving exact tick order and per-part item split
             let effectiveQuestionType = questionType;
             if (questionType === "Mixed Assessment" && mixedTypes.length > 0) {
                 const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
-                const selectedLabels = MIXED_TYPE_OPTIONS
-                    .filter((opt) => mixedTypes.includes(opt.key))
-                    .map((opt, idx) => `Part ${romanNumerals[idx]}. ${opt.label}`);
-                effectiveQuestionType = `Mixed Assessment (include ONLY these parts sequentially: ${selectedLabels.join(", ")})`;
+                const selectedLabels = mixedTypes.map((key, idx) => {
+                    const opt = MIXED_TYPE_OPTIONS.find((o) => o.key === key);
+                    const label = opt ? opt.label : key;
+                    const partCount = mixedPartCounts[key] ?? Math.max(1, Math.floor(count / mixedTypes.length));
+                    return `Part ${romanNumerals[idx]}. ${label} (${partCount} items)`;
+                });
+                effectiveQuestionType = `Mixed Assessment (include ONLY these parts sequentially in this exact order and count: ${selectedLabels.join(", ")})`;
             }
 
             const assessment = await generateScannableQuiz({
@@ -461,18 +506,100 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         );
     }
 
-    async function handleExportPaper(includeKey: boolean = false, paperSize: BondPaperSize = "short") {
-        setExportModalOpen(false);
+    function handleSaveInlineAnswerEdit(questionNumber: number) {
         if (!generatedAssessment) return;
+        const trimmed = editingAnswerText.trim();
+        if (!trimmed) return;
+        const updatedKey = generatedAssessment.answerKey.map((k) =>
+            k.questionNumber === questionNumber ? { ...k, correctAnswer: trimmed } : k
+        );
+        const updated = {
+            ...generatedAssessment,
+            answerKey: updatedKey,
+        };
+        setGeneratedAssessment(updated);
+        setEditingAnswerQNum(null);
+        setEditingAnswerText("");
+    }
+
+    async function handleExportPaper(
+        includeKey: boolean = false,
+        paperSize: BondPaperSize = "short",
+        versionOverride?: "A" | "B" | "C"
+    ) {
+        if (!generatedAssessment || exportingPdf) return;
+        setExportModalOpen(false);
+
+        const activeVersion = versionOverride || exportVersion;
+        const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
+        const cacheKey = computeAssessmentCacheKey(
+            generatedAssessment,
+            {
+                paperSize,
+                version: activeVersion,
+                target,
+                forceSeparate: forceSeparateMode,
+            },
+            includeKey ? "key" : "student"
+        );
+
+        const safeTitle = (generatedAssessment.quizTitle || "Assessment").replace(/[^a-zA-Z0-9]/g, "_");
+        const suggestedFileName = includeKey
+            ? `${safeTitle}_Answer_Key_Set_${activeVersion}.pdf`
+            : `${safeTitle}_Set_${activeVersion}_${paperSize.toUpperCase()}.pdf`;
+        const dialogTitle = includeKey
+            ? `${generatedAssessment.quizTitle} — Teacher Answer Key`
+            : `${generatedAssessment.quizTitle} — Student Paper (Set ${activeVersion})`;
+
+        // 1. Instant check in cache (0ms) - If already cached, NO LOADING SCREEN!
+        const cachedUri = await getCachedPdfUri(cacheKey);
+        if (cachedUri) {
+            shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch((err) => {
+                console.warn("Share cached PDF error:", err);
+            });
+            return;
+        }
+
+        // 2. Build PDF cleanly on demand and cache for subsequent 0ms exports
         setExportingPdf(true);
         try {
-            await exportPaperSheet({
-                assessment: generatedAssessment,
+            // Give React Native a short frame tick to render the loading indicator
+            await new Promise((r) => setTimeout(r, 60));
+            const printPkg = await generatePrintPackage(generatedAssessment, {
+                paperSize,
+                version: activeVersion,
                 classTitle,
                 subject,
-                includeAnswerKey: includeKey,
-                paperSize,
+                gradeLevel,
+                forceSeparate: forceSeparateMode,
+                quizId: `QZ-${Date.now().toString().slice(-6)}`,
+                target,
             });
+
+            const bytesToExport = includeKey
+                ? printPkg.answerKeyPdf
+                : (printPkg.combinedStudentPdf || printPkg.studentPdf);
+
+            if (!bytesToExport || bytesToExport.length === 0) {
+                throw new Error("Generated PDF has no content.");
+            }
+
+            // Cache it for instant subsequent exports
+            const fileUri = await writeCachedPdf(cacheKey, bytesToExport);
+
+            // Also write under clean human-friendly file name for sharing / printing
+            const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
+
+            // Hide the progress modal BEFORE launching native sharing to prevent screen freeze
+            setExportingPdf(false);
+
+            await shareCachedPdfUri(
+                shareUri || fileUri,
+                includeKey
+                    ? `${generatedAssessment.quizTitle} — Teacher Answer Key`
+                    : `${generatedAssessment.quizTitle} — Student Paper (${printPkg.fitMessage})`,
+                suggestedFileName
+            );
         } catch (err: any) {
             Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
         } finally {
@@ -482,19 +609,60 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     async function handlePublishQuiz() {
         if (!generatedAssessment || publishingQuiz) return;
+
+        // Validate answer lengths before publishing
+        const flaggedQuestions = validateAnswerLengths(generatedAssessment);
+        if (flaggedQuestions.length > 0) {
+            const flaggedDetails = flaggedQuestions
+                .map((f) => `• Q#${f.questionNumber}: "${f.answer}" (${f.charCount} chars, ${f.wordCount} words)`)
+                .join("\n");
+            Alert.alert(
+                "Long Answers Detected",
+                `Some answers exceed the scannable box limit (max 25 chars / 3 words):\n\n${flaggedDetails}\n\nYou can edit them directly on the cards below or publish anyway.`,
+                [
+                    { text: "Shorten Answers", style: "cancel" },
+                    { text: "Publish Anyway", onPress: () => executePublish() },
+                ]
+            );
+            return;
+        }
+
+        await executePublish();
+    }
+
+    async function executePublish() {
+        if (!generatedAssessment || publishingQuiz) return;
         setPublishingQuiz(true);
         try {
+            const quizId = `QZ-${Date.now().toString().slice(-6)}`;
+
+            // 1. Instant layout-only pass (< 50 ms, does not construct PDFDocument)
+            const printPkg = await generatePrintPackage(generatedAssessment, {
+                paperSize: "short",
+                version: "A",
+                classTitle,
+                subject,
+                gradeLevel,
+                quizId,
+                target: "LAYOUT_ONLY",
+            });
+
             const quizWithMeta = {
                 ...generatedAssessment,
                 subject,
                 difficulty,
                 questionType,
                 gradeLevel,
+                layoutJson: printPkg.layoutJson,
+                answerVariants: printPkg.layoutJson.answerVariants,
             };
             await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
+
+
+
             Alert.alert(
                 "Quiz Published!",
-                `"${generatedAssessment.quizTitle}" is published to ${classTitle} and saved to your cloud database archive. It is ready for camera grading in the Grader tab and synced across all your devices!`,
+                `"${generatedAssessment.quizTitle}" is published to ${classTitle} with scannable layout coordinates (${printPkg.fitMessage}). Ready for camera grading in the Grader tab!`,
                 [
                     {
                         text: "Go to Grader to Scan",
@@ -702,8 +870,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
                             <View style={styles.mixedPickerGrid}>
                                 {MIXED_TYPE_OPTIONS.map((opt) => {
-                                    const selectedFiltered = MIXED_TYPE_OPTIONS.filter((o) => mixedTypes.includes(o.key));
-                                    const orderIndex = selectedFiltered.findIndex((o) => o.key === opt.key);
+                                    const orderIndex = mixedTypes.indexOf(opt.key);
                                     const isSelected = orderIndex !== -1;
                                     const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
                                     const roman = isSelected ? romanNumerals[orderIndex] : null;
@@ -752,6 +919,70 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     );
                                 })}
                             </View>
+
+                            {/* Per-Part Item Split Editor (in exact tick order) */}
+                            {mixedTypes.length >= 2 && (
+                                <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: border }}>
+                                    <Text style={{ fontSize: 11, fontWeight: "700", color: textSub, marginBottom: 6 }}>
+                                        ITEMS PER PART (TICK ORDER)
+                                    </Text>
+                                    {mixedTypes.map((key, idx) => {
+                                        const opt = MIXED_TYPE_OPTIONS.find((o) => o.key === key);
+                                        const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
+                                        const countVal = mixedPartCounts[key] ?? 1;
+                                        return (
+                                            <View
+                                                key={`split_${key}`}
+                                                style={{
+                                                    flexDirection: "row",
+                                                    alignItems: "center",
+                                                    justifyContent: "space-between",
+                                                    paddingVertical: 5,
+                                                }}
+                                            >
+                                                <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain }}>
+                                                    Part {romanNumerals[idx]}. {opt?.label || key}
+                                                </Text>
+                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                                    <TouchableOpacity
+                                                        onPress={() => adjustPartCount(key, -1)}
+                                                        style={{
+                                                            width: 24,
+                                                            height: 24,
+                                                            borderRadius: 6,
+                                                            borderWidth: 1,
+                                                            borderColor: border,
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                                                        }}
+                                                    >
+                                                        <Ionicons name="remove" size={14} color={textMain} />
+                                                    </TouchableOpacity>
+                                                    <Text style={{ fontSize: 13, fontWeight: "700", color: accentColor, minWidth: 26, textAlign: "center" }}>
+                                                        {countVal}
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        onPress={() => adjustPartCount(key, 1)}
+                                                        style={{
+                                                            width: 24,
+                                                            height: 24,
+                                                            borderRadius: 6,
+                                                            borderWidth: 1,
+                                                            borderColor: border,
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                                                        }}
+                                                    >
+                                                        <Ionicons name="add" size={14} color={textMain} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            )}
                         </View>
                     )}
 
@@ -822,7 +1053,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </TouchableOpacity>
                     </View>
 
-                    {/* Quick Shuffle Toolbar */}
+                    {/* Quick Shuffle Toolbar & Print Cache Status Chip */}
                     <View style={styles.resultsActionsToolbar}>
                         <TouchableOpacity
                             style={[styles.quickShuffleBtn, { borderColor: accentColor + "55", backgroundColor: accentColor + "12" }]}
@@ -832,6 +1063,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             <Ionicons name="shuffle" size={15} color={accentColor} />
                             <Text style={[styles.quickShuffleBtnText, { color: accentColor }]}>Shuffle Questions (1..N)</Text>
                         </TouchableOpacity>
+
                     </View>
 
                     {/* ── Scannable Question Cards ── */}
@@ -949,14 +1181,92 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     </View>
                                 </View>
 
-                                {/* Official Answer Key Pill */}
-                                <View style={[styles.answerWrap, { borderLeftColor: accentColor, marginTop: 10 }]}>
-                                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                                        <Text style={styles.answerLabel}>OFFICIAL ANSWER KEY</Text>
-                                        <Text style={[styles.pointsBadge, { color: accentColor }]}>+{points} pt{points > 1 ? "s" : ""}</Text>
-                                    </View>
-                                    <Text style={[styles.answerText, { color: accentColor }]}>{correctAnswer}</Text>
-                                </View>
+                                {/* Official Answer Key Pill + Answer Length Flagging */}
+                                {(() => {
+                                    const isShortAnswerType =
+                                        q.type === "identification" ||
+                                        q.type === "fill_blank" ||
+                                        q.type === "enumeration";
+                                    const subItems = q.type === "enumeration"
+                                        ? correctAnswer.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)
+                                        : [correctAnswer.trim()];
+                                    const isTooLong =
+                                        isShortAnswerType &&
+                                        subItems.some(
+                                            (item) =>
+                                                item.length > 25 ||
+                                                item.split(/\s+/).filter(Boolean).length > 3
+                                        );
+                                    const isEditingThis = editingAnswerQNum === q.questionNumber;
+
+                                    return (
+                                        <View style={[styles.answerWrap, { borderLeftColor: isTooLong ? "#D97706" : accentColor, marginTop: 10 }]}>
+                                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                                                <Text style={styles.answerLabel}>OFFICIAL ANSWER KEY</Text>
+                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                                    {isShortAnswerType && !isEditingThis && (
+                                                        <TouchableOpacity
+                                                            onPress={() => {
+                                                                setEditingAnswerQNum(q.questionNumber);
+                                                                setEditingAnswerText(correctAnswer);
+                                                            }}
+                                                        >
+                                                            <Text style={{ fontSize: 11, fontWeight: "700", color: isTooLong ? "#D97706" : accentColor }}>
+                                                                Edit Answer
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    )}
+                                                    <Text style={[styles.pointsBadge, { color: accentColor }]}>
+                                                        +{points} pt{points > 1 ? "s" : ""}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            {isEditingThis ? (
+                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
+                                                    <TextInput
+                                                        style={{
+                                                            flex: 1,
+                                                            borderWidth: 1,
+                                                            borderColor: accentColor,
+                                                            borderRadius: 8,
+                                                            paddingHorizontal: 10,
+                                                            paddingVertical: 6,
+                                                            fontSize: 13,
+                                                            color: textMain,
+                                                            backgroundColor: inputBg,
+                                                        }}
+                                                        value={editingAnswerText}
+                                                        onChangeText={setEditingAnswerText}
+                                                        placeholder="1–3 words, max 25 chars"
+                                                        placeholderTextColor={textSub}
+                                                    />
+                                                    <TouchableOpacity
+                                                        onPress={() => handleSaveInlineAnswerEdit(q.questionNumber)}
+                                                        style={{
+                                                            backgroundColor: accentColor,
+                                                            paddingHorizontal: 12,
+                                                            paddingVertical: 7,
+                                                            borderRadius: 8,
+                                                        }}
+                                                    >
+                                                        <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "700" }}>Save</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            ) : (
+                                                <Text style={[styles.answerText, { color: isTooLong ? "#D97706" : accentColor }]}>
+                                                    {correctAnswer}
+                                                </Text>
+                                            )}
+
+                                            {isTooLong && (
+                                                <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706", marginTop: 4 }}>
+                                                    ⚠ Exceeds 25 chars / 3 words — shorten so it fits inside the scannable answer box.
+                                                </Text>
+                                            )}
+                                        </View>
+                                    );
+                                })()}
                             </View>
                         );
                     })}
@@ -1083,6 +1393,38 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 </View>
             </Modal>
 
+            {/* ── PDF Exporting Progress Overlay (shown only during uncached builds) ── */}
+            <Modal
+                visible={exportingPdf}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => { }}
+            >
+                <View style={styles.loadingOverlay}>
+                    <View style={styles.loadingCard}>
+                        <View style={[styles.loadingIconGlow, { backgroundColor: accentColor + "22" }]}>
+                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor }]}>
+                                <Ionicons name="print" size={28} color="#FFFFFF" />
+                            </View>
+                        </View>
+                        <Text style={styles.loadingTitle}>Preparing Scannable PDF</Text>
+                        <Text style={styles.loadingSub}>
+                            Formatting Set {exportVersion} test sheet and embedding scannable answer boxes...
+                        </Text>
+                        <View style={styles.spinnerWrap}>
+                            <ActivityIndicator size="large" color={accentColor} />
+                        </View>
+                        <View style={styles.loadingNoticeRow}>
+                            <Ionicons name="document-text-outline" size={14} color="#6B7280" />
+                            <Text style={styles.loadingNoticeText}>
+                                Optimizing layout for one-shot camera scanning.
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             {/* ── Export Paper Sheet Modal ── */}
             <Modal
                 visible={exportModalOpen}
@@ -1095,24 +1437,89 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     activeOpacity={1}
                     onPress={() => setExportModalOpen(false)}
                 >
-                    <View style={styles.exportSheet}>
+                    <Pressable
+                        style={[styles.exportSheet, { backgroundColor: cardBg }]}
+                        onPress={(e) => {
+                            e.stopPropagation?.();
+                        }}
+                    >
                         <View style={styles.exportSheetHeader}>
-                            <Text style={styles.exportSheetTitle}>Export Paper Sheet Layout</Text>
-                            <Text style={styles.exportSheetSub}>
+                            <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
+                            <Text style={[styles.exportSheetSub, { color: textSub }]}>
                                 Download, print, or share the physical test sheet formatted with scannable answer boxes.
                             </Text>
                         </View>
 
+                        {/* Anti-Cheating Version Selector (Set A / B / C) */}
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                            <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>TEST VERSION (SET):</Text>
+                            <View style={{ flexDirection: "row", gap: 6 }}>
+                                {(["A", "B", "C"] as const).map((ver) => (
+                                    <TouchableOpacity
+                                        key={ver}
+                                        onPress={() => setExportVersion(ver)}
+                                        activeOpacity={0.7}
+                                        style={{
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 6,
+                                            borderRadius: 8,
+                                            borderWidth: 1,
+                                            borderColor: exportVersion === ver ? accentColor : border,
+                                            backgroundColor: exportVersion === ver ? accentColor + "18" : inputBg,
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                fontSize: 12.5,
+                                                fontWeight: "700",
+                                                color: exportVersion === ver ? accentColor : textMain,
+                                            }}
+                                        >
+                                            Set {ver}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
+                        {/* Force Separate Answer Sheet Toggle */}
+                        <TouchableOpacity
+                            onPress={() => setForceSeparateMode((prev) => !prev)}
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 10,
+                                backgroundColor: inputBg,
+                                borderWidth: 1,
+                                borderColor: border,
+                                marginBottom: 12,
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
+                                Always use separate Question Booklet + Answer Sheet
+                            </Text>
+                            <Ionicons
+                                name={forceSeparateMode ? "checkbox" : "square-outline"}
+                                size={20}
+                                color={forceSeparateMode ? accentColor : textSub}
+                            />
+                        </TouchableOpacity>
+
                         <TouchableOpacity
                             style={styles.exportOptionBtn}
                             onPress={() => handleExportPaper(false, "short")}
+                            disabled={exportingPdf}
                             activeOpacity={0.7}
                         >
                             <View style={[styles.exportOptionIcon, { backgroundColor: (accentColor || "#2563EB") + "18" }]}>
                                 <Ionicons name="document-text" size={22} color={accentColor || "#2563EB"} />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.exportOptionTitle}>Short Bond Paper (8.5" × 11")</Text>
+                                <Text style={styles.exportOptionTitle}>{'Short Bond Paper (8.5" × 11")'}</Text>
                                 <Text style={styles.exportOptionSub}>
                                     1 single sheet (Letter size) • 2-column scannable layout for 1-shot camera scanning
                                 </Text>
@@ -1123,13 +1530,14 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         <TouchableOpacity
                             style={styles.exportOptionBtn}
                             onPress={() => handleExportPaper(false, "long")}
+                            disabled={exportingPdf}
                             activeOpacity={0.7}
                         >
                             <View style={[styles.exportOptionIcon, { backgroundColor: "#8B5CF618" }]}>
                                 <Ionicons name="document-outline" size={22} color="#8B5CF6" />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.exportOptionTitle}>Long Bond Paper (8.5" × 13")</Text>
+                                <Text style={styles.exportOptionTitle}>{'Long Bond Paper (8.5" × 13")'}</Text>
                                 <Text style={styles.exportOptionSub}>
                                     1 single sheet (Philippine Folio) • Fits all questions with extra spacing on 1 page
                                 </Text>
@@ -1140,6 +1548,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         <TouchableOpacity
                             style={styles.exportOptionBtn}
                             onPress={() => handleExportPaper(true, "short")}
+                            disabled={exportingPdf}
                             activeOpacity={0.7}
                         >
                             <View style={[styles.exportOptionIcon, { backgroundColor: "#10B98118" }]}>
@@ -1157,10 +1566,11 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         <TouchableOpacity
                             style={styles.exportCancelBtn}
                             onPress={() => setExportModalOpen(false)}
+                            activeOpacity={0.7}
                         >
                             <Text style={styles.exportCancelText}>Cancel</Text>
                         </TouchableOpacity>
-                    </View>
+                    </Pressable>
                 </TouchableOpacity>
             </Modal>
 

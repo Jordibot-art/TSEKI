@@ -1,4 +1,3 @@
-import * as FileSystem from "expo-file-system/legacy";
 import * as XLSX from "xlsx";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -244,6 +243,8 @@ export async function parseClasslistFile(
   fileName: string
 ): Promise<ParsedClasslistResult> {
   // Read file as base64
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const FileSystem = require("expo-file-system/legacy") as typeof import("expo-file-system/legacy");
   const base64 = await FileSystem.readAsStringAsync(fileUri, {
     encoding: FileSystem.EncodingType.Base64,
   });
@@ -475,6 +476,94 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Classlist");
+
+  return XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+}
+
+
+// ── Scores-Only Excel Export Generator ──────────────────────────────────────
+
+export interface ScoreExportOptions {
+  classroomTitle: string;
+  subject?: string;
+  section?: string;
+  students: Array<{ id?: string; full_name: string; studentId?: string }>;
+  quizzes: Array<{ id: string; quizTitle: string; maxScore: number }>;
+  results: Array<{ studentId?: string; studentName: string; quizTitle: string; totalScore: number }>;
+}
+
+/**
+ * Generates a scores-only Excel workbook (.xlsx) with one row per student
+ * and one column per quiz ("Quiz Title (N pts)").
+ * Each quiz cell is strictly a numeric cell ({ t: 'n', v: score }) or blank (undefined).
+ * Does NOT include percentages, averages, academic status, remarks, ranks, or total rows.
+ */
+export function generateScoreExportBase64(options: ScoreExportOptions): string {
+  const { students, quizzes, results } = options;
+
+  const headerRow: string[] = [
+    "#",
+    "Student ID",
+    "Student Name",
+    ...quizzes.map((q) => `${q.quizTitle.trim()} (${q.maxScore} pts)`),
+  ];
+
+  // Build fast lookup map by studentId:::quizTitle and studentName:::quizTitle
+  const scoreById = new Map<string, number>();
+  const scoreByName = new Map<string, number>();
+
+  for (const r of results) {
+    const qTitle = (r.quizTitle || "").trim().toLowerCase();
+    if (r.studentId) {
+      scoreById.set(`${r.studentId}:::${qTitle}`, r.totalScore);
+    }
+    if (r.studentName) {
+      scoreByName.set(`${r.studentName.trim().toLowerCase()}:::${qTitle}`, r.totalScore);
+    }
+  }
+
+  const rows: any[][] = [headerRow];
+
+  students.forEach((student, idx) => {
+    const row: any[] = [
+      { t: "n", v: idx + 1 },
+      student.studentId || "",
+      student.full_name,
+    ];
+
+    const normName = (student.full_name || "").trim().toLowerCase();
+
+    for (const q of quizzes) {
+      const qTitle = (q.quizTitle || "").trim().toLowerCase();
+      let score: number | undefined;
+
+      if (student.id && scoreById.has(`${student.id}:::${qTitle}`)) {
+        score = scoreById.get(`${student.id}:::${qTitle}`);
+      } else if (scoreByName.has(`${normName}:::${qTitle}`)) {
+        score = scoreByName.get(`${normName}:::${qTitle}`);
+      }
+
+      if (typeof score === "number" && !Number.isNaN(score)) {
+        row.push({ t: "n", v: score });
+      } else {
+        row.push(undefined);
+      }
+    }
+
+    rows.push(row);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  ws["!cols"] = [
+    { wch: 6 },  // #
+    { wch: 16 }, // Student ID
+    { wch: 34 }, // Student Name
+    ...quizzes.map((q) => ({ wch: Math.max(18, q.quizTitle.length + 10) })),
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Quiz Scores");
 
   return XLSX.write(wb, { type: "base64", bookType: "xlsx" });
 }

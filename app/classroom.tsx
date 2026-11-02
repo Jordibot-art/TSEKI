@@ -14,6 +14,7 @@ import {
   Linking,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,13 +39,14 @@ import {
 } from "../lib/alertStore";
 import {
   generateExcelClasslistBase64,
+  generateScoreExportBase64,
   isDuplicateStudent,
   parseClasslistFile,
   ParsedClasslistResult,
   ParsedStudentRow
 } from "../lib/classListParserService";
 import { generateStudentAdvice } from "../lib/pedagogicalAdvice";
-import { getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
+import { getAllStudentQuizResults, getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
 import {
   deleteClassroomQuizzes,
   getPublishedQuizzes,
@@ -66,8 +68,6 @@ type Tab = "Record" | "AI Builder" | "Grader" | "Tracker";
 // ── Theme Constants ───────────────────────────────────────────────────────────
 const ORANGE = "#FF6B00";
 const ORANGE_LIGHT = "#FFF7ED";
-const ORANGE_BORDER = "#FFEDD5";
-const TEXT_DARK = "#181920";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const AVATAR_COLORS = [
@@ -178,6 +178,7 @@ export default function ClassroomScreen() {
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
 
   const loadClassroomAlerts = useCallback(async () => {
     if (!id) return;
@@ -988,41 +989,50 @@ export default function ClassroomScreen() {
     }
   }
 
-  async function handlePromptExport() {
-    const hasSavedDir = Platform.OS === "android" && !!(await AsyncStorage.getItem("tseki_export_directory_uri"));
 
-    const buttons: Array<{ text: string; onPress?: () => void; style?: "default" | "cancel" | "destructive" }> = [
-      {
-        text: "Download Excel (.xlsx)",
-        onPress: () => handleExportExcel(false),
-      },
-      {
-        text: "Download CSV (.csv)",
-        onPress: () => handleExportCSV(false),
-      },
-      {
-        text: "Share File to App...",
-        onPress: () => handleShareFile(),
-      },
-    ];
 
-    if (hasSavedDir) {
-      buttons.push({
-        text: "Change Download Folder",
-        onPress: () => handleExportExcel(true),
-      });
+  async function handleExportQuizScores(forceNewFolder = false) {
+    if (students.length === 0) {
+      Alert.alert("No Data", "There are no students in this classroom to export scores for.");
+      return;
     }
 
-    buttons.push({
-      text: "Cancel",
-      style: "cancel",
-    });
+    try {
+      setIsExporting(true);
+      const quizResults = id ? await getAllStudentQuizResults(id as string) : [];
+      const quizzes = publishedQuizzes.map((q) => {
+        const maxScore = (q.answerKey || []).reduce((sum, k) => sum + (k.points || 1), 0) || q.questions.length;
+        return { id: q.id, quizTitle: q.quizTitle, maxScore };
+      });
+      const results = quizResults.map((r) => ({
+        studentId: r.studentId,
+        studentName: r.studentName,
+        quizTitle: r.quizTitle,
+        totalScore: r.totalScore,
+      }));
+      const base64 = generateScoreExportBase64({
+        classroomTitle: (title as string) || "Classroom",
+        students: students.map((s) => ({ id: s.id, full_name: s.full_name, studentId: s.id })),
+        quizzes,
+        results,
+      });
 
-    Alert.alert(
-      "Download Classlist",
-      `Download ${students.length} student${students.length !== 1 ? "s" : ""} directly to your phone:`,
-      buttons
-    );
+      const cleanTitle = ((title as string) || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
+      const fileName = `${cleanTitle}_quiz_scores.xlsx`;
+      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+      await saveDirectlyToPhone({
+        fileName,
+        mimeType,
+        base64Data: base64,
+        forceNewFolder,
+      });
+    } catch (err: any) {
+      console.error("Quiz scores export error:", err);
+      Alert.alert("Export Failed", err.message || "Could not export quiz scores.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   // ── Filtered list ──────────────────────────────────────────────────────────
@@ -1202,25 +1212,25 @@ export default function ClassroomScreen() {
                 style={[
                   styles.exportBtn,
                   {
-                    backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT,
-                    borderColor: darkMode ? "#4B5563" : ORANGE_BORDER,
-                    borderWidth: 1,
+                    backgroundColor: darkMode ? cardColor + "22" : cardColor + "14",
+                    borderColor: darkMode ? cardColor + "55" : cardColor + "35",
+                    borderWidth: 1.5,
                   },
                 ]}
                 activeOpacity={0.8}
-                onPress={handlePromptExport}
+                onPress={() => setExportModalVisible(true)}
                 disabled={isExporting}
               >
                 {isExporting ? (
-                  <ActivityIndicator size="small" color={darkMode ? "#F3F4F6" : ORANGE} />
+                  <ActivityIndicator size="small" color={cardColor} />
                 ) : (
                   <>
                     <Ionicons
                       name="download-outline"
                       size={17}
-                      color={darkMode ? "#F3F4F6" : ORANGE}
+                      color={cardColor}
                     />
-                    <Text style={[styles.exportBtnText, { color: darkMode ? "#F3F4F6" : ORANGE }]}>
+                    <Text style={[styles.exportBtnText, { color: cardColor }]}>
                       Export Excel
                     </Text>
                   </>
@@ -1271,17 +1281,46 @@ export default function ClassroomScreen() {
         )}
 
         {activeTab === "Tracker" && (
+          <>
+            <View style={[styles.actionRow, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
+              <TouchableOpacity
+                style={[
+                  styles.exportBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: darkMode ? cardColor + "22" : cardColor + "14",
+                    borderColor: darkMode ? cardColor + "55" : cardColor + "35",
+                    borderWidth: 1.5,
+                  },
+                ]}
+                activeOpacity={0.8}
+                onPress={() => handleExportQuizScores(false)}
+                disabled={isExporting}
+              >
+                <Ionicons name="grid-outline" size={17} color={cardColor} />
+                <Text style={[styles.exportBtnText, { color: cardColor }]}>
+                  Export Quiz Scores (.xlsx)
+                </Text>
+              </TouchableOpacity>
+            </View>
           <TrackerTab
             classroomId={id as string}
             classTitle={title as string}
             classSubject={classroomSubject}
+            accentColor={cardColor}
             students={students}
             publishedQuizzes={publishedQuizzes}
             selectedQuizTitle={selectedGradingQuiz}
             onOpenStudentProfile={(student) => setSelectedProfile(student)}
             onNavigateToAIBuilder={() => setActiveTab("AI Builder")}
-            onNavigateToGrader={() => setActiveTab("Grader")}
+            onNavigateToGrader={(quizTitle) => {
+              if (quizTitle) {
+                setSelectedGradingQuiz(quizTitle);
+              }
+              setActiveTab("Grader");
+            }}
           />
+          </>
         )}
 
         {activeTab === "Record" && (
@@ -1692,7 +1731,7 @@ export default function ClassroomScreen() {
                       <Ionicons name="mail-unread-outline" size={20} color={ORANGE} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.missingEmailTitle, { color: textMain }]}>No Email Address Recorded</Text>
-                        <Text style={[styles.missingEmailSub, { color: textSub }]}>Tap here to add this student's email</Text>
+                        <Text style={[styles.missingEmailSub, { color: textSub }]}>{"Tap here to add this student's email"}</Text>
                       </View>
                       <View style={[styles.missingEmailBadge, { backgroundColor: cardColor }]}>
                         <Text style={styles.missingEmailBadgeText}>Add Email</Text>
@@ -1966,7 +2005,7 @@ export default function ClassroomScreen() {
             <Text style={[styles.confirmModalTitle, { color: textMain }]}>Remove Student?</Text>
             <Text style={[styles.confirmModalDesc, { color: textSub }]}>
               Are you sure you want to remove{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>"{studentToDelete?.full_name}"</Text>{" "}
+              <Text style={{ fontWeight: "700", color: textMain }}>{`"${studentToDelete?.full_name}"`}</Text>{" "}
               from this classroom?
               {"\n\n"}Their grades and quiz evaluation records will be permanently deleted.
             </Text>
@@ -2021,7 +2060,7 @@ export default function ClassroomScreen() {
             <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
             <Text style={[styles.confirmModalDesc, { color: textSub }]}>
               Are you sure you want to permanently delete{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>"{title}"</Text>?
+              <Text style={{ fontWeight: "700", color: textMain }}>{`"${title}"`}</Text>?
               {"\n\n"}All enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted.
             </Text>
 
@@ -2054,6 +2093,146 @@ export default function ClassroomScreen() {
           </View>
         </View>
       </Modal>
+      {/* ── Export Classroom Records Modal ── */}
+      <Modal
+        visible={exportModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExportModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.exportModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setExportModalVisible(false)}
+        >
+          <Pressable
+            style={[styles.exportModalSheet, { backgroundColor: cardBg }]}
+            onPress={(e) => e.stopPropagation?.()}
+          >
+            <View style={styles.exportModalHeader}>
+              <View style={[styles.exportModalTag, { backgroundColor: cardColor + "18" }]}>
+                <Ionicons name="download" size={13} color={cardColor} />
+                <Text style={[styles.exportModalTagText, { color: cardColor }]}>EXPORT CLASSROOM DATA</Text>
+              </View>
+              <Text style={[styles.exportModalTitle, { color: textMain }]}>Export Records</Text>
+              <Text style={[styles.exportModalSub, { color: textSub }]}>
+                Download or share your class records and scores formatted for Excel:
+              </Text>
+            </View>
+
+            {/* Option 1: Quiz Scores (Featured) */}
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: cardColor + "55" },
+              ]}
+              onPress={() => {
+                setExportModalVisible(false);
+                handleExportQuizScores(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: cardColor + "18" }]}>
+                <Ionicons name="grid" size={22} color={cardColor} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Quiz Scores (.xlsx)</Text>
+                  <View style={[styles.exportOptionBadge, { backgroundColor: cardColor + "20" }]}>
+                    <Text style={[styles.exportOptionBadgeText, { color: cardColor }]}>Scores</Text>
+                  </View>
+                </View>
+                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                  All graded quizzes, student points, and item breakdown
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color={cardColor} />
+            </TouchableOpacity>
+
+            {/* Option 2: Student Classlist Roster */}
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
+              ]}
+              onPress={() => {
+                setExportModalVisible(false);
+                handleExportExcel(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: cardColor + "14" }]}>
+                <Ionicons name="document-text" size={22} color={cardColor} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Student Classlist (.xlsx)</Text>
+                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                  Official roster with student IDs, names, emails, and averages
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color={textSub} />
+            </TouchableOpacity>
+
+            {/* Option 3: Student Classlist CSV */}
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
+              ]}
+              onPress={() => {
+                setExportModalVisible(false);
+                handleExportCSV(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#1F2937" : "#E5E7EB" }]}>
+                <Ionicons name="document-outline" size={22} color={textSub} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Student Classlist (.csv)</Text>
+                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                  Lightweight plain CSV file for importing to spreadsheets
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color={textSub} />
+            </TouchableOpacity>
+
+            {/* Option 4: Share to other App */}
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
+              ]}
+              onPress={() => {
+                setExportModalVisible(false);
+                handleShareFile();
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#1F2937" : "#E5E7EB" }]}>
+                <Ionicons name="share-social-outline" size={22} color={textSub} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Share File to App...</Text>
+                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                  Send directly to Gmail, Google Drive, WhatsApp, etc.
+                </Text>
+              </View>
+              <Ionicons name="share-outline" size={20} color={textSub} />
+            </TouchableOpacity>
+
+            {/* Cancel Button */}
+            <TouchableOpacity
+              style={[styles.exportModalCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
+              onPress={() => setExportModalVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.exportModalCancelText, { color: textMain }]}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── Import Classlist Preview Modal ── */}
       <Modal
         visible={importModalVisible}
@@ -2458,13 +2637,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: ORANGE_LIGHT,
     borderRadius: 14,
     paddingVertical: 12,
     gap: 6,
   },
   exportBtnText: {
-    color: ORANGE,
     fontWeight: "700",
     fontSize: 13,
   },
@@ -3511,5 +3688,90 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+  exportModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  exportModalSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: Platform.OS === "ios" ? 40 : 28,
+    gap: 10,
+  },
+  exportModalHeader: {
+    marginBottom: 6,
+  },
+  exportModalTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  exportModalTagText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+  },
+  exportModalTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  exportModalSub: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  exportOptionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    gap: 12,
+  },
+  exportOptionIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  exportOptionCardTitle: {
+    fontSize: 14.5,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  exportOptionCardSub: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  exportOptionBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  exportOptionBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  exportModalCancelBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  exportModalCancelText: {
+    fontSize: 14.5,
+    fontWeight: "700",
   },
 });

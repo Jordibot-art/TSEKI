@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Image,
   StyleSheet,
   Text,
@@ -27,12 +28,13 @@ type TrackerTabProps = {
   classroomId: string;
   classTitle: string;
   classSubject: string;
+  accentColor?: string;
   students: TrackerStudent[];
   publishedQuizzes: StoredQuiz[];
   selectedQuizTitle?: string;
   onOpenStudentProfile: (student: TrackerStudent) => void;
   onNavigateToAIBuilder: () => void;
-  onNavigateToGrader?: () => void;
+  onNavigateToGrader?: (quizTitle?: string) => void;
 };
 
 function getStudentAvatar(name: string) {
@@ -62,6 +64,7 @@ export default function TrackerTab({
   classroomId,
   classTitle,
   classSubject,
+  accentColor = "#2563EB",
   students,
   publishedQuizzes,
   selectedQuizTitle,
@@ -130,10 +133,10 @@ export default function TrackerTab({
   const countF = students.filter((s) => (s.average ?? 0) < 75).length;
 
   const gradeBuckets = [
-    { grade: "A", range: "90-100", count: countA, color: "#3B82F6" },
-    { grade: "B", range: "80-89", count: countB, color: "#60A5FA" },
-    { grade: "C", range: "75-79", count: countC, color: "#F59E0B" },
     { grade: "F", range: "<75", count: countF, color: "#EF4444" },
+    { grade: "C", range: "75-79", count: countC, color: "#F59E0B" },
+    { grade: "B", range: "80-89", count: countB, color: "#3B82F6" },
+    { grade: "A", range: "90-100", count: countA, color: "#10B981" },
   ];
 
   const maxGradeCount = Math.max(...gradeBuckets.map((b) => b.count), 1);
@@ -267,51 +270,81 @@ export default function TrackerTab({
 
       {/* ── Section 2: Grade Distribution Histogram ── */}
       <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
-        <Text style={[styles.cardTitle, { color: textMain }]}>Grade Distribution</Text>
+        <View style={styles.distHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardTitle, { color: textMain }]}>Grade Distribution</Text>
+            <Text style={[styles.cardSub, { color: textSub }]}>
+              Student breakdown across grading performance bands
+            </Text>
+          </View>
+          <View style={[styles.totalEnrolledBadge, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}>
+            <Text style={[styles.totalEnrolledBadgeText, { color: textSub }]}>
+              {students.length} Student{students.length !== 1 ? "s" : ""}
+            </Text>
+          </View>
+        </View>
 
+        {/* Histogram Bars */}
         <View style={styles.histogramContainer}>
           {gradeBuckets.map((bucket) => {
-            const barHeight =
+            const fillHeight =
               bucket.count > 0
-                ? Math.round((bucket.count / maxGradeCount) * 85) + 14
-                : 6;
+                ? Math.max(16, Math.round((bucket.count / maxGradeCount) * 85))
+                : 0;
 
             return (
               <View key={bucket.grade} style={styles.histogramCol}>
                 {/* Count badge above bar */}
                 <View style={styles.countBadgeWrapper}>
                   {bucket.count > 0 ? (
-                    <Text style={[styles.countBadgeText, { color: textMain }]}>
-                      {bucket.count} student{bucket.count > 1 ? "s" : ""}
-                    </Text>
+                    <View style={[styles.countBadgePill, { backgroundColor: bucket.color + "18" }]}>
+                      <Text style={[styles.countBadgeText, { color: bucket.color }]}>
+                        {bucket.count}
+                      </Text>
+                    </View>
                   ) : (
-                    <Text style={[styles.countBadgeText, { opacity: 0 }]}>-</Text>
+                    <Text style={[styles.countBadgeText, { color: textSub, opacity: 0.5 }]}>0</Text>
                   )}
                 </View>
 
-                {/* Vertical Bar */}
-                <View style={styles.barTrack}>
-                  <View
-                    style={[
-                      styles.barFill,
-                      {
-                        height: barHeight,
-                        backgroundColor: bucket.color,
-                        opacity: bucket.count > 0 ? 1 : 0.25,
-                      },
-                    ]}
-                  />
+                {/* Vertical Bar with Track */}
+                <View style={[styles.barTrack, { backgroundColor: darkMode ? "#37415166" : "#F1F5F9" }]}>
+                  {fillHeight > 0 && (
+                    <View
+                      style={[
+                        styles.barFill,
+                        {
+                          height: fillHeight,
+                          backgroundColor: bucket.color,
+                        },
+                      ]}
+                    />
+                  )}
                 </View>
-
-                {/* Grade Label */}
-                <Text style={[styles.gradeLetter, { color: textMain }]}>{bucket.grade}</Text>
-                <Text style={[styles.gradeRange, { color: textSub }]}>{bucket.range}</Text>
               </View>
             );
           })}
         </View>
+
         {/* Baseline Axis */}
-        <View style={[styles.baselineAxis, { backgroundColor: subBorder }]}>
+        <View style={[styles.baselineAxis, { backgroundColor: subBorder }]} />
+
+        {/* Grade Labels & Ranges */}
+        <View style={styles.gradeLabelsRow}>
+          {gradeBuckets.map((bucket) => {
+            const percent = students.length > 0 ? Math.round((bucket.count / students.length) * 100) : 0;
+            return (
+              <View key={bucket.grade} style={styles.gradeLabelCol}>
+                <View style={[styles.gradePill, { backgroundColor: bucket.color + "14", borderColor: bucket.color + "35" }]}>
+                  <Text style={[styles.gradeLetter, { color: bucket.color }]}>{bucket.grade}</Text>
+                </View>
+                <Text style={[styles.gradeRange, { color: textSub }]}>{bucket.range}</Text>
+                <Text style={[styles.gradePercent, { color: bucket.count > 0 ? bucket.color : textSub }]}>
+                  {percent}%
+                </Text>
+              </View>
+            );
+          })}
         </View>
       </View>
 
@@ -326,12 +359,33 @@ export default function TrackerTab({
           </View>
           {onNavigateToGrader && (
             <TouchableOpacity
-              style={[styles.gradeQuizBtn, darkMode && { backgroundColor: "#1E3A8A30", borderColor: "#1D4ED8" }]}
-              onPress={onNavigateToGrader}
+              style={[
+                styles.gradeQuizBtn,
+                {
+                  backgroundColor: darkMode ? accentColor + "22" : accentColor + "14",
+                  borderColor: darkMode ? accentColor + "55" : accentColor + "35",
+                },
+              ]}
+              onPress={() => {
+                if (publishedQuizzes.length === 0) {
+                  Alert.alert(
+                    "No Quizzes Published Yet",
+                    "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!",
+                    [
+                      { text: "Create Quiz", onPress: onNavigateToAIBuilder },
+                      { text: "Cancel", style: "cancel" },
+                    ]
+                  );
+                  return;
+                }
+                const targetQuiz = selectedPoint?.fullTitle || publishedQuizzes[0]?.quizTitle;
+                onNavigateToGrader(targetQuiz);
+              }}
               activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="scan-outline" size={13} color={darkMode ? "#93C5FD" : "#2563EB"} />
-              <Text style={[styles.gradeQuizBtnText, darkMode && { color: "#93C5FD" }]}>Grade Quiz</Text>
+              <Ionicons name="scan-outline" size={15} color={accentColor} />
+              <Text style={[styles.gradeQuizBtnText, { color: accentColor }]}>Grade Quiz</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -622,7 +676,7 @@ export default function TrackerTab({
           resizeMode="contain"
         />
         <View style={styles.recommendationInfo}>
-          <Text style={[styles.recommendationTitle, darkMode && { color: "#FDBA74" }]}>Tseki's Recommendation</Text>
+          <Text style={[styles.recommendationTitle, darkMode && { color: "#FDBA74" }]}>{"Tseki's Recommendation"}</Text>
           <Text style={[styles.recommendationText, darkMode && { color: "#E2E8F0" }]}>
             {generateClassroomAdvice({
               classAverage: classAvg,
@@ -758,53 +812,91 @@ const styles = StyleSheet.create({
   },
 
   /* ── Grade Distribution ── */
-  histogramContainer: {
+  distHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+  totalEnrolledBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  totalEnrolledBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  histogramContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
     alignItems: "flex-end",
-    height: 140,
-    paddingTop: 10,
-    paddingHorizontal: 8,
+    height: 120,
+    paddingHorizontal: 4,
   },
   histogramCol: {
     flex: 1,
     alignItems: "center",
   },
   countBadgeWrapper: {
-    height: 20,
+    height: 22,
     justifyContent: "center",
-    marginBottom: 4,
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  countBadgePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   countBadgeText: {
-    fontSize: 10.5,
-    fontWeight: "700",
-    color: "#1E293B",
+    fontSize: 11,
+    fontWeight: "800",
   },
   barTrack: {
-    width: "100%",
-    alignItems: "center",
+    width: 48,
+    height: 85,
+    borderRadius: 10,
     justifyContent: "flex-end",
+    overflow: "hidden",
   },
   barFill: {
-    width: 44,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
+    width: "100%",
+    borderRadius: 10,
   },
   baselineAxis: {
     height: 1.5,
-    backgroundColor: "#E2E8F0",
-    marginTop: 2,
-    marginBottom: 8,
+    marginVertical: 10,
+  },
+  gradeLabelsRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+  },
+  gradeLabelCol: {
+    flex: 1,
+    alignItems: "center",
+    gap: 3,
+  },
+  gradePill: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
   },
   gradeLetter: {
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: "800",
-    color: "#1E293B",
   },
   gradeRange: {
-    fontSize: 10,
-    color: "#94A3B8",
-    marginTop: 2,
+    fontSize: 10.5,
+    fontWeight: "600",
+  },
+  gradePercent: {
+    fontSize: 9.5,
+    fontWeight: "700",
   },
 
   /* ── Interactive Trend Chart ── */
@@ -813,22 +905,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
     gap: 8,
+    marginBottom: 10,
   },
   gradeQuizBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "#EFF6FF",
+    gap: 5,
     borderWidth: 1,
-    borderColor: "#DBEAFE",
     borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   gradeQuizBtnText: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: "700",
-    color: "#2563EB",
   },
   trendDetailBanner: {
     flexDirection: "row",

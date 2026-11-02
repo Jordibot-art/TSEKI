@@ -291,7 +291,7 @@ export default function GraderTab({
             }
             const activeAnswerKey = published.answerKey;
 
-            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType);
+            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType, published.layoutJson);
             setGradingResult(result);
 
             // Match student if detected name matches a student in classroom roster
@@ -460,6 +460,7 @@ export default function GraderTab({
         }
     }
 
+
     return (
         <ScrollView
             style={[styles.root, { backgroundColor: bg }]}
@@ -550,6 +551,10 @@ export default function GraderTab({
                                         item.isCorrect
                                             ? (darkMode ? { backgroundColor: "#064E3B20", borderColor: "#05966960" } : styles.logCardCorrect)
                                             : (darkMode ? { backgroundColor: "#7F1D1D20", borderColor: "#DC262660" } : styles.logCardWrong),
+                                        (item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75)) && {
+                                            backgroundColor: darkMode ? "#78350F35" : "#FEF3C7",
+                                            borderColor: "#F59E0B",
+                                        },
                                     ]}
                                     onPress={() => handleToggleQuestion(item.questionNumber)}
                                     activeOpacity={0.7}
@@ -592,6 +597,11 @@ export default function GraderTab({
                                             Key:{" "}
                                             <Text style={{ fontWeight: "700", color: textMain }}>
                                                 {item.correctAnswer}
+                                        {(item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75)) && (
+                                            <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706", marginTop: 2 }}>
+                                                {"\n"}⚠ Low OCR confidence — tap to verify/toggle
+                                            </Text>
+                                        )}
                                             </Text>
                                         </Text>
                                     </View>
@@ -683,6 +693,7 @@ export default function GraderTab({
                         <Ionicons name="camera-outline" size={20} color="#FFFFFF" />
                         <Text style={styles.primaryScanBtnText}>Open Camera & Scan</Text>
                     </TouchableOpacity>
+
                 </View>
             )}
 
@@ -714,7 +725,7 @@ export default function GraderTab({
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Take Photo with Camera</Text>
-                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Snap a photo of the student's test sheet</Text>
+                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>{"Snap a photo of the student's test sheet"}</Text>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                         </TouchableOpacity>

@@ -8,6 +8,10 @@
     "scheme": "tseki",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "fonts": [
+      "./assets/fonts/NotoSans-Regular.ttf",
+      "./assets/fonts/NotoSans-Bold.ttf"
+    ],
     "ios": {
       "supportsTablet": true
     },
