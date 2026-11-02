@@ -256,6 +256,12 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
                 const errMsg = apiErr?.message || "";
                 const is429 = errMsg.includes("429") || errMsg.includes("quota");
                 const is503 = errMsg.includes("503");
+                const isInvalidKey = errMsg.includes("API key not valid") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("400");
+
+                if (isInvalidKey) {
+                    console.warn(`[QuizGen] Gemini API key invalid. Fast-failing over to backup provider...`);
+                    break;
+                }
 
                 console.warn(`[QuizGen] Gemini ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
                 continue;
@@ -278,51 +284,24 @@ async function generateAssessmentWithBackupProvider(
     promptText: string,
     geminiError?: any
 ): Promise<GeneratedAssessment> {
-    const { getAIConfig, DEFAULT_OPENROUTER_MODELS, DEFAULT_OLLAMA_MODELS, DEFAULT_GROQ_MODELS } = await import("./ai/aiConfigService");
-    const { callOpenAICompatible, extractJsonFromResponse } = await import("./ai/openAICompatibleClient");
+    const { runBackupChain } = await import("./ai/backupRunner");
 
-    const backupConfig = await getAIConfig();
-    if (!backupConfig.enabled) {
-        throw geminiError || new Error("Gemini AI is unavailable, and backup AI is disabled in Settings.");
-    }
-
-    let candidateModels: string[] = [];
-    let apiKey: string | undefined = undefined;
-    let baseUrl: string | undefined = undefined;
-
-    if (backupConfig.provider === "openrouter") {
-        apiKey = backupConfig.openRouterKey?.trim();
-        if (!apiKey) {
-            throw new Error(
-                "Google Gemini is busy or rate-limited, but OpenRouter backup API key is missing. Please add your free OpenRouter API key in Settings."
-            );
-        }
-        candidateModels = Array.from(new Set([backupConfig.openRouterModel, ...DEFAULT_OPENROUTER_MODELS].filter(Boolean)));
-    } else if (backupConfig.provider === "ollama") {
-        baseUrl = backupConfig.ollamaBaseUrl;
-        candidateModels = Array.from(new Set([backupConfig.ollamaModel, ...DEFAULT_OLLAMA_MODELS].filter(Boolean)));
-    } else if (backupConfig.provider === "groq") {
-        apiKey = backupConfig.groqKey?.trim();
-        if (!apiKey) {
-            throw new Error(
-                "Google Gemini is busy or rate-limited, but Groq backup API key is missing. Please add your Groq API key in Settings."
-            );
-        }
-        candidateModels = Array.from(new Set([backupConfig.groqModel, ...DEFAULT_GROQ_MODELS].filter(Boolean)));
-    }
-
-    // If PDF was attached without pre-extracted text, extract readable text so backup model has access
+    // If PDF was attached without pre-extracted text, extract a compact reference snippet
+    // (capped at 6,000 chars so backup models don't choke or time out).
     let docContext = "";
     if (params.attachedPdfBase64 && !params.attachedFileText) {
         try {
             const { extractStringsFromBinary } = await import("./documentParserService");
             const extracted = extractStringsFromBinary(params.attachedPdfBase64);
             if (extracted && extracted.length > 50) {
-                docContext = `\n--- EXTRACTED REFERENCE DOCUMENT TEXT (${params.attachedPdfName || "Attachment"}) ---\n${extracted.slice(0, 50000)}\n--- END REFERENCE DOCUMENT TEXT ---\n`;
+                docContext = `\n--- REFERENCE DOCUMENT EXCERPT (${params.attachedPdfName || "Attachment"}) ---\n${extracted.slice(0, 6000)}\n--- END REFERENCE EXCERPT ---\n`;
             }
         } catch (e) {
             console.warn("[QuizGen Backup] Could not extract text from PDF:", e);
         }
+    } else if (params.attachedFileText && params.attachedFileText.length > 6000) {
+        // If teacher attached very large text, keep the most relevant beginning
+        docContext = `\n--- REFERENCE DOCUMENT EXCERPT (${params.attachedFileName || "Attachment"}) ---\n${params.attachedFileText.slice(0, 6000)}\n--- END REFERENCE EXCERPT ---\n`;
     }
 
     const messages = [
@@ -336,36 +315,34 @@ async function generateAssessmentWithBackupProvider(
         },
     ];
 
-    let lastBackupErr: any = null;
-    for (const modelName of candidateModels) {
-        try {
-            console.log(`[QuizGen Backup] Attempting generation via ${backupConfig.provider} (${modelName})...`);
-            const callRes = await callOpenAICompatible({
-                provider: backupConfig.provider,
-                model: modelName,
-                apiKey,
-                baseUrl,
-                messages,
-                responseFormatJson: true,
-                temperature: 0.2,
-                timeoutMs: 40000,
-            });
+    const expectedCount = params.questionCount || 10;
+    const maxTokens = Math.min(4000, Math.max(1200, expectedCount * 180));
 
-            const rawJson = callRes.json || extractJsonFromResponse(callRes.text);
-            if (rawJson && rawJson.quizTitle && Array.isArray(rawJson.questions) && Array.isArray(rawJson.answerKey)) {
-                rawJson.generatedBy = `${backupConfig.provider.toUpperCase()} (${modelName})`;
-                params.onProviderUsed?.(backupConfig.provider, modelName);
-                return rawJson as GeneratedAssessment;
-            }
-        } catch (bErr: any) {
-            lastBackupErr = bErr;
-            console.warn(`[QuizGen Backup] Model ${modelName} failed:`, bErr?.message);
-            continue;
-        }
+    try {
+        const result = await runBackupChain<GeneratedAssessment>({
+            kind: "text",
+            messages,
+            logTag: "[QuizGen Backup]",
+            timeoutMs: 30000,
+            totalBudgetMs: 50000,
+            maxTokens,
+            temperature: 0.2,
+            validate: (json) => {
+                if (json && json.quizTitle && Array.isArray(json.questions) && json.questions.length > 0 && Array.isArray(json.answerKey)) {
+                    return json as GeneratedAssessment;
+                }
+                return null;
+            },
+        });
+
+        const assessment = result.value;
+        assessment.generatedBy = `${result.provider.toUpperCase()} (${result.model})`;
+        params.onProviderUsed?.(result.provider, result.model);
+        return assessment;
+    } catch (err: any) {
+        throw new Error(
+            `Gemini AI was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup provider also failed:\n${err.message}`
+        );
     }
-
-    throw new Error(
-        `Gemini AI was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup provider ${backupConfig.provider.toUpperCase()} also failed: ${lastBackupErr?.message || "All models failed"}`
-    );
 }
 

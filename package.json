@@ -12,7 +12,8 @@
     "test": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts && npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts && npx tsx lib/printEngine/__tests__/runStep1Tests.ts && npx tsx lib/printEngine/__tests__/runStep2Tests.ts && npx tsx lib/printEngine/__tests__/runStep3Tests.ts && npx tsx lib/printEngine/__tests__/targetExportTest.ts && npx tsx lib/printEngine/__tests__/fontSymbolsTest.ts && npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
     "test:excel": "npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts",
     "test:print": "npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
-    "test:ai": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts"
+    "test:ai": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts",
+    "test:failover": "npx tsx lib/ai/__tests__/simulateGeminiDown.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -32,6 +33,7 @@
     "expo-font": "~14.0.12",
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",
+    "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",
     "expo-linking": "~8.0.12",
     "expo-print": "~15.0.8",

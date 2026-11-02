@@ -17,7 +17,19 @@ export interface OpenAICallOptions {
     temperature?: number;
     responseFormatJson?: boolean;
     timeoutMs?: number;
+    /**
+     * OpenRouter only: extra models OpenRouter will try server-side (in the same
+     * request) if the primary model is rate-limited / down. Max 3 total.
+     */
+    fallbackModels?: string[];
+    /** Caps output length so slow "thinking" models can't run forever. */
+    maxTokens?: number;
+    /** OpenRouter only: keeps reasoning models from spending minutes thinking. */
+    lowReasoning?: boolean;
 }
+
+/** OpenRouter accepts at most 3 entries in the `models` fallback array. */
+export const OPENROUTER_MAX_FALLBACK_MODELS = 3;
 
 export interface OpenAICallResult {
     text: string;
@@ -104,6 +116,22 @@ export async function callOpenAICompatible(options: OpenAICallOptions): Promise<
             temperature: typeof options.temperature === "number" ? options.temperature : 0.2,
         };
 
+        if (typeof options.maxTokens === "number" && options.maxTokens > 0) {
+            bodyPayload.max_tokens = Math.round(options.maxTokens);
+        }
+
+        if (options.provider === "openrouter") {
+            const chain = Array.from(
+                new Set([options.model, ...(options.fallbackModels || [])].filter(Boolean))
+            ).slice(0, OPENROUTER_MAX_FALLBACK_MODELS);
+            if (chain.length > 1) {
+                bodyPayload.models = chain;
+            }
+            if (options.lowReasoning) {
+                bodyPayload.reasoning = { effort: "low", exclude: true };
+            }
+        }
+
         if (options.responseFormatJson) {
             bodyPayload.response_format = { type: "json_object" };
             if (options.provider === "ollama") {
@@ -124,19 +152,33 @@ export async function callOpenAICompatible(options: OpenAICallOptions): Promise<
             let errorDetail = "";
             try {
                 const errJson = await res.json();
+                const upstreamRaw = errJson.error?.metadata?.raw;
                 errorDetail = errJson.error?.message || errJson.message || JSON.stringify(errJson);
+                if (typeof upstreamRaw === "string" && upstreamRaw.length > 0) {
+                    errorDetail += ` (${upstreamRaw.slice(0, 160)})`;
+                }
             } catch {
                 errorDetail = await res.text().catch(() => res.statusText);
             }
-            throw new Error(`[${options.provider.toUpperCase()} ${res.status}] ${errorDetail}`);
+            const httpErr: any = new Error(`[${options.provider.toUpperCase()} ${res.status}] ${errorDetail}`);
+            httpErr.status = res.status;
+            throw httpErr;
         }
 
         const data = await res.json();
+        if (data?.error) {
+            // OpenRouter can return HTTP 200 with an error body when every fallback failed
+            const bodyErr: any = new Error(
+                `[${options.provider.toUpperCase()} ${data.error.code || "error"}] ${data.error.message || "Provider returned error"}`
+            );
+            bodyErr.status = Number(data.error.code) || undefined;
+            throw bodyErr;
+        }
         const choice = data?.choices?.[0];
         const content = choice?.message?.content || "";
 
         if (!content || typeof content !== "string" || content.trim().length === 0) {
-            throw new Error(`Empty response content received from ${options.provider} (${options.model}).`);
+            throw new Error(`Empty response content received from ${options.provider} (${data?.model || options.model}).`);
         }
 
         let parsedJson: any = undefined;
@@ -200,7 +242,13 @@ export async function testBackupConnection(config: BackupAIConfig): Promise<{
                 },
             ],
             responseFormatJson: true,
-            timeoutMs: 12000,
+            timeoutMs: 15000,
+            maxTokens: 300,
+            lowReasoning: true,
+            fallbackModels:
+                config.provider === "openrouter"
+                    ? DEFAULT_OPENROUTER_MODELS.filter((m) => m !== modelToUse)
+                    : undefined,
         });
 
         return {

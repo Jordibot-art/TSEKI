@@ -2,6 +2,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { LayoutJSON } from "./printEngine/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+export type ReviewFlagReason = "double_mark" | "unclear" | "faint" | "low_confidence" | "blank" | "multiple_answers";
+
 export interface GradingResultItem {
     questionNumber: number;
     studentAnswer: string;
@@ -10,6 +12,11 @@ export interface GradingResultItem {
     pointsAwarded: number;
     confidence?: number;
     flaggedForReview?: boolean;
+    flagReason?: ReviewFlagReason;
+    flagDetails?: string;
+    detectedOptions?: string[];
+    isOverridden?: boolean;
+    originalStudentAnswer?: string;
 }
 
 export interface GradingResponse {
@@ -135,11 +142,29 @@ ${JSON.stringify(keyArray, null, 2)}
 ${layoutPromptSection}
 INSTRUCTIONS:
 1. Extract the student's name from the top "Name:" line (field: "studentName").
-2. Read the student's handwritten answers located inside the black answer boxes on the paper.
-3. For each question number in the Answer Key, extract the exact student's handwritten answer (field: "studentAnswer") and your OCR reading confidence from 0.0 to 1.0 (field: "confidence").
+2. Read the student's answers located inside the black answer boxes or shaded bubbles on the paper.
+3. For each question number in the Answer Key, inspect the answer marking closely:
+   - MULTIPLE/DOUBLE MARKS: If multiple bubbles appear shaded or marked (e.g. both A and C shaded, or messy erasure leaving two options filled):
+     * set "studentAnswer" to the comma-separated detected letters (e.g. "A, C")
+     * set "confidence" to 0.50
+     * set "flagReason" to "double_mark"
+     * set "flagDetails" to "Double-shaded bubbles detected: A and C"
+     * set "detectedOptions" to ["A", "C"]
+   - UNCLEAR/FAINT MARKS: If the handwriting or bubble shading is faint, messy, scratched out, or ambiguous:
+     * set "studentAnswer" to your best guess
+     * set "confidence" to 0.40 - 0.65
+     * set "flagReason" to "unclear"
+     * set "flagDetails" to "Faint, messy, or ambiguous marking"
+   - CLEAR MARKS: If clearly and cleanly marked with a single answer:
+     * set "studentAnswer" to the single option letter or text
+     * set "confidence" to 0.90 - 1.00
+   - BLANK: If completely blank or unattempted:
+     * set "studentAnswer" to ""
+     * set "confidence" to 0.95
+     * set "flagReason" to "blank"
 4. Compare "studentAnswer" directly to the official "correctAnswer":
-   - If the answer matches: set "isCorrect" to true, and "pointsAwarded" to the question's points (usually 1).
-   - If the answer does NOT match or the box is blank: set "isCorrect" to false, and "pointsAwarded" to 0.
+   - If the answer matches cleanly: set "isCorrect" to true, and "pointsAwarded" to the question's points (usually 1).
+   - If the answer does NOT match, is blank, or has multiple shaded bubbles: set "isCorrect" to false, and "pointsAwarded" to 0.
 5. "totalScore" MUST be the EXACT mathematical sum of all "pointsAwarded" across the results array.
 6. "maxScore" MUST be ${totalPossiblePoints}.
 
@@ -155,7 +180,10 @@ You MUST return the final result as a strict, valid JSON object with this exact 
       "correctAnswer": "C",
       "isCorrect": true,
       "pointsAwarded": 1,
-      "confidence": 0.98
+      "confidence": 0.98,
+      "flagReason": null,
+      "flagDetails": null,
+      "detectedOptions": ["C"]
     }
   ]
 }`;
@@ -194,6 +222,13 @@ You MUST return the final result as a strict, valid JSON object with this exact 
                 const errMsg = apiErr?.message || "";
                 const is429 = errMsg.includes("429") || errMsg.includes("quota");
                 const is503 = errMsg.includes("503");
+                const isInvalidKey = errMsg.includes("API key not valid") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("400");
+
+                if (isInvalidKey) {
+                    console.warn(`[Grading] Gemini API key invalid. Fast-failing over to backup vision AI...`);
+                    break;
+                }
+
                 console.warn(`[Grading] Gemini ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
                 continue;
             }
@@ -241,14 +276,47 @@ You MUST return the final result as a strict, valid JSON object with this exact 
 
         const detected = parsedResults.find((r: any) => Number(r.questionNumber) === qNum) || parsedResults[idx] || {};
         const rawStudentAnswer = String(detected.studentAnswer ?? detected.answer ?? "").trim();
-        const confidence = typeof detected.confidence === "number" ? detected.confidence : 0.95;
+        let confidence = typeof detected.confidence === "number" ? detected.confidence : 0.95;
         const acceptedVariants = variantMap.get(qNum) || [];
+
+        let flagReason: ReviewFlagReason | undefined = detected.flagReason;
+        let flagDetails: string | undefined = detected.flagDetails;
+        let detectedOptions: string[] = Array.isArray(detected.detectedOptions) ? detected.detectedOptions : [];
+
+        // Deterministic detection of double-shaded / multiple marked bubbles
+        const isSingleChoice = !officialCorrect.includes(",") && (officialCorrect.length === 1 || officialCorrect === "T" || officialCorrect === "F");
+        const multipleMarkRegex = /([A-D]|[T|F])\s*[,/&+\s]\s*([A-D]|[T|F])/i;
+        const compactLetters = rawStudentAnswer.replace(/[^A-Za-z0-9]/g, "");
+
+        if (isSingleChoice) {
+            if (multipleMarkRegex.test(rawStudentAnswer) || (compactLetters.length >= 2 && compactLetters.length <= 4 && /^[A-D]+$/i.test(compactLetters))) {
+                flagReason = "double_mark";
+                flagDetails = `Double-shaded bubbles detected (${rawStudentAnswer})`;
+                confidence = Math.min(confidence, 0.50);
+                if (detectedOptions.length === 0) {
+                    detectedOptions = Array.from(new Set(rawStudentAnswer.toUpperCase().match(/[A-D]/g) || []));
+                }
+            }
+        }
+
+        // Automatic low confidence threshold (< 0.75)
+        const isLowConfidence = confidence < 0.75;
+        if (isLowConfidence && !flagReason) {
+            flagReason = "low_confidence";
+            flagDetails = `Low OCR confidence (${Math.round(confidence * 100)}%)`;
+        }
+
+        const isFlagged = Boolean(flagReason === "double_mark" || flagReason === "unclear" || isLowConfidence);
 
         let awarded = 0;
         let isMatch = false;
 
-        // Check if multi-point enumeration (comma-separated expected items)
-        if (itemPoints > 1 && officialCorrect.includes(",")) {
+        // Double-marked answers for single-choice questions are strictly incorrect by default until teacher fixes
+        if (flagReason === "double_mark" && isSingleChoice) {
+            isMatch = false;
+            awarded = 0;
+        } else if (itemPoints > 1 && officialCorrect.includes(",")) {
+            // Check if multi-point enumeration (comma-separated expected items)
             const expectedList = officialCorrect.split(/[,;\n/]+/).map((s) => s.trim()).filter(Boolean);
             const studentList = rawStudentAnswer.split(/[,;\n/]+/).map((s) => s.trim()).filter(Boolean);
             const matchedExpectedIndices = new Set<number>();
@@ -279,7 +347,12 @@ You MUST return the final result as a strict, valid JSON object with this exact 
             isCorrect: isMatch,
             pointsAwarded: awarded,
             confidence,
-            flaggedForReview: confidence < 0.75,
+            flaggedForReview: isFlagged,
+            flagReason,
+            flagDetails,
+            detectedOptions,
+            isOverridden: false,
+            originalStudentAnswer: rawStudentAnswer,
         };
     });
 
@@ -300,43 +373,7 @@ async function gradeWithBackupVisionAI(
     systemInstruction: string,
     geminiError?: any
 ): Promise<any> {
-    const {
-        getAIConfig,
-        DEFAULT_OPENROUTER_VISION_MODELS,
-        DEFAULT_OLLAMA_VISION_MODELS,
-        DEFAULT_GROQ_VISION_MODELS,
-    } = await import("./ai/aiConfigService");
-    const { callOpenAICompatible, extractJsonFromResponse } = await import("./ai/openAICompatibleClient");
-
-    const backupConfig = await getAIConfig();
-    if (!backupConfig.enabled) {
-        throw geminiError || new Error("Gemini AI is unavailable, and backup AI is disabled in Settings.");
-    }
-
-    let candidateModels: string[] = [];
-    let apiKey: string | undefined = undefined;
-    let baseUrl: string | undefined = undefined;
-
-    if (backupConfig.provider === "openrouter") {
-        apiKey = backupConfig.openRouterKey?.trim();
-        if (!apiKey) {
-            throw new Error(
-                "Gemini Vision is busy or rate-limited, and OpenRouter API key is missing. Please configure your key in Settings."
-            );
-        }
-        candidateModels = DEFAULT_OPENROUTER_VISION_MODELS;
-    } else if (backupConfig.provider === "ollama") {
-        baseUrl = backupConfig.ollamaBaseUrl;
-        candidateModels = DEFAULT_OLLAMA_VISION_MODELS;
-    } else if (backupConfig.provider === "groq") {
-        apiKey = backupConfig.groqKey?.trim();
-        if (!apiKey) {
-            throw new Error(
-                "Gemini Vision is busy or rate-limited, and Groq API key is missing. Please configure your key in Settings."
-            );
-        }
-        candidateModels = DEFAULT_GROQ_VISION_MODELS;
-    }
+    const { runBackupChain } = await import("./ai/backupRunner");
 
     const messages = [
         {
@@ -356,34 +393,28 @@ async function gradeWithBackupVisionAI(
         },
     ];
 
-    let lastBackupErr: any = null;
-    for (const modelName of candidateModels) {
-        try {
-            console.log(`[Grading Backup] Attempting vision extraction via ${backupConfig.provider} (${modelName})...`);
-            const callRes = await callOpenAICompatible({
-                provider: backupConfig.provider,
-                model: modelName,
-                apiKey,
-                baseUrl,
-                messages,
-                responseFormatJson: true,
-                temperature: 0.1,
-                timeoutMs: 45000,
-            });
+    try {
+        const result = await runBackupChain<any>({
+            kind: "vision",
+            messages,
+            logTag: "[Grading Backup]",
+            timeoutMs: 35000,
+            totalBudgetMs: 55000,
+            maxTokens: 2500,
+            temperature: 0.1,
+            validate: (json) => {
+                if (json && Array.isArray(json.results) && json.results.length > 0) {
+                    return json;
+                }
+                return null;
+            },
+        });
 
-            const parsed = callRes.json || extractJsonFromResponse(callRes.text);
-            if (parsed && Array.isArray(parsed.results)) {
-                return parsed;
-            }
-        } catch (bErr: any) {
-            lastBackupErr = bErr;
-            console.warn(`[Grading Backup] Vision model ${modelName} failed:`, bErr?.message);
-            continue;
-        }
+        return result.value;
+    } catch (err: any) {
+        throw new Error(
+            `Gemini Vision was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup vision provider also failed:\n${err.message}`
+        );
     }
-
-    throw new Error(
-        `Gemini Vision was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup vision provider ${backupConfig.provider.toUpperCase()} also failed: ${lastBackupErr?.message || "All models failed"}`
-    );
 }
 

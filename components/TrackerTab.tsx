@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import {
   Alert,
   Image,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,6 +16,14 @@ import {
 } from "../lib/quizStore";
 import { generateClassroomAdvice } from "../lib/pedagogicalAdvice";
 import { useTheme } from "../context/ThemeContext";
+import {
+  analyzeQuizForClass,
+  ClassQuizAnalysis,
+  DifficultyLevel,
+  generateDemoQuizAnalysis,
+  QuestionAnalysisSummary,
+} from "../lib/questionAnalysis";
+import { ItemAnalysisModal } from "./ItemAnalysisModal";
 
 export type TrackerStudent = {
   id: string;
@@ -125,6 +134,53 @@ export default function TrackerTab({
     publishedQuizzes[0]?.quizTitle ||
     selectedQuizTitle ||
     (classSubject && classSubject !== "No Subject" ? classSubject : (classTitle ? `${classTitle} Assessment` : "Class Assessment"));
+
+  // ── Item Analysis States & Synchronized Loader ───────────────────────────
+  const [itemAnalysis, setItemAnalysis] = useState<ClassQuizAnalysis | null>(null);
+  const [itemAnalysisLoading, setItemAnalysisLoading] = useState(false);
+  const [itemAnalysisModalVisible, setItemAnalysisModalVisible] = useState(false);
+  const [itemAnalysisViewMode, setItemAnalysisViewMode] = useState<"MOST_MISSED" | "DIFFICULTY_INDEX">("MOST_MISSED");
+  const [difficultyFilter, setDifficultyFilter] = useState<"ALL" | DifficultyLevel>("ALL");
+  const [activeQuizTitle, setActiveQuizTitle] = useState<string>(selectedQuizTitle || "");
+  const [expandedAnalysisQNum, setExpandedAnalysisQNum] = useState<number | null>(null);
+
+  const availableQuizOptions = Array.from(
+    new Set(
+      [
+        ...publishedQuizzes.map((q) => q.quizTitle),
+        ...perfRecords.map((r) => r.quizTitle),
+        activeQuizName,
+      ].filter(Boolean)
+    )
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAnalysis() {
+      const targetQuiz = activeQuizTitle || activeQuizName;
+      const matchedPublished = publishedQuizzes.find((q) => q.quizTitle === targetQuiz);
+      setItemAnalysisLoading(true);
+      try {
+        const result = await analyzeQuizForClass(
+          classroomId,
+          targetQuiz,
+          matchedPublished,
+          students.map((s) => ({ id: s.id, full_name: s.full_name }))
+        );
+        if (isMounted) {
+          setItemAnalysis(result);
+        }
+      } catch (e) {
+        console.warn("[TrackerTab] Failed to analyze quiz:", e);
+      } finally {
+        if (isMounted) setItemAnalysisLoading(false);
+      }
+    }
+    loadAnalysis();
+    return () => {
+      isMounted = false;
+    };
+  }, [classroomId, activeQuizTitle, activeQuizName, publishedQuizzes, students]);
 
   // ── Grade Distribution ──────────────────────────────────────────────────
   const countA = students.filter((s) => (s.average ?? 0) >= 90).length;
@@ -549,7 +605,12 @@ export default function TrackerTab({
                           transform: [{ scale: isSelected ? 1.25 : 1 }],
                         },
                       ]}
-                      onPress={() => setSelectedIndex(idx)}
+                      onPress={() => {
+                        setSelectedIndex(idx);
+                        if (trendPoints[idx]?.fullTitle) {
+                          setActiveQuizTitle(trendPoints[idx].fullTitle);
+                        }
+                      }}
                       activeOpacity={0.8}
                     />
                   </React.Fragment>
@@ -573,7 +634,12 @@ export default function TrackerTab({
                         width: 70,
                         alignItems: "center",
                       }}
-                      onPress={() => setSelectedIndex(idx)}
+                      onPress={() => {
+                        setSelectedIndex(idx);
+                        if (trendPoints[idx]?.fullTitle) {
+                          setActiveQuizTitle(trendPoints[idx].fullTitle);
+                        }
+                      }}
                       activeOpacity={0.7}
                     >
                       <Text
@@ -605,7 +671,521 @@ export default function TrackerTab({
         )}
       </View>
 
-      {/* ── Section 4: Flagged At-Risk Students ── */}
+      {/* ── Section 4: Item Analysis (Most Missed Questions & Difficulty Index) ── */}
+      <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
+        <View style={styles.itemAnalysisHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+              <View style={[styles.miniHeaderPill, { backgroundColor: accentColor + "18" }]}>
+                <Ionicons name="analytics" size={12} color={accentColor} />
+                <Text style={[styles.miniHeaderPillText, { color: accentColor }]}>ITEM ANALYSIS</Text>
+              </View>
+              <Text style={[styles.headerSubText, { color: textSub }]}>
+                {itemAnalysis?.totalStudentsGraded ?? students.length} Submissions
+              </Text>
+            </View>
+            <Text style={[styles.cardTitle, { color: textMain }]}>Question Performance & Difficulty</Text>
+            <Text style={[styles.cardSub, { color: textSub }]}>
+              Difficulty index (p-value), most missed questions & distractor diagnostic metrics
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.inspectMatrixBtn,
+              {
+                backgroundColor: darkMode ? accentColor + "22" : accentColor + "14",
+                borderColor: darkMode ? accentColor + "55" : accentColor + "35",
+              },
+            ]}
+            onPress={() => setItemAnalysisModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="expand-outline" size={14} color={accentColor} />
+            <Text style={[styles.inspectMatrixBtnText, { color: accentColor }]}>Full Matrix</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Quiz Selector Carousel (if multiple quizzes available) */}
+        {availableQuizOptions.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quizSelectorScroll}>
+            {availableQuizOptions.map((qTitle) => {
+              const isSelected = qTitle === (activeQuizTitle || activeQuizName);
+              return (
+                <TouchableOpacity
+                  key={qTitle}
+                  style={[
+                    styles.quizSelectorPill,
+                    isSelected
+                      ? { backgroundColor: accentColor, borderColor: accentColor }
+                      : { backgroundColor: darkMode ? "#374151" : "#F1F5F9", borderColor: border },
+                  ]}
+                  onPress={() => setActiveQuizTitle(qTitle)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.quizSelectorPillText,
+                      isSelected ? { color: "#FFFFFF", fontWeight: "800" } : { color: textSub },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {qTitle}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {/* ── 3 Key Item Metrics ── */}
+        <View style={styles.analysisKpiRow}>
+          {/* Card 1: Top Most Missed Question */}
+          <View style={[styles.analysisKpiCard, { backgroundColor: darkMode ? "#450A0A30" : "#FEF2F2", borderColor: "#FCA5A5" }]}>
+            <View style={styles.analysisKpiHeader}>
+              <Ionicons name="alert-circle" size={13} color="#DC2626" />
+              <Text style={[styles.analysisKpiLabel, { color: "#B91C1C" }]}>Most Missed</Text>
+            </View>
+            <Text style={[styles.analysisKpiVal, { color: "#DC2626" }]}>
+              {itemAnalysis?.mostMissedQuestions[0] ? `Q${itemAnalysis.mostMissedQuestions[0].questionNumber}` : "None"}
+            </Text>
+            <Text style={[styles.analysisKpiSub, { color: "#991B1B" }]}>
+              {itemAnalysis?.mostMissedQuestions[0]
+                ? `${itemAnalysis.mostMissedQuestions[0].missedRate}% Missed • p=${itemAnalysis.mostMissedQuestions[0].difficultyIndex.toFixed(2)}`
+                : "No data"}
+            </Text>
+          </View>
+
+          {/* Card 2: Easiest Question */}
+          <View style={[styles.analysisKpiCard, { backgroundColor: darkMode ? "#064E3B30" : "#ECFDF5", borderColor: "#A7F3D0" }]}>
+            <View style={styles.analysisKpiHeader}>
+              <Ionicons name="checkmark-circle" size={13} color="#059669" />
+              <Text style={[styles.analysisKpiLabel, { color: "#065F46" }]}>Easiest Item</Text>
+            </View>
+            <Text style={[styles.analysisKpiVal, { color: "#059669" }]}>
+              {itemAnalysis?.easiestQuestions[0] ? `Q${itemAnalysis.easiestQuestions[0].questionNumber}` : "None"}
+            </Text>
+            <Text style={[styles.analysisKpiSub, { color: "#047857" }]}>
+              {itemAnalysis?.easiestQuestions[0]
+                ? `${itemAnalysis.easiestQuestions[0].accuracyRate}% Acc • p=${itemAnalysis.easiestQuestions[0].difficultyIndex.toFixed(2)}`
+                : "No data"}
+            </Text>
+          </View>
+
+          {/* Card 3: Class Avg Difficulty Index */}
+          <View style={[styles.analysisKpiCard, { backgroundColor: darkMode ? "#1E3A8A30" : "#EFF6FF", borderColor: "#BFDBFE" }]}>
+            <View style={styles.analysisKpiHeader}>
+              <Ionicons name="speedometer-outline" size={13} color="#2563EB" />
+              <Text style={[styles.analysisKpiLabel, { color: "#1E40AF" }]}>Avg Difficulty</Text>
+            </View>
+            <Text style={[styles.analysisKpiVal, { color: "#2563EB" }]}>
+              p = {itemAnalysis?.averageDifficultyIndex.toFixed(2) ?? "0.50"}
+            </Text>
+            <Text style={[styles.analysisKpiSub, { color: "#1D4ED8" }]}>
+              {itemAnalysis && itemAnalysis.averageDifficultyIndex >= 0.75
+                ? "Easy Facility"
+                : itemAnalysis && itemAnalysis.averageDifficultyIndex >= 0.25
+                ? "Moderate (Ideal)"
+                : "Difficult Test"}
+            </Text>
+          </View>
+        </View>
+
+        {/* ── Mode Switcher Tab ── */}
+        <View style={[styles.tabSegmentWrap, { backgroundColor: darkMode ? "#111827" : "#F1F5F9" }]}>
+          <TouchableOpacity
+            style={[
+              styles.tabSegmentBtn,
+              itemAnalysisViewMode === "MOST_MISSED" && [styles.tabSegmentBtnActive, { backgroundColor: cardBg }],
+            ]}
+            onPress={() => setItemAnalysisViewMode("MOST_MISSED")}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="flame"
+              size={14}
+              color={itemAnalysisViewMode === "MOST_MISSED" ? "#DC2626" : textSub}
+            />
+            <Text
+              style={[
+                styles.tabSegmentText,
+                itemAnalysisViewMode === "MOST_MISSED"
+                  ? { color: textMain, fontWeight: "800" }
+                  : { color: textSub },
+              ]}
+            >
+              Most Missed ({itemAnalysis?.mostMissedQuestions.length ?? 0})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tabSegmentBtn,
+              itemAnalysisViewMode === "DIFFICULTY_INDEX" && [styles.tabSegmentBtnActive, { backgroundColor: cardBg }],
+            ]}
+            onPress={() => setItemAnalysisViewMode("DIFFICULTY_INDEX")}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="list-outline"
+              size={14}
+              color={itemAnalysisViewMode === "DIFFICULTY_INDEX" ? accentColor : textSub}
+            />
+            <Text
+              style={[
+                styles.tabSegmentText,
+                itemAnalysisViewMode === "DIFFICULTY_INDEX"
+                  ? { color: textMain, fontWeight: "800" }
+                  : { color: textSub },
+              ]}
+            >
+              Difficulty Index ({itemAnalysis?.questionBreakdown.length ?? 0})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── MODE 1: MOST MISSED QUESTIONS ── */}
+        {itemAnalysisViewMode === "MOST_MISSED" && (
+          <View style={styles.mostMissedList}>
+            {itemAnalysis && itemAnalysis.mostMissedQuestions.length > 0 ? (
+              itemAnalysis.mostMissedQuestions.slice(0, 3).map((q, idx) => {
+                const isTop1 = idx === 0;
+                const isDifficult = q.difficultyLevel === "Difficult";
+                const isModerate = q.difficultyLevel === "Moderate";
+                const badgeColor = isDifficult ? "#EF4444" : isModerate ? "#2563EB" : "#10B981";
+                const badgeBg = isDifficult
+                  ? (darkMode ? "#450A0A" : "#FEE2E2")
+                  : isModerate
+                  ? (darkMode ? "#1E3A8A40" : "#EFF6FF")
+                  : (darkMode ? "#064E3B40" : "#ECFDF5");
+
+                return (
+                  <View
+                    key={q.questionNumber}
+                    style={[
+                      styles.missedCard,
+                      {
+                        backgroundColor: darkMode ? "#1E1E2E" : "#FFFFFF",
+                        borderColor: isTop1 ? "#FCA5A5" : border,
+                        borderWidth: isTop1 ? 1.5 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.missedCardHeader}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                        <View style={[styles.missedBadge, { backgroundColor: badgeBg, borderColor: badgeColor }]}>
+                          <Text style={[styles.missedBadgeText, { color: badgeColor }]}>Q{q.questionNumber}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <View style={[styles.miniDiffPill, { backgroundColor: badgeBg }]}>
+                              <Text style={[styles.miniDiffPillText, { color: badgeColor }]}>
+                                {q.difficultyLevel.toUpperCase()} • p = {q.difficultyIndex.toFixed(2)}
+                              </Text>
+                            </View>
+                            <Text style={[styles.missedRateText, { color: "#DC2626" }]}>
+                              {q.missedRate}% Missed
+                            </Text>
+                          </View>
+                          <Text style={[styles.missedAttemptsText, { color: textSub }]}>
+                            {q.incorrectCount} of {q.totalAttempts} students got this wrong
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={[styles.keyPill, { backgroundColor: darkMode ? "#064E3B" : "#DCFCE7", borderColor: "#10B981" }]}>
+                        <Text style={styles.keyPillText}>Key: [{q.correctAnswer}]</Text>
+                      </View>
+                    </View>
+
+                    {/* Question Text */}
+                    {q.questionText ? (
+                      <Text style={[styles.missedQuestionText, { color: textMain }]} numberOfLines={2}>
+                        {q.questionText}
+                      </Text>
+                    ) : null}
+
+                    {/* Visual Facility Bar */}
+                    <View style={[styles.miniFacilityTrack, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}>
+                      <View
+                        style={[
+                          styles.miniFacilityFill,
+                          {
+                            width: `${Math.max(6, q.accuracyRate)}%`,
+                            backgroundColor: badgeColor,
+                          },
+                        ]}
+                      />
+                    </View>
+
+                    {/* Distractor Choices Distribution */}
+                    <View style={styles.distractorBarWrap}>
+                      <Text style={[styles.distractorLabel, { color: textSub }]}>Student Choices:</Text>
+                      <View style={styles.distractorPillRow}>
+                        {q.distractorBreakdown.map((opt) => (
+                          <View
+                            key={opt.option}
+                            style={[
+                              styles.miniChoicePill,
+                              opt.isCorrect
+                                ? { backgroundColor: darkMode ? "#064E3B40" : "#ECFDF5", borderColor: "#10B981" }
+                                : opt.percentage >= 35
+                                ? { backgroundColor: darkMode ? "#450A0A" : "#FEE2E2", borderColor: "#EF4444" }
+                                : { backgroundColor: darkMode ? "#374151" : "#F1F5F9", borderColor: border },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.miniChoiceText,
+                                opt.isCorrect
+                                  ? { color: "#059669", fontWeight: "800" }
+                                  : opt.percentage >= 35
+                                  ? { color: "#DC2626", fontWeight: "700" }
+                                  : { color: textSub },
+                              ]}
+                            >
+                              [{opt.option}] {opt.percentage}%
+                              {opt.isCorrect ? " ✓" : opt.percentage >= 35 ? " ⚠️" : ""}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Misconception Alert Callout */}
+                    {q.mostCommonMistake && q.mostCommonMistake.percentage >= 35 && (
+                      <View style={[styles.miniMisconceptionBox, { backgroundColor: darkMode ? "#78350F25" : "#FFFBEB", borderColor: "#F59E0B" }]}>
+                        <Ionicons name="warning-outline" size={13} color="#D97706" />
+                        <Text style={[styles.miniMisconceptionText, { color: darkMode ? "#FDE68A" : "#92400E" }]}>
+                          Misconception Alert: {q.mostCommonMistake.percentage}% chose option [{q.mostCommonMistake.answer}].
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Students Who Missed */}
+                    {q.studentsMissed && q.studentsMissed.length > 0 && (
+                      <View style={styles.missedStudentsWrap}>
+                        <Text style={[styles.missedStudentsLabel, { color: textSub }]}>Students who missed:</Text>
+                        <View style={styles.missedStudentPillsRow}>
+                          {q.studentsMissed.slice(0, 4).map((name, i) => (
+                            <TouchableOpacity
+                              key={i}
+                              style={[styles.missedStudentChip, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}
+                              onPress={() => onOpenStudentProfile({ id: `stud-${i}`, full_name: name, email: null, average: 65 })}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.missedStudentChipText, { color: textMain }]}>{name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          {q.studentsMissed.length > 4 && (
+                            <Text style={[styles.missedMoreCount, { color: textSub }]}>
+                              +{q.studentsMissed.length - 4} more
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Action button */}
+                    <TouchableOpacity
+                      style={[styles.remedialSmallBtn, { backgroundColor: accentColor + "14", borderColor: accentColor + "30" }]}
+                      onPress={onNavigateToAIBuilder}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="sparkles" size={13} color={accentColor} />
+                      <Text style={[styles.remedialSmallBtnText, { color: accentColor }]}>
+                        Re-teach Concept / Generate Remedial Quiz
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            ) : (
+              <View style={[styles.emptyItemBox, { backgroundColor: darkMode ? "#1F2937" : "#F8FAFC" }]}>
+                <Ionicons name="checkmark-circle-outline" size={28} color="#10B981" />
+                <Text style={[styles.emptyItemText, { color: textMain }]}>All items mastered with high accuracy!</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── MODE 2: PER-QUESTION DIFFICULTY INDEX TABLE ── */}
+        {itemAnalysisViewMode === "DIFFICULTY_INDEX" && (
+          <View style={styles.difficultyIndexList}>
+            {/* Filter Pills: All | Difficult | Moderate | Easy */}
+            <View style={styles.diffFilterRow}>
+              {(["ALL", "Difficult", "Moderate", "Easy"] as const).map((level) => {
+                const isSelected = difficultyFilter === level;
+                const count =
+                  level === "ALL"
+                    ? itemAnalysis?.questionBreakdown.length ?? 0
+                    : level === "Difficult"
+                    ? itemAnalysis?.difficultyBreakdown.difficultCount ?? 0
+                    : level === "Moderate"
+                    ? itemAnalysis?.difficultyBreakdown.moderateCount ?? 0
+                    : itemAnalysis?.difficultyBreakdown.easyCount ?? 0;
+
+                return (
+                  <TouchableOpacity
+                    key={level}
+                    style={[
+                      styles.diffFilterPill,
+                      isSelected
+                        ? { backgroundColor: accentColor, borderColor: accentColor }
+                        : { backgroundColor: darkMode ? "#374151" : "#F1F5F9", borderColor: border },
+                    ]}
+                    onPress={() => setDifficultyFilter(level)}
+                  >
+                    <Text
+                      style={[
+                        styles.diffFilterPillText,
+                        isSelected ? { color: "#FFF", fontWeight: "800" } : { color: textSub },
+                      ]}
+                    >
+                      {level} ({count})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Questions Table */}
+            {itemAnalysis?.questionBreakdown
+              .filter((q) => (difficultyFilter === "ALL" ? true : q.difficultyLevel === difficultyFilter))
+              .map((q) => {
+                const isExpanded = expandedAnalysisQNum === q.questionNumber;
+                const isDifficult = q.difficultyLevel === "Difficult";
+                const isModerate = q.difficultyLevel === "Moderate";
+                const lvlColor = isDifficult ? "#EF4444" : isModerate ? "#2563EB" : "#10B981";
+                const lvlBg = isDifficult
+                  ? (darkMode ? "#450A0A" : "#FEE2E2")
+                  : isModerate
+                  ? (darkMode ? "#1E3A8A40" : "#EFF6FF")
+                  : (darkMode ? "#064E3B40" : "#ECFDF5");
+
+                return (
+                  <TouchableOpacity
+                    key={q.questionNumber}
+                    style={[styles.diffRowCard, { backgroundColor: darkMode ? "#1E1E2E" : "#FFFFFF", borderColor: border }]}
+                    onPress={() => setExpandedAnalysisQNum(isExpanded ? null : q.questionNumber)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.diffRowMain}>
+                      {/* Left Badge */}
+                      <View style={[styles.diffRowBadge, { backgroundColor: lvlBg, borderColor: lvlColor }]}>
+                        <Text style={[styles.diffRowBadgeText, { color: lvlColor }]}>Q{q.questionNumber}</Text>
+                      </View>
+
+                      {/* Middle: Text + Accuracy Meter */}
+                      <View style={{ flex: 1, marginHorizontal: 10 }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                          <Text style={[styles.diffRowAccuracy, { color: textMain }]}>
+                            {q.accuracyRate}% Accuracy ({q.correctCount}/{q.totalAttempts})
+                          </Text>
+                          <View style={[styles.diffLevelTag, { backgroundColor: lvlBg }]}>
+                            <Text style={[styles.diffLevelTagText, { color: lvlColor }]}>
+                              {q.difficultyLevel} • p = {q.difficultyIndex.toFixed(2)}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {q.questionText ? (
+                          <Text style={[styles.diffRowQText, { color: textSub }]} numberOfLines={isExpanded ? undefined : 1}>
+                            {q.questionText}
+                          </Text>
+                        ) : null}
+
+                        {/* Facility Bar */}
+                        <View style={[styles.diffRowTrack, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}>
+                          <View style={[styles.diffRowFill, { width: `${Math.max(5, q.accuracyRate)}%`, backgroundColor: lvlColor }]} />
+                        </View>
+                      </View>
+
+                      <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={16} color={textSub} />
+                    </View>
+
+                    {/* Expanded details */}
+                    {isExpanded && (
+                      <View style={[styles.diffRowExpanded, { borderTopColor: border }]}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                          <Text style={[styles.diffExpandedKey, { color: textMain }]}>
+                            Official Answer Key: <Text style={{ fontWeight: "800", color: "#10B981" }}>[{q.correctAnswer}]</Text>
+                          </Text>
+                          <Text style={[styles.diffExpandedMissed, { color: "#EF4444" }]}>
+                            {q.missedRate}% Missed ({q.incorrectCount} students)
+                          </Text>
+                        </View>
+
+                        {/* Choice pills */}
+                        <View style={styles.distractorPillRow}>
+                          {q.distractorBreakdown.map((opt) => (
+                            <View
+                              key={opt.option}
+                              style={[
+                                styles.miniChoicePill,
+                                opt.isCorrect
+                                  ? { backgroundColor: darkMode ? "#064E3B40" : "#ECFDF5", borderColor: "#10B981" }
+                                  : { backgroundColor: darkMode ? "#374151" : "#F1F5F9", borderColor: border },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.miniChoiceText,
+                                  opt.isCorrect ? { color: "#059669", fontWeight: "800" } : { color: textSub },
+                                ]}
+                              >
+                                [{opt.option}] {opt.percentage}% ({opt.count})
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {q.pedagogicalInsight ? (
+                          <Text style={[styles.diffRowInsight, { color: textSub }]}>
+                            💡 {q.pedagogicalInsight}
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+          </View>
+        )}
+
+        {/* Bottom Full Matrix Trigger Link */}
+        <TouchableOpacity
+          style={[styles.fullMatrixFooterBtn, { borderColor: subBorder }]}
+          onPress={() => setItemAnalysisModalVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="bar-chart-outline" size={15} color={accentColor} />
+          <Text style={[styles.fullMatrixFooterText, { color: accentColor }]}>
+            Open Complete Item Analysis Report & Distractor Breakdown
+          </Text>
+          <Ionicons name="chevron-forward" size={15} color={accentColor} />
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Item Analysis Deep Modal ── */}
+      <ItemAnalysisModal
+        visible={itemAnalysisModalVisible}
+        onClose={() => setItemAnalysisModalVisible(false)}
+        analysis={itemAnalysis}
+        quizTitle={activeQuizTitle || activeQuizName}
+        accentColor={accentColor}
+        onOpenStudentProfile={(studentName) => {
+          setItemAnalysisModalVisible(false);
+          const matched = students.find((s) => s.full_name === studentName);
+          if (matched) onOpenStudentProfile(matched);
+        }}
+        onCreateRemedialQuiz={() => {
+          setItemAnalysisModalVisible(false);
+          onNavigateToAIBuilder();
+        }}
+      />
+
+      {/* ── Section 5: Flagged At-Risk Students ── */}
       <View style={[styles.flaggedSectionCard, darkMode && { backgroundColor: "#450A0A30", borderColor: "#7F1D1D" }]}>
         <View style={styles.flaggedHeaderRow}>
           <View style={styles.flaggedHeaderLeft}>
@@ -1227,5 +1807,375 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+
+  /* ── Item Analysis Section Styles ── */
+  itemAnalysisHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  miniHeaderPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  miniHeaderPillText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  headerSubText: {
+    fontSize: 11.5,
+    fontWeight: "500",
+  },
+  inspectMatrixBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  inspectMatrixBtnText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  quizSelectorScroll: {
+    gap: 8,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  quizSelectorPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  quizSelectorPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  analysisKpiRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+  analysisKpiCard: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  analysisKpiHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 4,
+  },
+  analysisKpiLabel: {
+    fontSize: 10.5,
+    fontWeight: "700",
+  },
+  analysisKpiVal: {
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  analysisKpiSub: {
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  tabSegmentWrap: {
+    flexDirection: "row",
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 12,
+  },
+  tabSegmentBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  tabSegmentBtnActive: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  tabSegmentText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
+  mostMissedList: {
+    gap: 10,
+  },
+  missedCard: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  missedCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  missedBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  missedBadgeText: {
+    fontSize: 12.5,
+    fontWeight: "800",
+  },
+  miniDiffPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  miniDiffPillText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+  },
+  missedRateText: {
+    fontSize: 11.5,
+    fontWeight: "800",
+  },
+  missedAttemptsText: {
+    fontSize: 10.5,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  keyPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  keyPillText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#059669",
+  },
+  missedQuestionText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  miniFacilityTrack: {
+    height: 5,
+    borderRadius: 2.5,
+    overflow: "hidden",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  miniFacilityFill: {
+    height: "100%",
+    borderRadius: 2.5,
+  },
+  distractorBarWrap: {
+    marginTop: 4,
+  },
+  distractorLabel: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  distractorPillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  miniChoicePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  miniChoiceText: {
+    fontSize: 10.5,
+  },
+  miniMisconceptionBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  miniMisconceptionText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    flex: 1,
+  },
+  missedStudentsWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  missedStudentsLabel: {
+    fontSize: 10.5,
+    fontWeight: "600",
+  },
+  missedStudentPillsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  missedStudentChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  missedStudentChipText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  missedMoreCount: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  remedialSmallBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  remedialSmallBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  emptyItemBox: {
+    alignItems: "center",
+    padding: 20,
+    borderRadius: 12,
+    gap: 6,
+  },
+  emptyItemText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  difficultyIndexList: {
+    gap: 8,
+  },
+  diffFilterRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 8,
+  },
+  diffFilterPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  diffFilterPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  diffRowCard: {
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  diffRowMain: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  diffRowBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  diffRowBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "800",
+  },
+  diffRowAccuracy: {
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  diffLevelTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  diffLevelTagText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+  },
+  diffRowQText: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+  diffRowTrack: {
+    height: 4,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  diffRowFill: {
+    height: "100%",
+    borderRadius: 2,
+  },
+  diffRowExpanded: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    gap: 6,
+  },
+  diffExpandedKey: {
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
+  diffExpandedMissed: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  diffRowInsight: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
+  fullMatrixFooterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    marginTop: 12,
+  },
+  fullMatrixFooterText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

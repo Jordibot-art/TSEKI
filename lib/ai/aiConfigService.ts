@@ -12,17 +12,37 @@ export interface BackupAIConfig {
 }
 
 // ── Default Free & Calibrated Models ──────────────────────────────────────────
+// Ordered by live benchmark (10-question quiz, Nov 2026): fastest model that
+// returns valid JSON first. OpenRouter tries up to 3 of these server-side in a
+// single request, so 429/upstream failures fail over in ~1s instead of 40s.
 export const DEFAULT_OPENROUTER_MODELS = [
-    "liquid/lfm-2.5-2.6b:free",
-    "nvidia/nemotron-3.5-lightning:free",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-    "cohere/north-mini-code:free",
+    "cohere/north-mini-code:free",                          // ~14s, valid JSON
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",   // ~27s, valid JSON
+    "nvidia/nemotron-3.5-super-vl:free",
+    "dots-studio/dots-3-note-preview:free",
     "google/gemma-4-31b-it:free",
+    "openrouter/free",                                      // OpenRouter auto-router (last resort)
 ];
 
+// Vision-capable free models (image input) for camera grading
 export const DEFAULT_OPENROUTER_VISION_MODELS = [
     "nvidia/nemotron-3.5-super-vl:free",
+    "google/gemma-4-31b-it:free",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "dots-studio/dots-3-note-preview:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "openrouter/free",
+];
+
+/**
+ * Older defaults that are now slow, tiny, or rate-limited. If one of these is
+ * still saved on the device (and the teacher never picked it explicitly), we
+ * transparently upgrade to the current fastest default.
+ */
+export const LEGACY_OPENROUTER_DEFAULTS = [
+    "liquid/lfm-2.5-2.6b:free",
+    "nvidia/nemotron-3.5-lightning:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
 ];
 
 export const DEFAULT_OLLAMA_MODELS = [
@@ -43,8 +63,15 @@ export const DEFAULT_GROQ_MODELS = [
 ];
 
 export const DEFAULT_GROQ_VISION_MODELS = [
+    "meta-llama/llama-4-scout-17b-16e-instruct",
     "llama-3.2-11b-vision-preview",
 ];
+
+function normalizeOpenRouterModel(model?: string | null): string {
+    const m = (model || "").trim();
+    if (!m || LEGACY_OPENROUTER_DEFAULTS.includes(m)) return DEFAULT_OPENROUTER_MODELS[0];
+    return m;
+}
 
 // ── AsyncStorage Keys ────────────────────────────────────────────────────────
 const STORAGE_KEYS = {
@@ -63,6 +90,10 @@ const STORAGE_KEYS = {
  * (Node CLI unit tests vs. mobile app).
  */
 async function getStorage() {
+    // If running in pure Node.js CLI environment without React Native or DOM, skip AsyncStorage
+    if (typeof (global as any).nativeCallSyncHook === "undefined" && typeof window === "undefined") {
+        return null;
+    }
     try {
         const mod = await import("@react-native-async-storage/async-storage");
         return mod.default || mod;
@@ -106,7 +137,7 @@ export async function getAIConfig(): Promise<BackupAIConfig> {
                 enabled: enabledStr[1] !== null ? enabledStr[1] === "true" : true,
                 provider: validProvider,
                 openRouterKey: openRouterKeyStr[1] || process.env.EXPO_PUBLIC_OPENROUTER_API_KEY || "",
-                openRouterModel: openRouterModelStr[1] || process.env.EXPO_PUBLIC_OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODELS[0],
+                openRouterModel: normalizeOpenRouterModel(openRouterModelStr[1] || process.env.EXPO_PUBLIC_OPENROUTER_MODEL),
                 ollamaBaseUrl: ollamaUrlStr[1] || process.env.EXPO_PUBLIC_OLLAMA_BASE_URL || "http://localhost:11434",
                 ollamaModel: ollamaModelStr[1] || process.env.EXPO_PUBLIC_OLLAMA_MODEL || DEFAULT_OLLAMA_MODELS[0],
                 groqKey: groqKeyStr[1] || process.env.EXPO_PUBLIC_GROQ_API_KEY || "",
@@ -122,7 +153,7 @@ export async function getAIConfig(): Promise<BackupAIConfig> {
         enabled: true,
         provider: ["openrouter", "ollama", "groq"].includes(envProvider) ? envProvider : "openrouter",
         openRouterKey: process.env.EXPO_PUBLIC_OPENROUTER_API_KEY || "",
-        openRouterModel: process.env.EXPO_PUBLIC_OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODELS[0],
+        openRouterModel: normalizeOpenRouterModel(process.env.EXPO_PUBLIC_OPENROUTER_MODEL),
         ollamaBaseUrl: process.env.EXPO_PUBLIC_OLLAMA_BASE_URL || "http://localhost:11434",
         ollamaModel: process.env.EXPO_PUBLIC_OLLAMA_MODEL || DEFAULT_OLLAMA_MODELS[0],
         groqKey: process.env.EXPO_PUBLIC_GROQ_API_KEY || "",

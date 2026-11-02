@@ -361,14 +361,14 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         } catch (error: any) {
             console.error("Generation error:", error);
             const errMsg = error?.message || "";
-            const is503 = errMsg.includes("503") || error?.status === 503;
-            const is429 = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("rate");
-            if (is503 || is429) {
+            const mentionsBackup = errMsg.includes("backup provider") || errMsg.includes("Backup AI");
+
+            if (mentionsBackup) {
                 Alert.alert(
-                    "Primary AI Unavailable",
-                    `Google's Gemini service is currently ${is429 ? "rate-limited" : "experiencing high demand"}.\n\nYou can configure a backup AI provider (like OpenRouter with free models, or Ollama) in Settings so quizzes can always generate without interruption.`,
+                    "AI Generation Failed",
+                    `${errMsg}\n\nYou can review your backup provider or try another model in Settings.`,
                     [
-                        { text: "Dismiss", style: "cancel" },
+                        { text: "OK", style: "cancel" },
                         {
                             text: "Open Settings",
                             onPress: () => router.push("/settings"),
@@ -376,7 +376,23 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     ]
                 );
             } else {
-                Alert.alert("Error generating quiz", error.message);
+                const is503 = errMsg.includes("503") || error?.status === 503;
+                const is429 = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("rate");
+                if (is503 || is429) {
+                    Alert.alert(
+                        "Primary AI Unavailable",
+                        `Google's Gemini service is currently ${is429 ? "rate-limited" : "experiencing high demand"}.\n\nYou can configure a backup AI provider (like OpenRouter with free models, or Ollama) in Settings so quizzes can always generate without interruption.`,
+                        [
+                            { text: "Dismiss", style: "cancel" },
+                            {
+                                text: "Open Settings",
+                                onPress: () => router.push("/settings"),
+                            },
+                        ]
+                    );
+                } else {
+                    Alert.alert("Error Generating Quiz", errMsg || "Unknown error occurred.");
+                }
             }
         } finally {
             setGenerating(false);

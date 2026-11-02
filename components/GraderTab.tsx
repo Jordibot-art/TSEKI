@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { saveRosterAlert } from "../lib/alertStore";
-import { gradeStudentTest, GradingResponse } from "../lib/gradingService";
+import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
+import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
 import { saveStudentQuizResult } from "../lib/questionAnalysis";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
@@ -139,6 +140,9 @@ export default function GraderTab({
     const [sourceModalOpen, setSourceModalOpen] = useState(false);
     const [gradingLoading, setGradingLoading] = useState(false);
     const [gradingResult, setGradingResult] = useState<GradingResponse | null>(null);
+    const [scannedImageUri, setScannedImageUri] = useState<string | null>(null);
+    const [reviewModalOpen, setReviewModalOpen] = useState(false);
+    const [reviewInitialQNum, setReviewInitialQNum] = useState<number | undefined>(undefined);
     const [savingScore, setSavingScore] = useState(false);
     const [isRecorded, setIsRecorded] = useState(false);
     const { darkMode } = useTheme();
@@ -197,6 +201,36 @@ export default function GraderTab({
 
     const currentStudentValue = selectedStudent || "Auto-Detect from Test Paper";
 
+    // Count of items needing teacher review (unclear, double-shaded, low confidence)
+    const flaggedCount = useMemo(() => {
+        if (!gradingResult || !Array.isArray(gradingResult.results)) return 0;
+        return gradingResult.results.filter(
+            (r) => (r.flaggedForReview || (r.confidence !== undefined && r.confidence < 0.75)) && !r.isOverridden
+        ).length;
+    }, [gradingResult]);
+
+    // ── Helper to optimize captured test paper for AI Vision ───────────────────
+    async function prepareImageForGrading(asset: ImagePicker.ImagePickerAsset): Promise<{ base64: string; mimeType: "image/jpeg" }> {
+        try {
+            const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
+            // Resize to max 1280px width (preserves legibility while shrinking payload ~50x)
+            const manip = await manipulateAsync(
+                asset.uri,
+                [{ resize: { width: 1280 } }],
+                { compress: 0.72, format: SaveFormat.JPEG, base64: true }
+            );
+            if (manip.base64) {
+                return { base64: manip.base64, mimeType: "image/jpeg" };
+            }
+        } catch (e) {
+            console.warn("[Grader] Image resize fallback:", e);
+        }
+        return {
+            base64: asset.base64 || "",
+            mimeType: "image/jpeg",
+        };
+    }
+
     // ── Open Camera ────────────────────────────────────────────────────────────
     async function handleOpenCamera() {
         setSourceModalOpen(false);
@@ -210,14 +244,19 @@ export default function GraderTab({
             const result = await ImagePicker.launchCameraAsync({
                 mediaTypes: ["images"],
                 allowsEditing: false,
-                quality: 0.85,
+                quality: 0.8,
                 base64: true,
             });
 
-            if (!result.canceled && result.assets && result.assets.length > 0 && result.assets[0].base64) {
+            if (!result.canceled && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
-                const mimeType = asset.mimeType && asset.mimeType.includes("png") ? "image/png" : "image/jpeg";
-                processGrading(asset.base64!, mimeType);
+                setScannedImageUri(asset.uri);
+                const optimized = await prepareImageForGrading(asset);
+                if (optimized.base64) {
+                    processGrading(optimized.base64, optimized.mimeType);
+                } else {
+                    Alert.alert("Image Error", "Could not read camera capture data.");
+                }
             }
         } catch (err: any) {
             Alert.alert("Camera Error", err.message || "Failed to launch camera.");
@@ -237,14 +276,19 @@ export default function GraderTab({
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ["images"],
                 allowsEditing: false,
-                quality: 0.85,
+                quality: 0.8,
                 base64: true,
             });
 
-            if (!result.canceled && result.assets && result.assets.length > 0 && result.assets[0].base64) {
+            if (!result.canceled && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
-                const mimeType = asset.mimeType && asset.mimeType.includes("png") ? "image/png" : "image/jpeg";
-                processGrading(asset.base64!, mimeType);
+                setScannedImageUri(asset.uri);
+                const optimized = await prepareImageForGrading(asset);
+                if (optimized.base64) {
+                    processGrading(optimized.base64, optimized.mimeType);
+                } else {
+                    Alert.alert("Image Error", "Could not read photo data.");
+                }
             }
         } catch (err: any) {
             Alert.alert("Picker Error", err.message || "Failed to select photo.");
@@ -258,21 +302,44 @@ export default function GraderTab({
         setTimeout(() => {
             setGradingLoading(false);
             setIsRecorded(false);
+            setScannedImageUri(null);
             setGradingResult({
                 studentName: "Sarah Jenkins",
-                totalScore: 10,
+                totalScore: 8,
                 maxScore: 10,
                 results: [
-                    { questionNumber: 1, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 2, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 3, studentAnswer: "C", correctAnswer: "C", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 4, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 5, studentAnswer: "D", correctAnswer: "D", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 6, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 7, studentAnswer: "C", correctAnswer: "C", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 8, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 9, studentAnswer: "D", correctAnswer: "D", isCorrect: true, pointsAwarded: 1 },
-                    { questionNumber: 10, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1 },
+                    { questionNumber: 1, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1, confidence: 0.95 },
+                    { questionNumber: 2, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1, confidence: 0.92 },
+                    { questionNumber: 3, studentAnswer: "C", correctAnswer: "C", isCorrect: true, pointsAwarded: 1, confidence: 0.96 },
+                    {
+                        questionNumber: 4,
+                        studentAnswer: "A, C",
+                        correctAnswer: "A",
+                        isCorrect: false,
+                        pointsAwarded: 0,
+                        confidence: 0.50,
+                        flaggedForReview: true,
+                        flagReason: "double_mark",
+                        flagDetails: "Both bubbles [A] and [C] are filled on the answer sheet. Please verify student's true intent.",
+                        detectedOptions: ["A", "C"],
+                    },
+                    { questionNumber: 5, studentAnswer: "D", correctAnswer: "D", isCorrect: true, pointsAwarded: 1, confidence: 0.98 },
+                    { questionNumber: 6, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1, confidence: 0.94 },
+                    {
+                        questionNumber: 7,
+                        studentAnswer: "C",
+                        correctAnswer: "C",
+                        isCorrect: true,
+                        pointsAwarded: 1,
+                        confidence: 0.58,
+                        flaggedForReview: true,
+                        flagReason: "unclear",
+                        flagDetails: "Faint or smudged pencil marking detected for bubble [C].",
+                        detectedOptions: ["C"],
+                    },
+                    { questionNumber: 8, studentAnswer: "A", correctAnswer: "A", isCorrect: true, pointsAwarded: 1, confidence: 0.97 },
+                    { questionNumber: 9, studentAnswer: "D", correctAnswer: "D", isCorrect: true, pointsAwarded: 1, confidence: 0.91 },
+                    { questionNumber: 10, studentAnswer: "B", correctAnswer: "B", isCorrect: true, pointsAwarded: 1, confidence: 0.96 },
                 ],
             });
         }, 700);
@@ -304,6 +371,15 @@ export default function GraderTab({
                 if (match) {
                     setSelectedStudent(`${match.full_name}${match.email ? ` (${match.email})` : ""}`);
                 }
+            }
+
+            // Auto-prompt review if any double-shaded or low-confidence marks exist
+            const hasFlags = result.results.some(
+                (r) => r.flaggedForReview || (r.confidence !== undefined && r.confidence < 0.75)
+            );
+            if (hasFlags) {
+                setReviewInitialQNum(undefined);
+                setReviewModalOpen(true);
             }
         } catch (error: any) {
             console.error("Grading failed:", error);
@@ -540,80 +616,175 @@ export default function GraderTab({
 
                         {/* Interactive Grading Log Section */}
                         <View style={styles.cardBody}>
-                            <Text style={[styles.gradingLogTitle, { color: textSub }]}>INTERACTIVE GRADING LOG</Text>
+                            {/* ── Flagged Items Banner ── */}
+                            {flaggedCount > 0 && (
+                                <View style={[styles.reviewAlertBanner, { backgroundColor: darkMode ? "#78350F25" : "#FFFBEB", borderColor: "#F59E0B" }]}>
+                                    <View style={styles.reviewAlertIconBg}>
+                                        <Ionicons name="alert-circle" size={22} color="#D97706" />
+                                    </View>
+                                    <View style={{ flex: 1, marginHorizontal: 10 }}>
+                                        <Text style={[styles.reviewAlertTitle, { color: darkMode ? "#FDE68A" : "#92400E" }]}>
+                                            {flaggedCount} Answer{flaggedCount > 1 ? "s" : ""} Need Your Review
+                                        </Text>
+                                        <Text style={[styles.reviewAlertSub, { color: darkMode ? "#FCD34D" : "#B45309" }]}>
+                                            Double-shaded bubbles or low confidence marks detected.
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={[styles.reviewAlertBtn, { backgroundColor: "#F59E0B" }]}
+                                        onPress={() => {
+                                            setReviewInitialQNum(undefined);
+                                            setReviewModalOpen(true);
+                                        }}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Text style={styles.reviewAlertBtnText}>Review</Text>
+                                        <Ionicons name="chevron-forward" size={14} color="#FFF" style={{ marginLeft: 2 }} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+
+                            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                                <Text style={[styles.gradingLogTitle, { color: textSub, marginBottom: 0 }]}>INTERACTIVE GRADING LOG</Text>
+                                {flaggedCount > 0 && (
+                                    <TouchableOpacity
+                                        style={[styles.miniReviewChip, { backgroundColor: darkMode ? "#78350F40" : "#FEF3C7", borderColor: "#F59E0B" }]}
+                                        onPress={() => {
+                                            setReviewInitialQNum(undefined);
+                                            setReviewModalOpen(true);
+                                        }}
+                                    >
+                                        <Ionicons name="alert-circle" size={13} color="#D97706" style={{ marginRight: 4 }} />
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706" }}>
+                                            {flaggedCount} Flagged
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
 
                             {/* List of Questions */}
-                            {gradingResult.results.map((item) => (
-                                <TouchableOpacity
-                                    key={item.questionNumber}
-                                    style={[
-                                        styles.logCard,
-                                        item.isCorrect
-                                            ? (darkMode ? { backgroundColor: "#064E3B20", borderColor: "#05966960" } : styles.logCardCorrect)
-                                            : (darkMode ? { backgroundColor: "#7F1D1D20", borderColor: "#DC262660" } : styles.logCardWrong),
-                                        (item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75)) && {
-                                            backgroundColor: darkMode ? "#78350F35" : "#FEF3C7",
-                                            borderColor: "#F59E0B",
-                                        },
-                                    ]}
-                                    onPress={() => handleToggleQuestion(item.questionNumber)}
-                                    activeOpacity={0.7}
-                                >
-                                    {/* Question Number Badge */}
-                                    <View
+                            {gradingResult.results.map((item) => {
+                                const isFlagged = Boolean(
+                                    (item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75)) && !item.isOverridden
+                                );
+                                const isDouble = item.flagReason === "double_mark";
+                                const isUnclear = item.flagReason === "unclear" || item.flagReason === "low_confidence";
+                                const isOverridden = Boolean(item.isOverridden);
+
+                                return (
+                                    <TouchableOpacity
+                                        key={item.questionNumber}
                                         style={[
-                                            styles.qBadge,
+                                            styles.logCard,
                                             item.isCorrect
-                                                ? (darkMode ? { backgroundColor: "#064E3B60" } : styles.qBadgeCorrect)
-                                                : (darkMode ? { backgroundColor: "#7F1D1D60" } : styles.qBadgeWrong),
+                                                ? (darkMode ? { backgroundColor: "#064E3B20", borderColor: "#05966960" } : styles.logCardCorrect)
+                                                : (darkMode ? { backgroundColor: "#7F1D1D20", borderColor: "#DC262660" } : styles.logCardWrong),
+                                            isFlagged && {
+                                                backgroundColor: darkMode ? "#78350F35" : "#FEF3C7",
+                                                borderColor: "#F59E0B",
+                                                borderWidth: 1.5,
+                                            },
+                                            isOverridden && {
+                                                borderColor: "#10B981",
+                                            },
                                         ]}
+                                        onPress={() => {
+                                            if (isFlagged) {
+                                                setReviewInitialQNum(item.questionNumber);
+                                                setReviewModalOpen(true);
+                                            } else {
+                                                handleToggleQuestion(item.questionNumber);
+                                            }
+                                        }}
+                                        activeOpacity={0.7}
                                     >
-                                        <Text
+                                        {/* Question Number Badge */}
+                                        <View
                                             style={[
-                                                styles.qBadgeText,
+                                                styles.qBadge,
                                                 item.isCorrect
-                                                    ? (darkMode ? { color: "#6EE7B7" } : styles.qBadgeTextCorrect)
-                                                    : (darkMode ? { color: "#FCA5A5" } : styles.qBadgeTextWrong),
+                                                    ? (darkMode ? { backgroundColor: "#064E3B60" } : styles.qBadgeCorrect)
+                                                    : (darkMode ? { backgroundColor: "#7F1D1D60" } : styles.qBadgeWrong),
+                                                isFlagged && {
+                                                    backgroundColor: "#F59E0B",
+                                                },
                                             ]}
                                         >
-                                            Q{item.questionNumber}
-                                        </Text>
-                                    </View>
-
-                                    {/* Information */}
-                                    <View style={styles.logCardInfo}>
-                                        <Text style={[styles.logAnswerText, { color: textMain }]}>
-                                            Answer:{" "}
                                             <Text
-                                                style={{
-                                                    fontWeight: "800",
-                                                    color: item.isCorrect ? "#059669" : "#DC2626",
-                                                }}
+                                                style={[
+                                                    styles.qBadgeText,
+                                                    item.isCorrect
+                                                        ? (darkMode ? { color: "#6EE7B7" } : styles.qBadgeTextCorrect)
+                                                        : (darkMode ? { color: "#FCA5A5" } : styles.qBadgeTextWrong),
+                                                    isFlagged && {
+                                                        color: "#FFFFFF",
+                                                        fontWeight: "900",
+                                                    },
+                                                ]}
                                             >
-                                                {item.studentAnswer || "(Empty)"}
+                                                Q{item.questionNumber}
                                             </Text>
-                                        </Text>
-                                        <Text style={[styles.logKeyText, { color: textSub }]}>
-                                            Key:{" "}
-                                            <Text style={{ fontWeight: "700", color: textMain }}>
-                                                {item.correctAnswer}
-                                        {(item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75)) && (
-                                            <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706", marginTop: 2 }}>
-                                                {"\n"}⚠ Low OCR confidence — tap to verify/toggle
-                                            </Text>
-                                        )}
-                                            </Text>
-                                        </Text>
-                                    </View>
+                                        </View>
 
-                                    {/* Right Checkmark / Close Icon */}
-                                    <Ionicons
-                                        name={item.isCorrect ? "checkmark" : "close"}
-                                        size={22}
-                                        color={item.isCorrect ? "#34D399" : "#EF4444"}
-                                    />
-                                </TouchableOpacity>
-                            ))}
+                                        {/* Information */}
+                                        <View style={styles.logCardInfo}>
+                                            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                                <Text style={[styles.logAnswerText, { color: textMain }]}>
+                                                    Answer:{" "}
+                                                    <Text
+                                                        style={{
+                                                            fontWeight: "800",
+                                                            color: item.isCorrect ? "#059669" : "#DC2626",
+                                                        }}
+                                                    >
+                                                        {item.studentAnswer || "(Empty)"}
+                                                    </Text>
+                                                </Text>
+                                                {isOverridden && (
+                                                    <View style={[styles.miniStatusBadge, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
+                                                        <Text style={{ fontSize: 10, color: "#059669", fontWeight: "700" }}>✓ Verified</Text>
+                                                    </View>
+                                                )}
+                                            </View>
+
+                                            <Text style={[styles.logKeyText, { color: textSub }]}>
+                                                Key:{" "}
+                                                <Text style={{ fontWeight: "700", color: textMain }}>
+                                                    {item.correctAnswer}
+                                                </Text>
+                                            </Text>
+
+                                            {/* Flagged Issue Details */}
+                                            {isFlagged && (
+                                                <View style={styles.logFlagNotice}>
+                                                    <Ionicons name="alert-circle" size={13} color="#D97706" style={{ marginRight: 4 }} />
+                                                    <Text style={styles.logFlagNoticeText}>
+                                                        {isDouble
+                                                            ? `Double-shaded bubbles (${item.studentAnswer || "A, C"}) — tap to fix`
+                                                            : isUnclear
+                                                            ? `Faint/unclear mark (${item.confidence ? Math.round(item.confidence * 100) : 55}%) — tap to fix`
+                                                            : "Low confidence mark — tap to review"}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
+
+                                        {/* Right Action */}
+                                        {isFlagged ? (
+                                            <View style={styles.logFixBtn}>
+                                                <Text style={styles.logFixBtnText}>Fix</Text>
+                                                <Ionicons name="create-outline" size={16} color="#D97706" style={{ marginLeft: 2 }} />
+                                            </View>
+                                        ) : (
+                                            <Ionicons
+                                                name={item.isCorrect ? "checkmark" : "close"}
+                                                size={22}
+                                                color={item.isCorrect ? "#34D399" : "#EF4444"}
+                                            />
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })}
 
                             {/* Tseki Approved Scan Banner */}
                             <View style={[styles.approvedScanCard, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border }]}>
@@ -755,8 +926,8 @@ export default function GraderTab({
                                 <Ionicons name="sparkles" size={20} color="#6366F1" />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Load Demo (Sarah Jenkins - 10/10)</Text>
-                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Instant test preview of the scanned quiz UI</Text>
+                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Load Demo (Sarah Jenkins - 2 Flagged Bubbles)</Text>
+                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Includes double-shaded & faint marks to test manual fix</Text>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                         </TouchableOpacity>
@@ -810,6 +981,27 @@ export default function GraderTab({
                     </View>
                 </View>
             </Modal>
+
+            {/* ── Low Confidence / Double-Shaded Review Modal ── */}
+            <LowConfidenceReviewModal
+                visible={reviewModalOpen}
+                onClose={() => setReviewModalOpen(false)}
+                gradingResult={gradingResult}
+                scannedImageUri={scannedImageUri}
+                accentColor={accentColor}
+                initialQuestionNumber={reviewInitialQNum}
+                onSaveReviewedResults={(updatedResults, newTotalScore) => {
+                    if (!gradingResult) return;
+                    setGradingResult({
+                        ...gradingResult,
+                        totalScore: newTotalScore,
+                        results: updatedResults,
+                    });
+                    if (isRecorded) {
+                        setIsRecorded(false);
+                    }
+                }}
+            />
         </ScrollView>
     );
 }
@@ -829,6 +1021,85 @@ const styles = StyleSheet.create({
     /* ── SCANNED RESULTS VIEW ── */
     resultsContainer: {
         width: "100%",
+    },
+
+    /* Review Alert Banner */
+    reviewAlertBanner: {
+        flexDirection: "row",
+        alignItems: "center",
+        padding: 12,
+        borderRadius: 14,
+        borderWidth: 1.5,
+        marginBottom: 14,
+    },
+    reviewAlertIconBg: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: "#FEF3C7",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    reviewAlertTitle: {
+        fontSize: 13,
+        fontWeight: "800",
+    },
+    reviewAlertSub: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 1,
+    },
+    reviewAlertBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 10,
+    },
+    reviewAlertBtnText: {
+        color: "#FFFFFF",
+        fontSize: 12,
+        fontWeight: "800",
+    },
+    miniReviewChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+    },
+    miniStatusBadge: {
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+        borderWidth: 1,
+        marginLeft: 8,
+    },
+    logFlagNotice: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginTop: 4,
+    },
+    logFlagNoticeText: {
+        fontSize: 11,
+        fontWeight: "700",
+        color: "#D97706",
+    },
+    logFixBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#FEF3C7",
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#FCD34D",
+    },
+    logFixBtnText: {
+        fontSize: 12,
+        fontWeight: "800",
+        color: "#D97706",
     },
 
     /* Action Buttons Row */
@@ -1034,6 +1305,86 @@ const styles = StyleSheet.create({
         fontWeight: "500",
         color: "#64748B",
         marginTop: 2,
+    },
+
+    /* Review Alert & Flagged Item Styles */
+    reviewAlertBanner: {
+        flexDirection: "row",
+        alignItems: "center",
+        borderWidth: 1.5,
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 16,
+    },
+    reviewAlertIconBg: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: "#FEF3C7",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    reviewAlertTitle: {
+        fontSize: 13.5,
+        fontWeight: "800",
+    },
+    reviewAlertSub: {
+        fontSize: 11.5,
+        fontWeight: "500",
+        marginTop: 2,
+    },
+    reviewAlertBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 12,
+    },
+    reviewAlertBtnText: {
+        color: "#FFFFFF",
+        fontWeight: "800",
+        fontSize: 12,
+    },
+    miniReviewChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+    },
+    miniStatusBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 8,
+        borderWidth: 1,
+        marginLeft: 8,
+    },
+    logFlagNotice: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginTop: 4,
+    },
+    logFlagNoticeText: {
+        fontSize: 11.5,
+        color: "#D97706",
+        fontWeight: "700",
+        flex: 1,
+    },
+    logFixBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 10,
+        backgroundColor: "#FEF3C7",
+        borderWidth: 1,
+        borderColor: "#F59E0B",
+    },
+    logFixBtnText: {
+        fontSize: 12,
+        fontWeight: "800",
+        color: "#D97706",
     },
 
     /* Tseki Approved Scan Card */
