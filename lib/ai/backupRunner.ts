@@ -32,6 +32,8 @@ export interface BackupRunOptions<T> {
     logTag?: string;
     /** Inject config (tests). Defaults to getAIConfig(). */
     config?: BackupAIConfig;
+    /** Callback for status updates displayed in the UI */
+    onStatusUpdate?: (status: string) => void;
 }
 
 export interface BackupRunResult<T> {
@@ -162,6 +164,7 @@ export async function runBackupChain<T>(opts: BackupRunOptions<T>): Promise<Back
 
             const label = [attempt.model, ...attempt.fallbacks].join(" → ");
             console.log(`${tag} Trying ${plan.provider}: ${label}`);
+            opts.onStatusUpdate?.(`AI is busy. Generating with backup AI (${plan.provider.toUpperCase()})...`);
             const t0 = Date.now();
 
             try {
@@ -195,9 +198,11 @@ export async function runBackupChain<T>(opts: BackupRunOptions<T>): Promise<Back
                 }
                 reasons.push(`${plan.provider}/${res.modelUsed}: reply was not valid JSON for this task`);
                 console.warn(`${tag} ${plan.provider} (${res.modelUsed}) returned invalid JSON, trying next...`);
+                opts.onStatusUpdate?.(`Backup AI busy, trying alternative model...`);
             } catch (err: any) {
                 reasons.push(`${plan.provider}: ${friendlyReason(err)}`);
                 console.warn(`${tag} ${plan.provider} failed after ${Date.now() - t0}ms: ${err?.message}`);
+                opts.onStatusUpdate?.(`Backup AI busy, trying alternative model...`);
                 if (isProviderFatal(err)) break; // skip this provider's other attempts
             }
         }

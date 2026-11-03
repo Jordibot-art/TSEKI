@@ -39,6 +39,7 @@ export interface AssessmentGenerationParams {
     attachedFileType?: "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt";
     attachedFileText?: string;
     onProviderUsed?: (provider: string, model: string) => void;
+    onStatusUpdate?: (status: string, isBusy?: boolean) => void;
 }
 
 /**
@@ -221,51 +222,108 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
         const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"];
+        const MAX_RETRIES_PER_MODEL = 2; // Up to 2 retries (3 total attempts) if rate-limited / busy
+        const BASE_BACKOFF_MS = 2000;
 
-        // Try candidate models sequentially (fallback if one hits 429 quota or 404)
+        // Try candidate models sequentially with retry and exponential backoff
         for (const modelName of candidateModels) {
-            try {
-                const model = genAI.getGenerativeModel({
-                    model: modelName,
-                    generationConfig: {
-                        responseMimeType: "application/json",
-                        temperature: 0.2,
-                    },
-                });
+            let attempt = 0;
 
-                result = await model.generateContent(parts);
-                if (result) {
-                    try {
-                        const rawText = result.response.text().trim();
-                        const cleanJson = rawText
-                            .replace(/^```(?:json)?\s*/i, "")
-                            .replace(/\s*```$/i, "")
-                            .trim();
+            while (attempt <= MAX_RETRIES_PER_MODEL) {
+                try {
+                    const model = genAI.getGenerativeModel({
+                        model: modelName,
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            temperature: 0.2,
+                        },
+                    });
 
-                        const parsed: GeneratedAssessment = JSON.parse(cleanJson);
-                        if (parsed.quizTitle && Array.isArray(parsed.questions) && Array.isArray(parsed.answerKey)) {
-                            parsed.generatedBy = `Google Gemini (${modelName})`;
-                            params.onProviderUsed?.("gemini", modelName);
-                            return parsed;
+                    result = await model.generateContent(parts);
+                    if (result) {
+                        try {
+                            const rawText = result.response.text().trim();
+                            const cleanJson = rawText
+                                .replace(/^```(?:json)?\s*/i, "")
+                                .replace(/\s*```$/i, "")
+                                .trim();
+
+                            const parsed: GeneratedAssessment = JSON.parse(cleanJson);
+                            if (parsed.quizTitle && Array.isArray(parsed.questions) && Array.isArray(parsed.answerKey)) {
+                                parsed.generatedBy = `Google Gemini (${modelName})`;
+                                params.onProviderUsed?.("gemini", modelName);
+                                params.onStatusUpdate?.("Assessment generated successfully!", false);
+                                return parsed;
+                            }
+                        } catch (parseErr) {
+                            console.warn(`[QuizGen] Failed to parse JSON from ${modelName}, trying next candidate...`, parseErr);
+                            break; // JSON formatting issue on this model, switch candidate
                         }
-                    } catch (parseErr) {
-                        console.warn(`[QuizGen] Failed to parse JSON from ${modelName}, trying next candidate...`, parseErr);
                     }
-                }
-            } catch (apiErr: any) {
-                lastError = apiErr;
-                const errMsg = apiErr?.message || "";
-                const is429 = errMsg.includes("429") || errMsg.includes("quota");
-                const is503 = errMsg.includes("503");
-                const isInvalidKey = errMsg.includes("API key not valid") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("400");
+                } catch (apiErr: any) {
+                    lastError = apiErr;
+                    const errMsg = (apiErr?.message || "").toLowerCase();
+                    const status = Number(apiErr?.status);
 
-                if (isInvalidKey) {
-                    console.warn(`[QuizGen] Gemini API key invalid. Fast-failing over to backup provider...`);
+                    const isInvalidKey =
+                        status === 400 ||
+                        status === 401 ||
+                        errMsg.includes("api key not valid") ||
+                        errMsg.includes("api_key_invalid");
+
+                    if (isInvalidKey) {
+                        console.warn(`[QuizGen] Gemini API key invalid. Fast-failing over to backup provider...`);
+                        params.onStatusUpdate?.("Gemini API key rejected. Switching to backup AI provider...", true);
+                        return await generateAssessmentWithBackupProvider(params, promptText, lastError);
+                    }
+
+                    const isNotFound = status === 404 || errMsg.includes("not found") || errMsg.includes("is not supported");
+                    if (isNotFound) {
+                        console.warn(`[QuizGen] Model ${modelName} not found (404), trying next model...`);
+                        break;
+                    }
+
+                    const isBusyOrRateLimited =
+                        status === 429 ||
+                        status === 503 ||
+                        status === 500 ||
+                        status === 502 ||
+                        status === 504 ||
+                        errMsg.includes("429") ||
+                        errMsg.includes("quota") ||
+                        errMsg.includes("resource_exhausted") ||
+                        errMsg.includes("rate limit") ||
+                        errMsg.includes("503") ||
+                        errMsg.includes("overloaded") ||
+                        errMsg.includes("high demand") ||
+                        errMsg.includes("busy") ||
+                        errMsg.includes("service unavailable");
+
+                    if (isBusyOrRateLimited && attempt < MAX_RETRIES_PER_MODEL) {
+                        attempt++;
+                        // Exponential backoff: ~2s on retry 1, ~4s on retry 2 (+ jitter)
+                        const backoffMs = Math.round(BASE_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 400);
+                        const waitSec = Math.ceil(backoffMs / 1000);
+
+                        console.warn(
+                            `[QuizGen] AI is busy (${apiErr?.message || "rate-limited"}). Backing off ${backoffMs}ms before retry ${attempt}/${MAX_RETRIES_PER_MODEL}...`
+                        );
+
+                        // Show friendly "AI is busy" message to teacher
+                        params.onStatusUpdate?.(
+                            `AI is busy right now. Retrying in ${waitSec}s... (Attempt ${attempt + 1}/${MAX_RETRIES_PER_MODEL + 1})`,
+                            true
+                        );
+
+                        await new Promise((r) => setTimeout(r, backoffMs));
+
+                        params.onStatusUpdate?.("AI is busy. Retrying assessment generation...", true);
+                        continue;
+                    }
+
+                    console.warn(`[QuizGen] Gemini ${modelName} attempt ${attempt + 1} failed: ${apiErr?.message}. Trying next candidate...`);
                     break;
                 }
-
-                console.warn(`[QuizGen] Gemini ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
-                continue;
             }
         }
     } else {
@@ -274,6 +332,8 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
 
     // ── Failover to Backup AI Provider (OpenRouter / Ollama / Groq) ───────────
     console.warn("[QuizGen] All Gemini options exhausted or rate-limited. Activating backup AI provider...");
+    params.onStatusUpdate?.("Primary AI is busy. Switching to backup AI provider...", true);
+    await new Promise((r) => setTimeout(r, 350));
     return await generateAssessmentWithBackupProvider(params, promptText, lastError);
 }
 
@@ -328,6 +388,9 @@ export async function generateAssessmentWithBackupProvider(
             totalBudgetMs: 50000,
             maxTokens,
             temperature: 0.2,
+            onStatusUpdate: (status) => {
+                params.onStatusUpdate?.(status, true);
+            },
             validate: (json) => {
                 if (json && json.quizTitle && Array.isArray(json.questions) && json.questions.length > 0 && Array.isArray(json.answerKey)) {
                     return json as GeneratedAssessment;
@@ -339,10 +402,11 @@ export async function generateAssessmentWithBackupProvider(
         const assessment = result.value;
         assessment.generatedBy = `${result.provider.toUpperCase()} (${result.model})`;
         params.onProviderUsed?.(result.provider, result.model);
+        params.onStatusUpdate?.("Assessment generated successfully!", false);
         return assessment;
     } catch (err: any) {
         throw new Error(
-            `Gemini AI was unavailable (${geminiError?.message || "Rate-limited / busy"}), and backup provider also failed:\n${err.message}`
+            `AI is busy right now. Primary Gemini service was rate-limited or busy (${geminiError?.message || "High demand"}), and backup provider also failed:\n${err.message}`
         );
     }
 }

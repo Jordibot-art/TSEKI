@@ -220,6 +220,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     // ── Generation state ───────────────────────────────────────────────────────
     const [generating, setGenerating] = useState(false);
+    const [generatingStatus, setGeneratingStatus] = useState<string>("");
+    const [isAiBusy, setIsAiBusy] = useState(false);
     const [generatedAssessment, setGeneratedAssessment] = useState<GeneratedAssessment | null>(null);
     const [showResults, setShowResults] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -306,6 +308,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     async function handleGenerate() {
         if ((!attachedFile && !lessonNotes.trim()) || generating) return;
         setGenerating(true);
+        setGeneratingStatus("");
+        setIsAiBusy(false);
         setShowResults(false);
 
         try {
@@ -355,6 +359,10 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 attachedFileName: attachedFile ? attachedFile.name : undefined,
                 attachedFileType,
                 attachedFileText,
+                onStatusUpdate: (status, busy) => {
+                    setGeneratingStatus(status);
+                    if (busy !== undefined) setIsAiBusy(busy);
+                },
             });
 
             setGeneratedAssessment(assessment);
@@ -362,9 +370,26 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         } catch (error: any) {
             console.error("Generation error:", error);
             const errMsg = error?.message || "";
-            const mentionsBackup = errMsg.includes("backup provider") || errMsg.includes("Backup AI");
+            const isBusy =
+                errMsg.toLowerCase().includes("busy") ||
+                errMsg.includes("429") ||
+                errMsg.includes("503") ||
+                errMsg.toLowerCase().includes("quota") ||
+                errMsg.toLowerCase().includes("rate");
 
-            if (mentionsBackup) {
+            if (isBusy) {
+                Alert.alert(
+                    "AI is Busy",
+                    "The AI servers are currently experiencing high traffic or temporary rate limits.\n\nWe automatically retried with backoff and attempted backup AI. Please wait a moment and try tapping 'Generate Assessment' again.",
+                    [
+                        { text: "Dismiss", style: "cancel" },
+                        {
+                            text: "AI Settings",
+                            onPress: () => router.push("/settings"),
+                        },
+                    ]
+                );
+            } else if (errMsg.includes("backup provider") || errMsg.includes("Backup AI")) {
                 Alert.alert(
                     "AI Generation Failed",
                     `${errMsg}\n\nYou can review your backup provider or try another model in Settings.`,
@@ -377,26 +402,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     ]
                 );
             } else {
-                const is503 = errMsg.includes("503") || error?.status === 503;
-                const is429 = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("rate");
-                if (is503 || is429) {
-                    Alert.alert(
-                        "Primary AI Unavailable",
-                        `Google's Gemini service is currently ${is429 ? "rate-limited" : "experiencing high demand"}.\n\nYou can configure a backup AI provider (like OpenRouter with free models, or Ollama) in Settings so quizzes can always generate without interruption.`,
-                        [
-                            { text: "Dismiss", style: "cancel" },
-                            {
-                                text: "Open Settings",
-                                onPress: () => router.push("/settings"),
-                            },
-                        ]
-                    );
-                } else {
-                    Alert.alert("Error Generating Quiz", errMsg || "Unknown error occurred.");
-                }
+                Alert.alert("Error Generating Quiz", errMsg || "Unknown error occurred.");
             }
         } finally {
             setGenerating(false);
+            setGeneratingStatus("");
+            setIsAiBusy(false);
         }
     }
 
@@ -1368,23 +1379,32 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 <View style={styles.loadingOverlay}>
                     <View style={styles.loadingCard}>
                         {/* Glowing Icon Badge */}
-                        <View style={[styles.loadingIconGlow, { backgroundColor: accentColor + "22" }]}>
-                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor }]}>
-                                <Ionicons name="sparkles" size={28} color="#FFFFFF" />
+                        <View style={[styles.loadingIconGlow, { backgroundColor: isAiBusy ? "#F59E0B22" : accentColor + "22" }]}>
+                            <View style={[styles.loadingIconCircle, { backgroundColor: isAiBusy ? "#F59E0B" : accentColor }]}>
+                                <Ionicons name={isAiBusy ? "hourglass-outline" : "sparkles"} size={28} color="#FFFFFF" />
                             </View>
                         </View>
 
-                        <Text style={styles.loadingTitle}>Generating Assessment</Text>
+                        {isAiBusy && (
+                            <View style={[styles.aiBusyBadge, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
+                                <Ionicons name="cloud-offline-outline" size={13} color="#D97706" />
+                                <Text style={styles.aiBusyBadgeText}>AI is busy right now</Text>
+                            </View>
+                        )}
 
-                        <Text style={styles.loadingSub}>
-                            {attachedFile
+                        <Text style={styles.loadingTitle}>
+                            {isAiBusy ? "AI is Busy — Auto-Retrying" : "Generating Assessment"}
+                        </Text>
+
+                        <Text style={[styles.loadingSub, isAiBusy && { color: "#D97706", fontWeight: "600" }]}>
+                            {generatingStatus || (attachedFile
                                 ? `Tseki AI is analyzing "${attachedFile.name}" and extracting questions...`
-                                : `Tseki AI is crafting DepEd-aligned questions for ${subject}...`}
+                                : `Tseki AI is crafting DepEd-aligned questions for ${subject}...`)}
                         </Text>
 
                         {/* Spinner */}
                         <View style={styles.spinnerWrap}>
-                            <ActivityIndicator size="large" color={accentColor} />
+                            <ActivityIndicator size="large" color={isAiBusy ? "#F59E0B" : accentColor} />
                         </View>
 
                         {/* Parameter summary pill */}
@@ -1395,10 +1415,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </View>
 
                         {/* Do not close notice */}
-                        <View style={styles.loadingNoticeRow}>
-                            <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
-                            <Text style={styles.loadingNoticeText}>
-                                Please wait and keep this screen open.
+                        <View style={[styles.loadingNoticeRow, isAiBusy && { backgroundColor: "#FFFBEB" }]}>
+                            <Ionicons name={isAiBusy ? "sync-outline" : "hourglass-outline"} size={14} color={isAiBusy ? "#D97706" : "#6B7280"} />
+                            <Text style={[styles.loadingNoticeText, isAiBusy && { color: "#92400E" }]}>
+                                {isAiBusy
+                                    ? "Retrying with backoff before switching to backup AI..."
+                                    : "Please wait and keep this screen open."}
                             </Text>
                         </View>
                     </View>
@@ -2422,6 +2444,21 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.2,
         shadowRadius: 8,
         elevation: 4,
+    },
+    aiBusyBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        borderRadius: 20,
+        borderWidth: 1,
+        marginBottom: 10,
+    },
+    aiBusyBadgeText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#B45309",
     },
     loadingTitle: {
         fontSize: 19,
