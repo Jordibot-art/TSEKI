@@ -40,6 +40,8 @@ import {
 import { validateAnswerLengths } from "../lib/answerValidator";
 import { shuffleAssessmentForVersion } from "../lib/versionShuffle";
 import { showAlert, showConfirm } from "../components/CustomAlertModal";
+import { ExportPdfModal } from "../components/ExportPdfModal";
+import type { GeneratedAssessment } from "../lib/printEngine";
 import styles from "./AssessmentsPage.module.css";
 
 type StoredQuiz = {
@@ -117,6 +119,46 @@ export default function AssessmentsPage() {
   const [paperSize, setPaperSize] = useState<"short" | "long">("short");
   const [includeKeyInPrint, setIncludeKeyInPrint] = useState(false);
   const [printSet, setPrintSet] = useState<"A" | "B" | "C">("A");
+
+  // Export Paper Sheet Layout Modal (matching mobile TSEKI PDF format)
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportAssessment, setExportAssessment] = useState<GeneratedAssessment | null>(null);
+  const [exportClassTitle, setExportClassTitle] = useState<string>("");
+  const [exportSubject, setExportSubject] = useState<string>("");
+  const [exportGradeLevel, setExportGradeLevel] = useState<string>("");
+  const [exportQuizId, setExportQuizId] = useState<string>("");
+
+  const handleOpenExportModal = (
+    quiz: StoredQuiz | GeneratedAssessment,
+    classroomName?: string
+  ) => {
+    if ("quizTitle" in quiz && "questions" in quiz) {
+      const gen = quiz as GeneratedAssessment;
+      setExportAssessment(gen);
+      setExportClassTitle(
+        classroomName ||
+          classrooms.find((c) => c.id === targetClassroom)?.title ||
+          "Classroom Assessment"
+      );
+      setExportSubject(subject || "General Education");
+      setExportGradeLevel(gradeLevel || gen.gradeLevel || "Grade 10");
+      setExportQuizId(`QZ-${Date.now().toString().slice(-6)}`);
+    } else {
+      const stored = quiz as StoredQuiz;
+      setExportAssessment({
+        quizTitle: stored.quiz_title,
+        gradeLevel: stored.grade_level || undefined,
+        difficulty: stored.difficulty || undefined,
+        questions: stored.questions,
+        answerKey: stored.answer_key,
+      });
+      setExportClassTitle(stored.classroom_name || "Classroom Assessment");
+      setExportSubject(stored.subject || "General Education");
+      setExportGradeLevel(stored.grade_level || "Grade 10");
+      setExportQuizId(stored.id || `QZ-${Date.now().toString().slice(-6)}`);
+    }
+    setShowExportModal(true);
+  };
 
   useEffect(() => {
     if (user) {
@@ -759,11 +801,7 @@ export default function AssessmentsPage() {
                   </button>
                   <button
                     className={styles.actionBtnSolid}
-                    onClick={() => {
-                      setSelectedQuiz(quiz);
-                      setPrintSet("A");
-                      setShowPrintModal(true);
-                    }}
+                    onClick={() => handleOpenExportModal(quiz, quiz.classroom_name)}
                   >
                     <Printer size={15} />
                     Print Sheets
@@ -1191,6 +1229,25 @@ export default function AssessmentsPage() {
                   >
                     Back
                   </button>
+                  <button
+                    type="button"
+                    className={styles.exportPaperBtn}
+                    onClick={() => {
+                      if (draftQuestions.length > 0) {
+                        handleOpenExportModal({
+                          quizTitle: quizTitle.trim() || topicPrompt.trim() || "Assessment",
+                          questions: draftQuestions,
+                          answerKey: draftAnswerKey,
+                          gradeLevel,
+                          difficulty,
+                        });
+                      }
+                    }}
+                    disabled={isPublishing}
+                  >
+                    <Printer size={16} />
+                    Export Paper Sheet (PDF)
+                  </button>
                   <div className={styles.saveActions}>
                     <button
                       type="button"
@@ -1262,13 +1319,10 @@ export default function AssessmentsPage() {
                 </span>
                 <button
                   className={styles.printActionBtn}
-                  onClick={() => {
-                    setPrintSet("A");
-                    setShowPrintModal(true);
-                  }}
+                  onClick={() => handleOpenExportModal(selectedQuiz, selectedQuiz.classroom_name)}
                 >
                   <Printer size={16} />
-                  Print Scannable Sheet
+                  Print Scannable Sheet (PDF)
                 </button>
               </div>
 
@@ -1479,6 +1533,17 @@ export default function AssessmentsPage() {
         </div>,
         document.body
       )}
+
+      {/* ── EXPORT PAPER SHEET LAYOUT MODAL (MATCHING MOBILE TSEKI) ── */}
+      <ExportPdfModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        assessment={exportAssessment}
+        classTitle={exportClassTitle}
+        subject={exportSubject}
+        gradeLevel={exportGradeLevel}
+        quizId={exportQuizId}
+      />
     </div>
   );
 }

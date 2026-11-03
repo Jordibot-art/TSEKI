@@ -12,8 +12,11 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.118.0",
+    "@types/qrcode-generator": "^0.0.16",
     "jszip": "^3.10.2",
     "lucide-react": "^1.65.0",
+    "pdf-lib": "^1.17.1",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5",

@@ -28,6 +28,9 @@ export interface GeneratedAssessment {
   questions: ScannableQuestion[];
   answerKey: AnswerKeyItem[];
   generatedBy?: string;
+  gradeLevel?: string;
+  difficulty?: string;
+  instructions?: string;
 }
 
 export interface AssessmentGenerationParams {
