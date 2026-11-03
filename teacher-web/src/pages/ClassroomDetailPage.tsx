@@ -25,6 +25,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import styles from "./ClassroomDetailPage.module.css";
+import { showAlert, showConfirm } from "../components/CustomAlertModal";
 
 type Student = {
   id: string;
@@ -152,10 +153,46 @@ export default function ClassroomDetailPage() {
   }
 
   async function handleDeleteStudent(studentId: string) {
-    if (!confirm("Remove this student from the roster?")) return;
+    const confirmed = await showConfirm({
+      title: "Remove Student?",
+      message: "Are you sure you want to remove this student from the roster?\n\nTheir scores and quiz records will be permanently removed.",
+      confirmText: "Remove",
+      cancelText: "Cancel",
+      isDestructive: true,
+    });
+    if (!confirmed) return;
     await supabase.from("students").delete().eq("id", studentId);
     await loadData();
     setSelectedStudent(null);
+  }
+
+  async function handleDeleteClassroom() {
+    if (!classroom) return;
+    const confirmed = await showConfirm({
+      title: "Delete Classroom?",
+      message: "Are you sure you want to permanently delete \"" + classroom.title + "\"?\n\nAll enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      isDestructive: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+      await supabase.from("students").delete().eq("classroom_id", id);
+      await supabase.from("archived_assessments").delete().eq("classroom_id", id);
+      const { error } = await supabase.from("classrooms").delete().eq("id", id);
+      if (error) {
+        showAlert({ title: "Error", message: "Failed to delete classroom: " + error.message, type: "error" });
+        return;
+      }
+      navigate("/classrooms");
+    } catch (err) {
+      console.error("Error deleting classroom:", err);
+      showAlert({ title: "Error", message: "Failed to delete classroom.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
   }
 
   /* ── Excel Export ── */
@@ -376,11 +413,21 @@ export default function ClassroomDetailPage() {
 
   return (
     <div className={styles.page}>
-      {/* Header */}
-      <button className={styles.backBtn} onClick={() => navigate("/classrooms")}>
-        <ArrowLeft size={18} />
-        Back to Classrooms
-      </button>
+      {/* Header Actions Bar */}
+      <div className={styles.topActionsBar}>
+        <button className={styles.backBtn} onClick={() => navigate("/classrooms")}>
+          <ArrowLeft size={18} />
+          Back to Classrooms
+        </button>
+        <button
+          className={styles.deleteClassroomBtn}
+          onClick={handleDeleteClassroom}
+          title="Delete Classroom"
+        >
+          <Trash2 size={15} />
+          Delete Classroom
+        </button>
+      </div>
 
       <div className={styles.hero}>
         <div

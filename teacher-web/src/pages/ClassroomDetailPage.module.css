@@ -872,3 +872,35 @@
     flex-direction: column;
   }
 }
+
+/* ── Top Action Bar & Classroom Deletion ── */
+.topActionsBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.deleteClassroomBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--red-500);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.deleteClassroomBtn:hover {
+  background: var(--red-100);
+  border-color: var(--red-500);
+}
+
+[data-theme="dark"] .deleteClassroomBtn:hover {
+  background: rgba(239, 68, 68, 0.15);
+}

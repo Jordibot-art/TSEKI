@@ -1,10 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   FileText,
-  Plus,
   Search,
   Sparkles,
   Printer,
@@ -31,6 +30,16 @@ import {
   getDocBadgeInfo,
   type ParsedDocument,
 } from "../lib/documentParserService";
+import {
+  getTeacherQuotaState,
+  checkCanGenerate,
+  recordGenerationSuccess,
+  recordGenerationFailure,
+  type QuotaState,
+} from "../lib/aiQuotaService";
+import { validateAnswerLengths } from "../lib/answerValidator";
+import { shuffleAssessmentForVersion } from "../lib/versionShuffle";
+import { showAlert, showConfirm } from "../components/CustomAlertModal";
 import styles from "./AssessmentsPage.module.css";
 
 type StoredQuiz = {
@@ -66,14 +75,24 @@ export default function AssessmentsPage() {
   const [statusFilter, setStatusFilter] = useState<"ALL" | "PUBLISHED" | "DRAFT">("ALL");
   const [classroomFilter, setClassroomFilter] = useState<string>("ALL");
 
+  // Daily Quota Tracking (10x limit resetting at 12:00 AM Manila)
+  const [quota, setQuota] = useState<QuotaState | null>(null);
+
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [generatorLoading, setGeneratorLoading] = useState(false);
+  const [generatorStatus, setGeneratorStatus] = useState<string>("");
+  const [isAiBusy, setIsAiBusy] = useState(false);
+
+  // Publishing Loading Modal State
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishingStage, setPublishingStage] = useState<string>("");
+
   const [targetClassroom, setTargetClassroom] = useState<string>("");
   const [quizTitle, setQuizTitle] = useState("");
   const [subject, setSubject] = useState("General Science");
   const [gradeLevel, setGradeLevel] = useState("Grade 10");
-  const [difficulty, setDifficulty] = useState("Medium");
+  const [difficulty, setDifficulty] = useState("Medium (Application & Analysis)");
   const [questionType, setQuestionType] = useState<QuestionType | "mixed">("multiple_choice");
   const [mixedTypes, setMixedTypes] = useState<string[]>(["multiple_choice", "enumeration", "true_false"]);
   const [questionCount, setQuestionCount] = useState<number>(10);
@@ -97,12 +116,24 @@ export default function AssessmentsPage() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [paperSize, setPaperSize] = useState<"short" | "long">("short");
   const [includeKeyInPrint, setIncludeKeyInPrint] = useState(false);
+  const [printSet, setPrintSet] = useState<"A" | "B" | "C">("A");
 
   useEffect(() => {
     if (user) {
       loadData();
+      refreshQuota();
     }
   }, [user]);
+
+  async function refreshQuota() {
+    if (!user) return;
+    try {
+      const q = await getTeacherQuotaState(user.id);
+      setQuota(q);
+    } catch (err) {
+      console.warn("Could not load quota state:", err);
+    }
+  }
 
   async function loadData() {
     try {
@@ -167,7 +198,6 @@ export default function AssessmentsPage() {
       const parsed = await parseBrowserDocument(file);
       setAttachedDoc(parsed);
 
-      // Auto-suggest quiz title from filename if title is blank
       if (!quizTitle.trim()) {
         const cleanName = file.name
           .replace(/\.[^/.]+$/, "")
@@ -226,11 +256,31 @@ export default function AssessmentsPage() {
       (attachedDoc ? `Content of ${attachedDoc.name}` : quizTitle.trim());
 
     if (!effectiveTopic && !attachedDoc) {
-      alert("Please enter a title, topic prompt, or attach a curriculum file.");
+      showAlert({
+        title: "Missing Topic or File",
+        message: "Please enter an assessment title, topic prompt, or attach a curriculum document.",
+        type: "info",
+      });
+      return;
+    }
+
+    // 1. Enforce Per-Teacher 10x Daily Limit (Resets 12:00 AM Manila)
+    const canGen = await checkCanGenerate(user?.id);
+    if (!canGen.allowed) {
+      showAlert({
+        title: "Daily Limit Reached",
+        message:
+          canGen.message ||
+          "You have used all 10 of your daily AI generations. Limit resets at 12:00 AM Manila time.",
+        type: "limit",
+      });
       return;
     }
 
     setGeneratorLoading(true);
+    setGeneratorStatus("Initializing AI assessment generator...");
+    setIsAiBusy(false);
+
     try {
       let effectiveQuestionType: any = questionType;
       if (questionType === "mixed" && mixedTypes.length > 0) {
@@ -242,9 +292,12 @@ export default function AssessmentsPage() {
           word_box: "Word Box",
         };
         const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
-        const selectedLabels = mixedTypes
-          .map((k, idx) => `Part ${romanNumerals[idx]}. ${typeLabels[k] || k}`);
-        effectiveQuestionType = `Mixed Assessment (include ONLY these parts sequentially: ${selectedLabels.join(", ")})`;
+        const selectedLabels = mixedTypes.map(
+          (k, idx) => `Part ${romanNumerals[idx]}. ${typeLabels[k] || k}`
+        );
+        effectiveQuestionType = `Mixed Assessment (include ONLY these parts sequentially: ${selectedLabels.join(
+          ", "
+        )})`;
       }
 
       const generated = await generateScannableQuiz({
@@ -260,7 +313,17 @@ export default function AssessmentsPage() {
         attachedFileType: attachedDoc?.type,
         attachedFileText: attachedDoc?.text,
         lessonNotes: lessonNotes.trim(),
+        onStatusUpdate: (status, busy) => {
+          setGeneratorStatus(status);
+          setIsAiBusy(Boolean(busy));
+        },
       });
+
+      // Record successful generation in `public.ai_generation_logs`
+      if (user?.id) {
+        const updatedQuota = await recordGenerationSuccess(user.id);
+        setQuota(updatedQuota);
+      }
 
       if (!quizTitle.trim() && generated.quizTitle) {
         setQuizTitle(generated.quizTitle);
@@ -271,26 +334,95 @@ export default function AssessmentsPage() {
       setStep("preview");
     } catch (err: any) {
       console.error("AI Generation error:", err);
-      alert(
-        err?.message?.includes("503")
-          ? "AI Service is temporarily busy. Please wait a few seconds and try again."
-          : `Failed to generate assessment: ${err?.message || "Unknown error"}`
-      );
+      if (user?.id) {
+        await recordGenerationFailure(user.id, err?.message);
+        await refreshQuota();
+      }
+      showAlert({
+        title: "Generation Error",
+        message: err?.message?.includes("503")
+          ? "AI Service is temporarily busy. Please wait a moment and try again."
+          : `Failed to generate assessment: ${err?.message || "Unknown error"}`,
+        type: "error",
+      });
     } finally {
       setGeneratorLoading(false);
+      setGeneratorStatus("");
+      setIsAiBusy(false);
     }
   }
 
   async function handleSaveAssessment(targetStatus: "DRAFT" | "PUBLISHED") {
     if (!quizTitle.trim()) {
-      alert("Please provide an assessment title.");
+      showAlert({
+        title: "Assessment Title Required",
+        message: "Please provide an assessment title before saving.",
+        type: "info",
+      });
       return;
     }
 
+    // 2. Paper Answer Box Length Validation (max 25 chars / 3 words)
+    if (targetStatus === "PUBLISHED") {
+      const flagged = validateAnswerLengths({
+        quizTitle,
+        questions: draftQuestions,
+        answerKey: draftAnswerKey,
+      });
+
+      if (flagged.length > 0) {
+        const flaggedDetails = flagged
+          .slice(0, 5)
+          .map(
+            (f) =>
+              `• Q#${f.questionNumber}: "${f.answer}" (${f.charCount} chars, ${f.wordCount} words)`
+          )
+          .join("\n");
+
+        const proceed = await showConfirm({
+          title: "Long Answers Detected",
+          message: `Some answers exceed the scannable box limit (max 25 chars / 3 words):\n\n${flaggedDetails}${
+            flagged.length > 5 ? `\n...and ${flagged.length - 5} more.` : ""
+          }\n\nYou can shorten them on the preview cards or publish anyway.`,
+          confirmText: "Publish Anyway",
+          cancelText: "Shorten Answers",
+          isDestructive: false,
+        });
+
+        if (!proceed) return;
+      }
+    }
+
+    // 3. Smooth Publishing Loading Feedback
+    setIsPublishing(true);
+    setPublishingStage(
+      targetStatus === "PUBLISHED"
+        ? `Mapping scannable answer boxes for "${quizTitle}"...`
+        : `Saving draft to cloud archive...`
+    );
+
+    // Yield execution for the loading overlay to paint smoothly
+    await new Promise((r) => setTimeout(r, 60));
+
     try {
-      setLoading(true);
       const selectedClass = classrooms.find((c) => c.id === targetClassroom);
+      setPublishingStage(
+        targetStatus === "PUBLISHED"
+          ? `Publishing to ${selectedClass ? selectedClass.title : "Classroom"} and archiving...`
+          : `Updating assessment records...`
+      );
+
+      const quizId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+              const r = (Math.random() * 16) | 0;
+              const v = c === "x" ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            });
+
       const payload = {
+        id: quizId,
         teacher_id: user!.id,
         classroom_id: targetClassroom || null,
         class_title: selectedClass ? selectedClass.title : null,
@@ -309,18 +441,33 @@ export default function AssessmentsPage() {
 
       if (error) {
         console.error("Save error:", error);
-        alert("Failed to save assessment to Supabase.");
+        showAlert({
+          title: "Save Failed",
+          message: "Failed to save assessment to Supabase: " + error.message,
+          type: "error",
+        });
         return;
       }
 
       setShowCreateModal(false);
       resetCreateForm();
       await loadData();
-    } catch (err) {
+
+      showAlert({
+        title: targetStatus === "PUBLISHED" ? "Quiz Published!" : "Draft Saved!",
+        message: `"${quizTitle}" is saved to your Archive and ready for student test printing.`,
+        type: "success",
+      });
+    } catch (err: any) {
       console.error(err);
-      alert("Unexpected error occurred while saving assessment.");
+      showAlert({
+        title: "Save Error",
+        message: "An unexpected error occurred while saving the assessment.",
+        type: "error",
+      });
     } finally {
-      setLoading(false);
+      setIsPublishing(false);
+      setPublishingStage("");
     }
   }
 
@@ -334,17 +481,33 @@ export default function AssessmentsPage() {
     setAttachedDoc(null);
     setDocError(null);
     setStep("config");
+    setGeneratorStatus("");
+    setIsAiBusy(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   }
 
   async function handleDeleteQuiz(quizId: string) {
-    if (!confirm("Are you sure you want to delete this assessment?")) return;
+    const confirmed = await showConfirm({
+      title: "Delete Assessment?",
+      message:
+        "Are you sure you want to permanently delete this assessment? All associated answer keys will be removed.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      isDestructive: true,
+    });
+
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase.from("archived_assessments").delete().eq("id", quizId);
       if (error) {
-        alert("Failed to delete quiz.");
+        showAlert({
+          title: "Delete Failed",
+          message: "Failed to delete quiz: " + error.message,
+          type: "error",
+        });
         return;
       }
       setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
@@ -355,6 +518,26 @@ export default function AssessmentsPage() {
       console.error(err);
     }
   }
+
+  // Active Print Quiz computed with deterministic anti-cheating Set A, Set B, Set C
+  const activePrintQuiz = useMemo(() => {
+    if (!selectedQuiz) return null;
+    if (printSet === "A") return selectedQuiz;
+    const shuffled = shuffleAssessmentForVersion(
+      {
+        quizTitle: selectedQuiz.quiz_title,
+        questions: selectedQuiz.questions,
+        answerKey: selectedQuiz.answer_key,
+      },
+      printSet,
+      selectedQuiz.id
+    );
+    return {
+      ...selectedQuiz,
+      questions: shuffled.questions,
+      answer_key: shuffled.answerKey,
+    };
+  }, [selectedQuiz, printSet]);
 
   // Filter quizzes
   const filteredQuizzes = quizzes.filter((q) => {
@@ -381,9 +564,9 @@ export default function AssessmentsPage() {
       {/* Header */}
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Assessments & AI Builder</h1>
+          <h1 className={styles.title}>Assessments & Tests</h1>
           <p className={styles.subtitle}>
-            Generate, calibrate, and print scannable bond-paper assessments for TSEKI optical camera grading.
+            Design, calibrate, and print paper assessments formatted for optical camera grading.
           </p>
         </div>
         <button
@@ -391,20 +574,50 @@ export default function AssessmentsPage() {
           onClick={() => {
             resetCreateForm();
             setShowCreateModal(true);
+            refreshQuota();
           }}
         >
           <Sparkles size={18} />
-          <span>New AI Assessment</span>
+          Create with AI Builder
         </button>
       </div>
 
-      {/* Control Bar: Search and Filters */}
+      {/* ── Daily AI Generation Quota Banner ── */}
+      {quota && (
+        <div className={styles.quotaBanner}>
+          <div className={styles.quotaLeft}>
+            <div className={styles.quotaIcon}>
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <div className={styles.quotaTitle}>
+                <span>Daily AI Quota:</span>
+                <span
+                  className={`${styles.quotaCountBadge} ${
+                    quota.remainingToday <= 0 ? styles.quotaCountBadgeZero : ""
+                  }`}
+                >
+                  {quota.remainingToday} / {quota.dailyLimit} remaining today
+                </span>
+              </div>
+              <div className={styles.quotaSub}>
+                Each teacher has 10 AI quiz generations per day.
+              </div>
+            </div>
+          </div>
+          <div className={styles.quotaResetNote}>
+            Resets daily at <strong>12:00 AM midnight</strong> (Manila, Philippines)
+          </div>
+        </div>
+      )}
+
+      {/* Control Bar: Filters & Search */}
       <div className={styles.controlBar}>
         <div className={styles.searchWrap}>
-          <Search size={18} className={styles.searchIcon} />
+          <Search size={16} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder="Search assessments, subjects, or classrooms..."
+            placeholder="Search by quiz title, subject, or classroom..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={styles.searchInput}
@@ -412,161 +625,148 @@ export default function AssessmentsPage() {
         </div>
 
         <div className={styles.filtersGroup}>
-          <div className={styles.selectWrap}>
-            <GraduationCap size={16} className={styles.selectIcon} />
+          <div className={styles.filterItem}>
+            <label>Status:</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className={styles.select}
+            >
+              <option value="ALL">All Status</option>
+              <option value="PUBLISHED">Published</option>
+              <option value="DRAFT">Drafts</option>
+            </select>
+          </div>
+
+          <div className={styles.filterItem}>
+            <label>Classroom:</label>
             <select
               value={classroomFilter}
               onChange={(e) => setClassroomFilter(e.target.value)}
-              className={styles.selectInput}
+              className={styles.select}
             >
               <option value="ALL">All Classrooms</option>
               {classrooms.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title} ({c.subject})
+                  {c.title}
                 </option>
               ))}
             </select>
           </div>
-
-          <div className={styles.tabsToggle}>
-            <button
-              className={`${styles.tabBtn} ${statusFilter === "ALL" ? styles.tabActive : ""}`}
-              onClick={() => setStatusFilter("ALL")}
-            >
-              All ({quizzes.length})
-            </button>
-            <button
-              className={`${styles.tabBtn} ${statusFilter === "PUBLISHED" ? styles.tabActive : ""}`}
-              onClick={() => setStatusFilter("PUBLISHED")}
-            >
-              Published ({quizzes.filter((q) => q.status !== "DRAFT").length})
-            </button>
-            <button
-              className={`${styles.tabBtn} ${statusFilter === "DRAFT" ? styles.tabActive : ""}`}
-              onClick={() => setStatusFilter("DRAFT")}
-            >
-              Drafts ({quizzes.filter((q) => q.status === "DRAFT").length})
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Assessment Grid */}
+      {/* Quizzes List */}
       {loading ? (
-        <div className={styles.loadingGrid}>
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className={`skeleton ${styles.skeletonCard}`} />
-          ))}
+        <div className={styles.loadingState}>
+          <Loader2 size={32} className="spinner" />
+          <p>Loading your assessments...</p>
         </div>
       ) : filteredQuizzes.length === 0 ? (
         <div className={styles.emptyState}>
-          <FileText size={48} strokeWidth={1.2} />
+          <FileText size={48} strokeWidth={1} />
           <h3>No assessments found</h3>
-          <p>Create an AI-calibrated test or adjust your active filters.</p>
-          <button
-            className={styles.emptyAction}
-            onClick={() => {
-              resetCreateForm();
-              setShowCreateModal(true);
-            }}
-          >
-            <Plus size={16} />
-            Create First Assessment
-          </button>
+          <p>
+            {searchQuery
+              ? "No quizzes match your search criteria."
+              : "Generate an assessment using AI or create one from your curriculum docs."}
+          </p>
+          {!searchQuery && (
+            <button
+              className={styles.emptyBtn}
+              onClick={() => {
+                resetCreateForm();
+                setShowCreateModal(true);
+              }}
+            >
+              <Sparkles size={16} />
+              Open AI Builder
+            </button>
+          )}
         </div>
       ) : (
-        <div className={styles.grid}>
+        <div className={styles.quizGrid}>
           {filteredQuizzes.map((quiz) => {
             const isDraft = quiz.status === "DRAFT";
-            const draftTime = isDraft ? getDraftCountdown(quiz.created_at) : null;
-            const questionCount = quiz.questions?.length || 0;
-            const totalPoints = quiz.answer_key?.reduce((acc, k) => acc + (k.points || 1), 0) || questionCount;
+            const countdown = isDraft ? getDraftCountdown(quiz.created_at) : null;
 
             return (
-              <div key={quiz.id} className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <div className={styles.headerLeft}>
-                    <span
-                      className={`${styles.badge} ${
-                        isDraft ? styles.draftBadge : styles.publishedBadge
-                      }`}
-                    >
-                      {isDraft ? "DRAFT" : "PUBLISHED"}
-                    </span>
-                    {draftTime && (
+              <div key={quiz.id} className={styles.quizCard}>
+                <div className={styles.cardTopRow}>
+                  <div className={styles.quizIconSquare}>
+                    <FileText size={20} />
+                  </div>
+                  <div className={styles.cardHeaderRight}>
+                    <div className={styles.badgeRow}>
                       <span
-                        className={`${styles.draftTimer} ${
-                          draftTime.isUrgent ? styles.urgentTimer : ""
+                        className={`${styles.statusBadge} ${
+                          isDraft ? styles.statusDraft : styles.statusPublished
                         }`}
-                        title="Instagram-style 7-day auto-expiry lifespan"
                       >
-                        <Clock size={12} />
-                        {draftTime.text}
+                        {isDraft ? (
+                          <>
+                            <Clock size={12} />
+                            Draft {countdown ? `(${countdown.text})` : ""}
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 size={12} />
+                            Published
+                          </>
+                        )}
                       </span>
-                    )}
-                  </div>
-                  <div className={styles.cardActions}>
-                    <button
-                      className={styles.iconBtn}
-                      onClick={() => {
-                        setSelectedQuiz(quiz);
-                        setShowPrintModal(true);
-                      }}
-                      title="Print Scannable Bond Paper Sheet"
-                    >
-                      <Printer size={16} />
-                    </button>
-                    <button
-                      className={styles.iconBtn}
-                      onClick={() => setSelectedQuiz(quiz)}
-                      title="View Questions & Answer Key"
-                    >
-                      <Eye size={16} />
-                    </button>
-                    <button
-                      className={`${styles.iconBtn} ${styles.dangerBtn}`}
-                      onClick={() => handleDeleteQuiz(quiz.id)}
-                      title="Delete Assessment"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className={styles.cardBody} onClick={() => setSelectedQuiz(quiz)}>
-                  <h3 className={styles.quizTitle}>{quiz.quiz_title}</h3>
-                  <p className={styles.subjectText}>
-                    {quiz.subject || "General Education"}
-                    {quiz.grade_level ? ` · ${quiz.grade_level}` : ""}
-                  </p>
-
-                  <div className={styles.metaRow}>
-                    <div className={styles.metaChip}>
-                      <Layers size={13} />
-                      <span>{questionCount} Questions ({totalPoints} pts)</span>
+                      <span className={styles.gradeBadge}>
+                        {quiz.grade_level || "Grade 10"}
+                      </span>
                     </div>
-                    {quiz.difficulty && (
-                      <div className={styles.metaChip}>
-                        <span>{quiz.difficulty}</span>
-                      </div>
-                    )}
+
+                    <button
+                      className={styles.deleteBtn}
+                      onClick={() => handleDeleteQuiz(quiz.id)}
+                      title="Delete assessment"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </div>
                 </div>
 
-                <div className={styles.cardFooter}>
-                  <span className={styles.classInfo}>
+                <h3 className={styles.cardTitle}>{quiz.quiz_title}</h3>
+
+                <div className={styles.metaRow}>
+                  <span className={styles.subjectText}>{quiz.subject || "General Science"}</span>
+                  <span className={styles.dot}>•</span>
+                  <span>{quiz.difficulty || "Medium"}</span>
+                </div>
+
+                <div className={styles.cardDetails}>
+                  <div className={styles.detailItem}>
                     <GraduationCap size={14} />
-                    {quiz.classroom_name || "Unassigned"}
-                  </span>
+                    <span>{quiz.classroom_name || "Unassigned"}</span>
+                  </div>
+                  <div className={styles.detailItem}>
+                    <Layers size={14} />
+                    <span>{quiz.questions.length} Questions</span>
+                  </div>
+                </div>
+
+                <div className={styles.cardActions}>
                   <button
-                    className={styles.printActionBtn}
+                    className={styles.actionBtnOutline}
+                    onClick={() => setSelectedQuiz(quiz)}
+                  >
+                    <Eye size={15} />
+                    View & Questions
+                  </button>
+                  <button
+                    className={styles.actionBtnSolid}
                     onClick={() => {
                       setSelectedQuiz(quiz);
+                      setPrintSet("A");
                       setShowPrintModal(true);
                     }}
                   >
-                    <Printer size={14} />
-                    Print Sheet
+                    <Printer size={15} />
+                    Print Sheets
                   </button>
                 </div>
               </div>
@@ -575,288 +775,261 @@ export default function AssessmentsPage() {
         </div>
       )}
 
-      {/* ── CREATE / AI GENERATOR MODAL ── */}
+      {/* ── CREATE ASSESSMENT MODAL (AI BUILDER) ── */}
       {showCreateModal && createPortal(
-        <div className={styles.modalOverlay} onClick={() => setShowCreateModal(false)}>
+        <div className={styles.modalOverlay} onClick={() => !generatorLoading && !isPublishing && setShowCreateModal(false)}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <div className={styles.modalTitleArea}>
-                <Sparkles size={20} className={styles.modalIcon} />
+              <div className={styles.headerTitleWrap}>
+                <div className={styles.modalIconWrap}>
+                  <Sparkles size={20} />
+                </div>
                 <div>
                   <h2>AI Assessment Builder</h2>
-                  <p>Calibrate according to Bloom's Taxonomy for optical grading</p>
+                  <p>Calibrated to Bloom's Taxonomy & Optical Paper Sheet Layout</p>
                 </div>
               </div>
               <button
                 className={styles.closeBtn}
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => !generatorLoading && !isPublishing && setShowCreateModal(false)}
+                disabled={generatorLoading || isPublishing}
               >
                 <X size={20} />
               </button>
             </div>
 
-            {step === "config" ? (
-              <div className={styles.modalBody}>
-                <div className={styles.formRow}>
-                  <div className={styles.fieldGroup}>
-                    <label>Assessment Title *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Unit 3: Cellular Respiration & Genetics"
-                      value={quizTitle}
-                      onChange={(e) => setQuizTitle(e.target.value)}
-                      className={styles.input}
-                    />
+            {/* Quota Indicator inside modal */}
+            {quota && (
+              <div style={{ padding: "0 28px", marginTop: "12px" }}>
+                <div className={styles.quotaBanner} style={{ margin: 0, padding: "8px 14px" }}>
+                  <div className={styles.quotaLeft}>
+                    <Sparkles size={15} color="var(--orange-500)" />
+                    <span style={{ fontSize: "13px", fontWeight: 600 }}>
+                      Daily Generations: {quota.remainingToday} / {quota.dailyLimit} remaining
+                    </span>
                   </div>
+                  <span style={{ fontSize: "11.5px", color: "var(--text-tertiary)" }}>
+                    Resets 12:00 AM Manila
+                  </span>
+                </div>
+              </div>
+            )}
 
-                  <div className={styles.fieldGroup}>
-                    <label>Assign to Classroom</label>
-                    <select
-                      value={targetClassroom}
-                      onChange={(e) => setTargetClassroom(e.target.value)}
-                      className={styles.select}
-                    >
-                      <option value="">Unassigned (General)</option>
-                      {classrooms.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.title} — {c.subject}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+            {step === "config" ? (
+              /* Step 1: Configuration Form */
+              <div className={styles.modalBody}>
+                {/* Topic / Title */}
+                <div className={styles.formGroup}>
+                  <label>Assessment Title / Primary Topic *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Cellular Respiration and Photosynthesis"
+                    value={topicPrompt}
+                    onChange={(e) => setTopicPrompt(e.target.value)}
+                    className={styles.input}
+                    autoFocus
+                  />
                 </div>
 
-                <div className={styles.formGrid3}>
-                  <div className={styles.fieldGroup}>
-                    <label>Subject</label>
-                    <select
-                      value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                      className={styles.select}
-                    >
-                      <option value="General Science">General Science</option>
-                      <option value="Mathematics">Mathematics</option>
-                      <option value="English & Literature">English & Literature</option>
-                      <option value="Filipino">Filipino</option>
-                      <option value="Araling Panlipunan">Araling Panlipunan</option>
-                      <option value="MAPEH">MAPEH</option>
-                      <option value="Computer Science">Computer Science</option>
-                    </select>
-                  </div>
-
-                  <div className={styles.fieldGroup}>
+                {/* Grade & Subject */}
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
                     <label>Grade Level</label>
                     <select
                       value={gradeLevel}
                       onChange={(e) => setGradeLevel(e.target.value)}
                       className={styles.select}
                     >
-                      <option value="Grade 7">Grade 7</option>
-                      <option value="Grade 8">Grade 8</option>
-                      <option value="Grade 9">Grade 9</option>
-                      <option value="Grade 10">Grade 10</option>
-                      <option value="Grade 11">Grade 11 (SHS)</option>
-                      <option value="Grade 12">Grade 12 (SHS)</option>
+                      <option>Grade 7</option>
+                      <option>Grade 8</option>
+                      <option>Grade 9</option>
+                      <option>Grade 10</option>
+                      <option>Grade 11 (SHS)</option>
+                      <option>Grade 12 (SHS)</option>
                     </select>
                   </div>
 
-                  <div className={styles.fieldGroup}>
-                    <label>Question Count</label>
-                    <select
-                      value={questionCount}
-                      onChange={(e) => setQuestionCount(Number(e.target.value))}
-                      className={styles.select}
-                    >
-                      <option value={5}>5 Questions (Quick Check)</option>
-                      <option value={10}>10 Questions (Standard Quiz)</option>
-                      <option value={15}>15 Questions (Unit Test)</option>
-                      <option value={20}>20 Questions (Quarter Exam)</option>
-                    </select>
+                  <div className={styles.formGroup}>
+                    <label>Subject</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Science / Biology"
+                      value={subject}
+                      onChange={(e) => setSubject(e.target.value)}
+                      className={styles.input}
+                    />
                   </div>
                 </div>
 
+                {/* Bloom's Difficulty & Question Count */}
                 <div className={styles.formRow}>
-                  <div className={styles.fieldGroup}>
-                    <label>Question Type</label>
-                    <select
-                      value={questionType}
-                      onChange={(e) => setQuestionType(e.target.value as any)}
-                      className={styles.select}
-                    >
-                      <option value="multiple_choice">Multiple Choice (A, B, C, D)</option>
-                      <option value="true_false">True / False (T/F)</option>
-                      <option value="identification">Identification (Fill in)</option>
-                      <option value="enumeration">Enumeration</option>
-                      <option value="mixed">Mixed Assessment (Balanced)</option>
-                    </select>
-                  </div>
-
-                  <div className={styles.fieldGroup}>
-                    <label>Bloom's Taxonomy Difficulty</label>
+                  <div className={styles.formGroup}>
+                    <label>Bloom's Difficulty</label>
                     <select
                       value={difficulty}
                       onChange={(e) => setDifficulty(e.target.value)}
                       className={styles.select}
                     >
-                      <option value="Easy">Easy (Recall & Understanding)</option>
-                      <option value="Medium">Medium (Application & Analysis)</option>
-                      <option value="Hard">Hard (Evaluation & Synthesis)</option>
+                      <option value="Easy (Recall & Understanding)">Easy (Recall & Understanding)</option>
+                      <option value="Medium (Application & Analysis)">Medium (Application & Analysis)</option>
+                      <option value="Hard (Evaluation & Synthesis)">Hard (Evaluation & Synthesis)</option>
+                    </select>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label>Number of Questions</label>
+                    <select
+                      value={questionCount}
+                      onChange={(e) => setQuestionCount(Number(e.target.value))}
+                      className={styles.select}
+                    >
+                      <option value={5}>5 Questions</option>
+                      <option value={10}>10 Questions</option>
+                      <option value={15}>15 Questions</option>
+                      <option value={20}>20 Questions</option>
+                      <option value={25}>25 Questions</option>
+                      <option value={30}>30 Questions</option>
+                      <option value={40}>40 Questions</option>
                     </select>
                   </div>
                 </div>
 
-                {/* ── Mixed Assessment Type Picker ── */}
-                {questionType === "mixed" && (
-                  <div style={{
-                    padding: "14px 16px",
-                    background: "var(--color-bg-subtle, #F8FAFC)",
-                    border: "1px solid var(--color-border, #E2E8F0)",
-                    borderRadius: "12px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px",
-                    marginBottom: "16px",
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: "12px", fontWeight: "800", color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                        Select Test Types to Include
+                {/* Target Classroom */}
+                <div className={styles.formGroup}>
+                  <label>Assign to Classroom (Optional)</label>
+                  <select
+                    value={targetClassroom}
+                    onChange={(e) => setTargetClassroom(e.target.value)}
+                    className={styles.select}
+                  >
+                    <option value="">No Classroom (Draft / Unassigned)</option>
+                    {classrooms.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title} — {c.subject}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Question Type Selection */}
+                <div className={styles.formGroup}>
+                  <label>Question Type</label>
+                  <div className={styles.typeGrid}>
+                    {[
+                      { key: "multiple_choice", label: "Multiple Choice" },
+                      { key: "true_false", label: "True / False" },
+                      { key: "identification", label: "Identification" },
+                      { key: "enumeration", label: "Enumeration" },
+                      { key: "word_box", label: "Word Box" },
+                      { key: "mixed", label: "Mixed Assessment" },
+                    ].map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        className={`${styles.typeBtn} ${
+                          questionType === t.key ? styles.typeBtnActive : ""
+                        }`}
+                        onClick={() => setQuestionType(t.key as any)}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Mixed Type Checklist */}
+                  {questionType === "mixed" && (
+                    <div className={styles.mixedTypesContainer}>
+                      <span className={styles.mixedTypesTitle}>
+                        Select question types to include in sequential parts:
                       </span>
-                      <span style={{ fontSize: "11px", fontWeight: "700", background: "rgba(59, 130, 246, 0.1)", color: "#3B82F6", padding: "2px 8px", borderRadius: "6px" }}>
-                        {mixedTypes.length} Selected
-                      </span>
-                    </div>
-                    <p style={{ fontSize: "12px", color: "var(--color-text-subtle, #64748B)", margin: 0 }}>
-                      Pick which test parts to include (e.g. I. Multiple Choice, II. Enumeration, III. True/False). Questions will be organized into sequential sections.
-                    </p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" }}>
-                      {[
-                        { key: "multiple_choice", label: "Multiple Choice" },
-                        { key: "enumeration", label: "Enumeration" },
-                        { key: "true_false", label: "True / False" },
-                        { key: "identification", label: "Identification" },
-                        { key: "word_box", label: "Word Box" },
-                      ].map((opt) => {
-                        const selIdx = mixedTypes.indexOf(opt.key);
-                        const isSelected = selIdx !== -1;
-                        const romans = ["I", "II", "III", "IV", "V"];
-                        return (
-                          <label
-                            key={opt.key}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              padding: "6px 12px",
-                              borderRadius: "8px",
-                              border: isSelected ? "1.5px solid #3B82F6" : "1.5px solid var(--color-border, #E2E8F0)",
-                              background: isSelected ? "rgba(59, 130, 246, 0.08)" : "var(--color-surface, #FFFFFF)",
-                              cursor: "pointer",
-                              fontSize: "13px",
-                              fontWeight: isSelected ? 600 : 500,
-                              color: isSelected ? "#3B82F6" : "inherit",
-                              userSelect: "none",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {
-                                if (isSelected) {
-                                  if (mixedTypes.length <= 2) {
-                                    alert("Please select at least 2 test types for a mixed assessment.");
+                      <div className={styles.mixedChecklist}>
+                        {[
+                          { key: "multiple_choice", label: "Multiple Choice" },
+                          { key: "enumeration", label: "Enumeration" },
+                          { key: "true_false", label: "True / False" },
+                          { key: "identification", label: "Identification" },
+                          { key: "word_box", label: "Word Box" },
+                        ].map((item) => {
+                          const checked = mixedTypes.includes(item.key);
+                          return (
+                            <label key={item.key} className={styles.mixedCheckLabel}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  if (checked && mixedTypes.length <= 1) {
+                                    showAlert({
+                                      title: "Minimum Selection",
+                                      message: "Please keep at least one question type selected.",
+                                      type: "info",
+                                    });
                                     return;
                                   }
-                                  setMixedTypes(mixedTypes.filter((k) => k !== opt.key));
-                                } else {
-                                  setMixedTypes([...mixedTypes, opt.key]);
-                                }
-                              }}
-                              style={{ accentColor: "#3B82F6" }}
-                            />
-                            {isSelected && (
-                              <span style={{
-                                fontSize: "10px",
-                                fontWeight: "800",
-                                background: "#3B82F6",
-                                color: "#FFFFFF",
-                                padding: "1px 5px",
-                                borderRadius: "4px",
-                              }}>
-                                {romans[selIdx]}
-                              </span>
-                            )}
-                            {opt.label}
-                          </label>
-                        );
-                      })}
+                                  setMixedTypes(
+                                    checked
+                                      ? mixedTypes.filter((k) => k !== item.key)
+                                      : [...mixedTypes, item.key]
+                                  );
+                                }}
+                              />
+                              <span>{item.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
-                {/* ── Attach Reference File (Dropzone) ── */}
-                <div className={styles.fieldGroup}>
-                  <div className={styles.attachHeader}>
-                    <label>
-                      Attach Reference File
-                      <span className={styles.optionalBadge}>OPTIONAL</span>
-                    </label>
-                    {attachedDoc && (
-                      <button
-                        className={styles.removeDocBtn}
-                        onClick={handleRemoveFile}
-                        type="button"
-                      >
-                        <X size={12} /> Remove
-                      </button>
-                    )}
-                  </div>
+                {/* Curriculum Document Attachment */}
+                <div className={styles.formGroup}>
+                  <label>Attach Curriculum Document (Optional)</label>
+                  <p className={styles.helpText}>
+                    Supports PDF, DOCX, PPTX, or TXT. Questions will be strictly grounded in its contents.
+                  </p>
 
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md,.csv"
-                    className={styles.fileInputHidden}
+                    accept=".pdf,.docx,.doc,.pptx,.ppt,.txt"
+                    style={{ display: "none" }}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) handleFileSelected(file);
                     }}
                   />
 
-                  {isParsingDoc ? (
-                    <div className={styles.parsingIndicator}>
-                      <Loader2 size={28} className={styles.spinner} />
-                      <span>Parsing document content...</span>
-                    </div>
-                  ) : attachedDoc ? (
-                    <div
-                      className={styles.attachedFileCard}
-                      style={{
-                        borderColor: getDocBadgeInfo(attachedDoc.type).borderColor,
-                        background: getDocBadgeInfo(attachedDoc.type).bgColor,
-                      }}
-                    >
-                      <div className={styles.fileCardLeft}>
-                        <span
-                          className={styles.docTypeBadge}
+                  {attachedDoc ? (
+                    <div className={styles.attachedDocCard}>
+                      <div className={styles.docInfo}>
+                        <div
+                          className={styles.docBadge}
                           style={{ background: getDocBadgeInfo(attachedDoc.type).color }}
                         >
                           {getDocBadgeInfo(attachedDoc.type).label}
-                        </span>
-                        <div className={styles.fileCardInfo}>
-                          <span className={styles.fileName}>{attachedDoc.name}</span>
-                          <span className={styles.fileSummary}>{attachedDoc.summaryText}</span>
+                        </div>
+                        <div className={styles.docDetails}>
+                          <span className={styles.docName}>{attachedDoc.name}</span>
+                          <span className={styles.docMeta}>
+                            {(attachedDoc.size / 1024).toFixed(1)} KB · Content extracted
+                          </span>
                         </div>
                       </div>
-                      <div className={styles.fileCardRight}>
-                        <span className={styles.readyBadge}>
-                          <CheckCircle2 size={13} /> Ready
-                        </span>
+                      <div className={styles.docActions}>
                         <button
+                          type="button"
                           className={styles.changeFileBtn}
                           onClick={() => fileInputRef.current?.click()}
-                          type="button"
                         >
                           Change
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.removeFileBtn}
+                          onClick={handleRemoveFile}
+                          title="Remove file"
+                        >
+                          <X size={16} />
                         </button>
                       </div>
                     </div>
@@ -864,7 +1037,10 @@ export default function AssessmentsPage() {
                     <div
                       className={`${styles.dropZone} ${isDragging ? styles.dropZoneDragging : ""}`}
                       onClick={() => fileInputRef.current?.click()}
-                      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
                       onDragLeave={() => setIsDragging(false)}
                       onDrop={(e) => {
                         e.preventDefault();
@@ -873,77 +1049,72 @@ export default function AssessmentsPage() {
                         if (file) handleFileSelected(file);
                       }}
                     >
-                      <div className={styles.uploadIconArea}>
-                        <UploadCloud size={22} />
-                      </div>
-                      <div className={styles.dropZoneText}>
-                        <strong>Click to upload</strong> or drag and drop
-                        <p>Attach your lesson file and AI will generate questions from it</p>
-                      </div>
-                      <div className={styles.formatPills}>
-                        <span className={styles.pillPdf}>PDF</span>
-                        <span className={styles.pillDoc}>DOCX</span>
-                        <span className={styles.pillPpt}>PPTX</span>
-                        <span className={styles.pillTxt}>TXT</span>
-                      </div>
+                      {isParsingDoc ? (
+                        <div className={styles.dropZoneLoading}>
+                          <Loader2 size={24} className="spinner" />
+                          <span>Extracting text & curriculum concepts...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <UploadCloud size={28} className={styles.uploadIcon} />
+                          <span className={styles.dropTitle}>Click or drag curriculum file here</span>
+                          <span className={styles.dropSub}>PDF, DOCX, PPTX, or TXT up to 10MB</span>
+                        </>
+                      )}
                     </div>
                   )}
 
                   {docError && (
                     <div className={styles.docErrorAlert}>
-                      <AlertCircle size={16} />
+                      <AlertCircle size={14} />
                       <span>{docError}</span>
                     </div>
                   )}
                 </div>
 
-                <div className={styles.fieldGroup}>
-                  <label>
-                    Curriculum Competency / Topic Prompt
-                    {attachedDoc && <span className={styles.optionalBadge}>OPTIONAL WITH FILE</span>}
-                  </label>
+                {/* Additional Lesson Notes */}
+                <div className={styles.formGroup}>
+                  <label>Teacher Notes / Key Focus Points (Optional)</label>
                   <textarea
                     rows={3}
-                    placeholder={
-                      attachedDoc
-                        ? `e.g. Focus on Chapter 3 of ${attachedDoc.name}, or leave blank to cover the whole document`
-                        : "Describe topics, concepts, or learning competencies (e.g. Mendelian genetics, Punnett squares, dominant and recessive alleles...)"
-                    }
-                    value={topicPrompt}
-                    onChange={(e) => setTopicPrompt(e.target.value)}
-                    className={styles.textarea}
-                  />
-                </div>
-
-                <div className={styles.fieldGroup}>
-                  <label>Paste Lesson Notes or Syllabus Text (Optional)</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Paste textbook excerpts, lesson summary, or curriculum outline here for deeper contextual accuracy..."
+                    placeholder="e.g. Focus specifically on the light-dependent reactions; exclude anaerobic fermentation..."
                     value={lessonNotes}
                     onChange={(e) => setLessonNotes(e.target.value)}
                     className={styles.textarea}
                   />
                 </div>
 
+                {/* Live Generator Status Box */}
+                {generatorLoading && generatorStatus && (
+                  <div
+                    className={`${styles.generatorStatusBox} ${
+                      isAiBusy ? styles.generatorStatusBusy : ""
+                    }`}
+                  >
+                    <Loader2 size={16} className="spinner" />
+                    <span>{generatorStatus}</span>
+                  </div>
+                )}
+
                 <div className={styles.modalFooter}>
                   <button
                     type="button"
                     className={styles.cancelBtn}
                     onClick={() => setShowCreateModal(false)}
+                    disabled={generatorLoading}
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
-                    className={styles.submitBtn}
-                    disabled={generatorLoading || isParsingDoc}
+                    className={styles.generateSubmitBtn}
                     onClick={handleGenerateAI}
+                    disabled={generatorLoading}
                   >
                     {generatorLoading ? (
                       <>
-                        <Loader2 size={18} className={styles.spinner} />
-                        Generating with AI...
+                        <Loader2 size={18} className="spinner" />
+                        Generating Assessment...
                       </>
                     ) : (
                       <>
@@ -961,7 +1132,7 @@ export default function AssessmentsPage() {
                   <div>
                     <h4>{quizTitle || topicPrompt}</h4>
                     <p>
-                      {subject} · {gradeLevel} · {difficulty} Difficulty · {draftQuestions.length} Questions
+                      {subject} · {gradeLevel} · {difficulty} · {draftQuestions.length} Questions
                     </p>
                   </div>
                   <div className={styles.previewTopBar}>
@@ -1016,6 +1187,7 @@ export default function AssessmentsPage() {
                     type="button"
                     className={styles.cancelBtn}
                     onClick={() => setStep("config")}
+                    disabled={isPublishing}
                   >
                     Back
                   </button>
@@ -1024,6 +1196,7 @@ export default function AssessmentsPage() {
                       type="button"
                       className={styles.draftBtn}
                       onClick={() => handleSaveAssessment("DRAFT")}
+                      disabled={isPublishing}
                     >
                       <Clock size={16} />
                       Save 7-Day Draft
@@ -1032,6 +1205,7 @@ export default function AssessmentsPage() {
                       type="button"
                       className={styles.submitBtn}
                       onClick={() => handleSaveAssessment("PUBLISHED")}
+                      disabled={isPublishing}
                     >
                       <CheckCircle2 size={16} />
                       Publish to Classroom
@@ -1040,6 +1214,22 @@ export default function AssessmentsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── PUBLISHING FULL-SCREEN LOADING OVERLAY ── */}
+      {isPublishing && createPortal(
+        <div className={styles.publishingOverlay}>
+          <div className={styles.publishingCard}>
+            <div className={styles.publishingSpinnerWrap}>
+              <Loader2 size={32} className="spinner" />
+            </div>
+            <h3 className={styles.publishingTitle}>Publishing Assessment</h3>
+            <p className={styles.publishingStage}>
+              {publishingStage || "Processing assessment and syncing with your classroom..."}
+            </p>
           </div>
         </div>,
         document.body
@@ -1072,7 +1262,10 @@ export default function AssessmentsPage() {
                 </span>
                 <button
                   className={styles.printActionBtn}
-                  onClick={() => setShowPrintModal(true)}
+                  onClick={() => {
+                    setPrintSet("A");
+                    setShowPrintModal(true);
+                  }}
                 >
                   <Printer size={16} />
                   Print Scannable Sheet
@@ -1114,7 +1307,7 @@ export default function AssessmentsPage() {
       )}
 
       {/* ── PRINT SCANNABLE BOND PAPER MODAL ── */}
-      {showPrintModal && selectedQuiz && createPortal(
+      {showPrintModal && activePrintQuiz && createPortal(
         <div className={styles.printOverlay}>
           <div className={styles.printToolbar}>
             <div className={styles.toolbarLeft}>
@@ -1124,6 +1317,21 @@ export default function AssessmentsPage() {
               >
                 <X size={18} /> Close Preview
               </button>
+
+              {/* Anti-Cheating Set Selector (Set A / B / C) */}
+              <div className={styles.setButtons}>
+                {(["A", "B", "C"] as const).map((ver) => (
+                  <button
+                    key={ver}
+                    type="button"
+                    className={`${styles.setPill} ${printSet === ver ? styles.setPillActive : ""}`}
+                    onClick={() => setPrintSet(ver)}
+                  >
+                    Set {ver}
+                  </button>
+                ))}
+              </div>
+
               <div className={styles.paperSelector}>
                 <span>Paper Size:</span>
                 <button
@@ -1139,6 +1347,7 @@ export default function AssessmentsPage() {
                   Long (8.5×13")
                 </button>
               </div>
+
               <label className={styles.checkKeyLabel}>
                 <input
                   type="checkbox"
@@ -1173,9 +1382,11 @@ export default function AssessmentsPage() {
                   <p>Basic Education Department · Cebu City, Philippines</p>
                 </div>
                 <div className={styles.examTitleArea}>
-                  <h2 className={styles.sheetExamTitle}>{selectedQuiz.quiz_title}</h2>
+                  <h2 className={styles.sheetExamTitle}>
+                    {activePrintQuiz.quiz_title} — SET {printSet}
+                  </h2>
                   <div className={styles.sheetSub}>
-                    <span>Subject: <strong>{selectedQuiz.subject || "General Education"}</strong></span>
+                    <span>Subject: <strong>{activePrintQuiz.subject || "General Education"}</strong></span>
                     <span>Date: <strong>{new Date().toLocaleDateString()}</strong></span>
                   </div>
                 </div>
@@ -1194,7 +1405,7 @@ export default function AssessmentsPage() {
                 <div className={styles.scoreBox}>
                   <span className={styles.scoreLabel}>SCORE</span>
                   <div className={styles.scoreValue}>
-                    / {selectedQuiz.questions.length}
+                    / {activePrintQuiz.questions.length}
                   </div>
                 </div>
               </div>
@@ -1206,7 +1417,7 @@ export default function AssessmentsPage() {
 
               {/* Scannable Question Rows */}
               <div className={styles.sheetQuestions}>
-                {selectedQuiz.questions.map((q) => (
+                {activePrintQuiz.questions.map((q) => (
                   <div key={q.questionNumber} className={styles.sheetQuestionRow}>
                     <div className={styles.questionMain}>
                       <div className={styles.questionHeading}>
@@ -1235,7 +1446,9 @@ export default function AssessmentsPage() {
 
               {/* Paper Footer with machine markers */}
               <div className={styles.sheetFooter}>
-                <span>TSEKI VISION-READY FORM · FORM-ID: {selectedQuiz.id.slice(0, 8).toUpperCase()}</span>
+                <span>
+                  TSEKI VISION-READY FORM · FORM-ID: {activePrintQuiz.id?.slice(0, 8).toUpperCase() || "TSEKI"} · SET {printSet}
+                </span>
                 <span className={styles.alignmentMarker}>[ + TSEKI OPTICAL OCR ALIGNED + ]</span>
               </div>
             </div>
@@ -1248,11 +1461,11 @@ export default function AssessmentsPage() {
                 }`}
               >
                 <div className={styles.sheetHeader}>
-                  <h4>CEBU EASTERN COLLEGE — OFFICIAL ANSWER KEY</h4>
-                  <h2>{selectedQuiz.quiz_title}</h2>
+                  <h4>CEBU EASTERN COLLEGE — OFFICIAL ANSWER KEY (SET {printSet})</h4>
+                  <h2>{activePrintQuiz.quiz_title}</h2>
                 </div>
                 <div className={styles.keyGrid}>
-                  {selectedQuiz.answer_key?.map((k) => (
+                  {activePrintQuiz.answer_key?.map((k) => (
                     <div key={k.questionNumber} className={styles.keyRow}>
                       <span className={styles.kNum}>Item {k.questionNumber}</span>
                       <span className={styles.kAnswer}>{k.correctAnswer}</span>

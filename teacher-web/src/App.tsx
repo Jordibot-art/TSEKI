@@ -2,6 +2,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { GlobalAlertHost } from "./components/CustomAlertModal";
 import AppLayout from "./layouts/AppLayout";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import AssessmentsPage from "./pages/AssessmentsPage";
@@ -119,6 +120,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
+        <GlobalAlertHost />
       </AuthProvider>
     </ThemeProvider>
   );

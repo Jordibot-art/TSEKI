@@ -316,7 +316,8 @@ export default function DashboardPage() {
                   <div
                     key={q.id}
                     className={styles.quizRow}
-                    style={{ animationDelay: `${idx * 60}ms` }}
+                    style={{ animationDelay: `${idx * 60}ms`, cursor: "pointer" }}
+                    onClick={() => navigate("/assessments")}
                   >
                     <div className={styles.quizIcon}>
                       <FileText size={18} />
