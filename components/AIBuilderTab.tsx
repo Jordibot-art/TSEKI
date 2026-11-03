@@ -40,6 +40,16 @@ import {
     ScannableQuestion,
 } from "../lib/quizGeneratorService";
 import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
+import {
+    checkCanGenerate,
+    getManilaDateString,
+    getTeacherQuotaState,
+    QuotaState,
+    recordGenerationFailure,
+    recordGenerationSuccess,
+    resolveCurrentTeacherId,
+} from "../lib/ai/aiQuotaService";
+import { supabase } from "../supabase";
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 const GRADE_LEVELS = [
@@ -235,6 +245,44 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [publishingQuiz, setPublishingQuiz] = useState(false);
     const [publishingStage, setPublishingStage] = useState<string>("");
 
+    // ── Per-User Daily AI Quota (10x/day, resets 12:00 AM Manila) ──────────────
+    const [currentTeacherId, setCurrentTeacherId] = useState<string | null>(null);
+    const [quotaState, setQuotaState] = useState<QuotaState | null>(null);
+
+    async function refreshUserQuota(explicitId?: string | null) {
+        const uid = explicitId !== undefined ? explicitId : await resolveCurrentTeacherId();
+        setCurrentTeacherId(uid);
+        const state = await getTeacherQuotaState(uid);
+        setQuotaState(state);
+    }
+
+    useEffect(() => {
+        let mounted = true;
+        refreshUserQuota();
+
+        const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (!mounted) return;
+            const nextUid = session?.user?.id || null;
+            refreshUserQuota(nextUid);
+        });
+
+        // Check every 15s for 12:00 AM midnight Asia/Manila rollover
+        let lastManilaDate = getManilaDateString();
+        const midnightTimer = setInterval(() => {
+            const nowManilaDate = getManilaDateString();
+            if (nowManilaDate !== lastManilaDate) {
+                lastManilaDate = nowManilaDate;
+                refreshUserQuota();
+            }
+        }, 15000);
+
+        return () => {
+            mounted = false;
+            authSub?.subscription?.unsubscribe();
+            clearInterval(midnightTimer);
+        };
+    }, []);
+
     // Keep per-part item split synchronized when questionCount or mixedTypes changes
     const totalCountNumeric = parseInt(questionCount.split(" ")[0], 10) || 20;
     useEffect(() => {
@@ -308,6 +356,23 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     // ── Generate handler ───────────────────────────────────────────────────────
     async function handleGenerate() {
         if ((!attachedFile && !lessonNotes.trim()) || generating) return;
+
+        // 1. Check per-user 10x daily quota (resets 12:00 AM Manila time)
+        const activeTeacherId = currentTeacherId || (await resolveCurrentTeacherId());
+        if (activeTeacherId && activeTeacherId !== currentTeacherId) {
+            setCurrentTeacherId(activeTeacherId);
+        }
+        const quotaCheck = await checkCanGenerate(activeTeacherId, false);
+        if (!quotaCheck.allowed) {
+            await refreshUserQuota(activeTeacherId);
+            Alert.alert(
+                quotaCheck.reason === "DAILY_LIMIT" ? "Daily Limit Reached" : "Please Wait",
+                quotaCheck.message ||
+                    "You have reached today's 10x AI generation limit. Your quota resets at 12:00 AM midnight (Manila, Philippines time)."
+            );
+            return;
+        }
+
         setGenerating(true);
         setGeneratingStatus("");
         setIsAiBusy(false);
@@ -366,11 +431,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 },
             });
 
+            // Record successful generation for this user in `public.ai_generation_logs`
+            const updatedQuota = await recordGenerationSuccess(activeTeacherId, false);
+            setQuotaState(updatedQuota);
+
             setGeneratedAssessment(assessment);
             setShowResults(true);
         } catch (error: any) {
             console.error("Generation error:", error);
             const errMsg = error?.message || "";
+            recordGenerationFailure(activeTeacherId, errMsg).catch(() => {});
             const isBusy =
                 errMsg.toLowerCase().includes("busy") ||
                 errMsg.includes("429") ||
@@ -1044,6 +1114,66 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         onSelect={setDifficulty}
                         accentColor={accentColor}
                     />
+
+                    {/* ── Per-User Daily AI Quota Status Pill (10x/day, resets 12:00 AM Manila) ── */}
+                    {quotaState && (
+                        <View
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                marginTop: 18,
+                                paddingHorizontal: 14,
+                                paddingVertical: 10,
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: quotaState.isDailyLimitReached
+                                    ? "#FCA5A5"
+                                    : accentColor + "40",
+                                backgroundColor: quotaState.isDailyLimitReached
+                                    ? (darkMode ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2")
+                                    : accentColor + "12",
+                            }}
+                        >
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                                <Ionicons
+                                    name={quotaState.isDailyLimitReached ? "lock-closed" : "flash"}
+                                    size={16}
+                                    color={quotaState.isDailyLimitReached ? "#DC2626" : accentColor}
+                                />
+                                <View style={{ flex: 1 }}>
+                                    <Text
+                                        style={{
+                                            fontSize: 12.5,
+                                            fontWeight: "700",
+                                            color: quotaState.isDailyLimitReached ? "#DC2626" : textMain,
+                                        }}
+                                    >
+                                        {quotaState.isDailyLimitReached
+                                            ? `Daily Limit Reached (${quotaState.usedToday}/${quotaState.dailyLimit} used)`
+                                            : `Daily AI Generations: ${quotaState.remainingToday} / ${quotaState.dailyLimit} left`}
+                                    </Text>
+                                    <Text style={{ fontSize: 11, color: textSub, marginTop: 1 }}>
+                                        {`${quotaState.usedToday} generated today • Resets 12:00 AM (Manila, PH)`}
+                                    </Text>
+                                </View>
+                            </View>
+                            <View
+                                style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 4,
+                                    borderRadius: 8,
+                                    backgroundColor: quotaState.isDailyLimitReached
+                                        ? "#DC2626"
+                                        : accentColor,
+                                }}
+                            >
+                                <Text style={{ fontSize: 11, fontWeight: "800", color: "#FFFFFF" }}>
+                                    {`${quotaState.remainingToday}x`}
+                                </Text>
+                            </View>
+                        </View>
+                    )}
 
                     {/* ── Generate Button ── */}
                     <TouchableOpacity

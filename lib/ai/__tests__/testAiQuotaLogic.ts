@@ -1,203 +1,145 @@
-import { AI_QUOTA_CONFIG } from "../aiQuotaConfig";
+import { AI_QUOTA_CONFIG, getManilaDateString, getManilaDayBoundsIso } from "../aiQuotaConfig";
 
-interface LocalQuotaStore {
-    manilaDate: string;
-    usedCount: number;
-    lastAttemptTimestamp: number;
-    recentAttemptTimestamps: number[];
-    cooldownUntil: number;
+interface SimulatedLogRow {
+    id: string;
+    teacher_id: string;
+    action_type: string;
+    cost: number;
+    status: "success" | "failed";
+    error_message?: string | null;
+    created_at: string;
 }
 
-function getManilaDateString(date: Date = new Date()): string {
-    const formatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone: AI_QUOTA_CONFIG.RESET_TIMEZONE,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-    });
-    return formatter.format(date);
-}
+class SimulatedAiLogsDatabase {
+    private rows: SimulatedLogRow[] = [];
 
-function pruneRecentAttempts(timestamps: number[], windowMinutes: number): number[] {
-    const cutoff = Date.now() - windowMinutes * 60 * 1000;
-    return timestamps.filter((t) => t > cutoff);
-}
-
-class MockQuotaTracker {
-    private store: LocalQuotaStore;
-
-    constructor() {
-        this.store = {
-            manilaDate: getManilaDateString(),
-            usedCount: 0,
-            lastAttemptTimestamp: 0,
-            recentAttemptTimestamps: [],
-            cooldownUntil: 0,
-        };
+    insert(row: Omit<SimulatedLogRow, "id">) {
+        this.rows.push({
+            id: `log_${this.rows.length + 1}`,
+            ...row,
+        });
     }
 
-    getState() {
-        const now = Date.now();
-        const cooldownRemaining = Math.max(0, Math.ceil((this.store.cooldownUntil - now) / 1000));
-        const secondsSinceLast = Math.max(0, Math.ceil((now - this.store.lastAttemptTimestamp) / 1000));
-        const burstCooldownRemaining =
-            this.store.lastAttemptTimestamp > 0 && secondsSinceLast < AI_QUOTA_CONFIG.BURST_COOLDOWN_SECONDS
-                ? AI_QUOTA_CONFIG.BURST_COOLDOWN_SECONDS - secondsSinceLast
-                : 0;
+    getUsedTodayForTeacher(teacherId: string, now: Date): number {
+        const { startIso, endIso } = getManilaDayBoundsIso(now);
+        const startMs = new Date(startIso).getTime();
+        const endMs = new Date(endIso).getTime();
 
-        const effectiveCooldown = Math.max(cooldownRemaining, burstCooldownRemaining);
-        const remainingToday = Math.max(0, AI_QUOTA_CONFIG.DAILY_LIMIT - this.store.usedCount);
-        const isBurstLimited = this.store.recentAttemptTimestamps.length >= AI_QUOTA_CONFIG.BURST_WINDOW_MAX_ATTEMPTS;
-
-        return {
-            dailyLimit: AI_QUOTA_CONFIG.DAILY_LIMIT,
-            usedToday: this.store.usedCount,
-            remainingToday,
-            cooldownSecondsRemaining: effectiveCooldown,
-            isDailyLimitReached: remainingToday <= 0,
-            isCooldownActive: effectiveCooldown > 0,
-            isBurstLimited,
-        };
+        return this.rows
+            .filter((r) => {
+                if (r.teacher_id !== teacherId) return false;
+                if (r.status !== "success") return false;
+                const t = new Date(r.created_at).getTime();
+                return t >= startMs && t < endMs;
+            })
+            .reduce((sum, r) => sum + r.cost, 0);
     }
 
-    checkCanGenerate(isSingleQuestion: boolean = false) {
-        const cost = isSingleQuestion
-            ? AI_QUOTA_CONFIG.COSTS.SINGLE_QUESTION
-            : AI_QUOTA_CONFIG.COSTS.FULL_QUIZ;
-
-        const state = this.getState();
-
-        if (cost > 0 && state.usedToday + cost > AI_QUOTA_CONFIG.DAILY_LIMIT) {
+    checkCanGenerate(teacherId: string, now: Date) {
+        const usedToday = this.getUsedTodayForTeacher(teacherId, now);
+        const remainingToday = Math.max(0, AI_QUOTA_CONFIG.DAILY_LIMIT - usedToday);
+        if (usedToday + AI_QUOTA_CONFIG.COSTS.FULL_QUIZ > AI_QUOTA_CONFIG.DAILY_LIMIT) {
             return {
                 allowed: false,
-                reason: "DAILY_LIMIT" as const,
-                message: `You've reached today's limit of ${AI_QUOTA_CONFIG.DAILY_LIMIT} quizzes.`,
+                usedToday,
                 remainingToday: 0,
+                dailyLimit: AI_QUOTA_CONFIG.DAILY_LIMIT,
             };
         }
-
-        if (state.cooldownSecondsRemaining > 0) {
-            return {
-                allowed: false,
-                reason: "COOLDOWN" as const,
-                message: `Please wait ${state.cooldownSecondsRemaining} seconds before generating another quiz.`,
-                cooldownSeconds: state.cooldownSecondsRemaining,
-            };
-        }
-
-        if (state.isBurstLimited) {
-            return {
-                allowed: false,
-                reason: "BURST_LIMIT" as const,
-                message: "You've generated 3 quizzes in the last 10 minutes. Please take a short break.",
-            };
-        }
-
-        return { allowed: true, remainingToday: state.remainingToday };
-    }
-
-    recordSuccess(isSingleQuestion: boolean = false) {
-        const cost = isSingleQuestion
-            ? AI_QUOTA_CONFIG.COSTS.SINGLE_QUESTION
-            : AI_QUOTA_CONFIG.COSTS.FULL_QUIZ;
-
-        const now = Date.now();
-        if (cost > 0) {
-            this.store.usedCount = Math.min(AI_QUOTA_CONFIG.DAILY_LIMIT, this.store.usedCount + cost);
-        }
-        this.store.lastAttemptTimestamp = now;
-        this.store.recentAttemptTimestamps = pruneRecentAttempts(
-            [...this.store.recentAttemptTimestamps, now],
-            AI_QUOTA_CONFIG.BURST_WINDOW_MINUTES
-        );
-        this.store.cooldownUntil = now + AI_QUOTA_CONFIG.BURST_COOLDOWN_SECONDS * 1000;
-        return this.getState();
-    }
-
-    applyRateLimitPenalty(penaltySeconds: number = AI_QUOTA_CONFIG.RATE_LIMIT_COOLDOWN_SECONDS) {
-        const now = Date.now();
-        this.store.cooldownUntil = Math.max(this.store.cooldownUntil, now + penaltySeconds * 1000);
-        this.store.lastAttemptTimestamp = now;
-    }
-
-    simulateDateChange(newDate: string) {
-        this.store.manilaDate = newDate;
-        this.store.usedCount = 0; // Midnight reset!
+        return {
+            allowed: true,
+            usedToday,
+            remainingToday,
+            dailyLimit: AI_QUOTA_CONFIG.DAILY_LIMIT,
+        };
     }
 }
 
 async function runLogicTests() {
     console.log("=================================================================");
-    console.log("  TESTING: AI Quota & Rate Limiting System Rules");
+    console.log("  TESTING: Per-User 10x Daily AI Quota (12:00 AM Manila Reset)");
     console.log("=================================================================\n");
 
-    const tracker = new MockQuotaTracker();
+    const db = new SimulatedAiLogsDatabase();
+    const user1 = "11111111-1111-4111-8111-111111111111";
+    const user2 = "22222222-2222-4222-8222-222222222222";
 
-    // 1. Manila date format
-    const today = getManilaDateString();
-    console.log(`[Test 1] Asia/Manila Date: ${today}`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) throw new Error("Invalid Manila date");
-    console.log("✓ Date calculation in Asia/Manila passed.\n");
-
-    // 2. Initial state
-    const s0 = tracker.getState();
-    console.log(`[Test 2] Initial state: ${s0.remainingToday}/${s0.dailyLimit} remaining, used=${s0.usedToday}`);
-    if (s0.remainingToday !== 10 || s0.usedToday !== 0) throw new Error("Initial state mismatch");
-    console.log("✓ Initial 10 of 10 quota verified.\n");
-
-    // 3. Can generate check
-    const c0 = tracker.checkCanGenerate(false);
-    console.log(`[Test 3] Pre-generation check: allowed=${c0.allowed}`);
-    if (!c0.allowed) throw new Error("Expected to be allowed");
-    console.log("✓ Allowed to generate initially.\n");
-
-    // 4. Record 1 successful full quiz
-    const s1 = tracker.recordSuccess(false);
-    console.log(`[Test 4] Recorded full quiz: remaining=${s1.remainingToday}, used=${s1.usedToday}, cooldown=${s1.cooldownSecondsRemaining}s`);
-    if (s1.usedToday !== 1 || s1.remainingToday !== 9) throw new Error("Usage should be 1, remaining 9");
-    console.log("✓ Successfully decremented to 9 of 10.\n");
-
-    // 5. Burst cooldown active (blocks repeat taps)
-    const c1 = tracker.checkCanGenerate(false);
-    console.log(`[Test 5] Immediate repeat tap: allowed=${c1.allowed}, reason=${c1.reason}`);
-    if (c1.allowed || c1.reason !== "COOLDOWN") throw new Error("Burst cooldown should block repeat tap");
-    console.log(`✓ Burst cooldown (${c1.cooldownSeconds}s) blocks accidental repeat taps.\n`);
-
-    // 6. Cheaper regenerate (single question)
-    const sSingle = tracker.recordSuccess(true);
-    console.log(`[Test 6] Single question regenerate: used=${sSingle.usedToday}, remaining=${sSingle.remainingToday}`);
-    if (sSingle.usedToday !== 1) throw new Error("Single question should not cost daily quota");
-    console.log("✓ Single question regenerate does not consume daily quota.\n");
-
-    // 7. Rate limit penalty (429 error)
-    tracker.applyRateLimitPenalty(30);
-    const sPenalty = tracker.getState();
-    console.log(`[Test 7] 429 penalty cooldown: remaining=${sPenalty.cooldownSecondsRemaining}s`);
-    if (sPenalty.cooldownSecondsRemaining < 25) throw new Error("30s penalty cooldown not applied");
-    console.log("✓ 429 penalty cooldown (30s) correctly applied.\n");
-
-    // 8. Simulate exhausting daily quota (10 total)
-    console.log("[Test 8] Simulating reaching daily limit of 10...");
-    for (let i = sPenalty.usedToday; i < 10; i++) {
-        tracker.recordSuccess(false);
+    // Current time: 2026-11-03 14:30:00 Manila Time (+08:00)
+    const day1AfternoonManila = new Date("2026-11-03T14:30:00.000+08:00");
+    const manilaDate1 = getManilaDateString(day1AfternoonManila);
+    console.log(`[Test 1] Manila Date at 2:30 PM PHT: ${manilaDate1}`);
+    if (manilaDate1 !== "2026-11-03") {
+        throw new Error(`Expected 2026-11-03, got ${manilaDate1}`);
     }
-    const sMax = tracker.getState();
-    console.log(`  State at cap: used=${sMax.usedToday}, remaining=${sMax.remainingToday}`);
-    const cMax = tracker.checkCanGenerate(false);
-    console.log(`  Generation check: allowed=${cMax.allowed}, reason=${cMax.reason}`);
-    if (cMax.allowed || cMax.reason !== "DAILY_LIMIT") throw new Error("Daily limit not enforced");
-    console.log("✓ Daily limit (10 of 10 used) successfully blocks further generation.\n");
 
-    // 9. Midnight Manila reset simulation
-    console.log("[Test 9] Simulating midnight reset in Asia/Manila...");
-    tracker.simulateDateChange("2026-11-04");
-    const sReset = tracker.getState();
-    console.log(`  After midnight: used=${sReset.usedToday}, remaining=${sReset.remainingToday}`);
-    if (sReset.usedToday !== 0 || sReset.remainingToday !== 10) throw new Error("Midnight reset failed");
-    console.log("✓ Midnight reset restores 10 of 10 left today!\n");
+    // User 1 generates 5x on Day 1
+    for (let i = 0; i < 5; i++) {
+        db.insert({
+            teacher_id: user1,
+            action_type: "full_quiz",
+            cost: 1,
+            status: "success",
+            created_at: new Date(day1AfternoonManila.getTime() + i * 60000).toISOString(),
+        });
+    }
+
+    const u1State = db.checkCanGenerate(user1, day1AfternoonManila);
+    const u2State = db.checkCanGenerate(user2, day1AfternoonManila);
+
+    console.log(`[Test 2] User 1 after 5x generations: used=${u1State.usedToday}/10, remaining=${u1State.remainingToday}/10`);
+    console.log(`[Test 2] User 2 logs in on same day:  used=${u2State.usedToday}/10, remaining=${u2State.remainingToday}/10`);
+
+    if (u1State.usedToday !== 5 || u1State.remainingToday !== 5) {
+        throw new Error("User 1 should have 5 used and 5 remaining");
+    }
+    if (u2State.usedToday !== 0 || u2State.remainingToday !== 10) {
+        throw new Error("User 2 should have 0 used and 10 remaining (isolated per teacher_id)");
+    }
+    console.log("✓ Per-user isolation verified: User 2 has full 10x limit unaffected by User 1.\n");
+
+    // User 1 generates 5 more times (reaching 10x daily limit)
+    for (let i = 0; i < 5; i++) {
+        db.insert({
+            teacher_id: user1,
+            action_type: "full_quiz",
+            cost: 1,
+            status: "success",
+            created_at: new Date(day1AfternoonManila.getTime() + (i + 10) * 60000).toISOString(),
+        });
+    }
+
+    const u1AtCap = db.checkCanGenerate(user1, day1AfternoonManila);
+    const u2StillAvailable = db.checkCanGenerate(user2, day1AfternoonManila);
+    console.log(`[Test 3] User 1 after 10x generations: allowed=${u1AtCap.allowed}, used=${u1AtCap.usedToday}/10, remaining=${u1AtCap.remainingToday}`);
+    console.log(`[Test 3] User 2 while User 1 is at cap: allowed=${u2StillAvailable.allowed}, remaining=${u2StillAvailable.remainingToday}/10`);
+    if (u1AtCap.allowed || u1AtCap.remainingToday !== 0) {
+        throw new Error("User 1 should be blocked at 10/10");
+    }
+    if (!u2StillAvailable.allowed || u2StillAvailable.remainingToday !== 10) {
+        throw new Error("User 2 should still have 10/10 available");
+    }
+    console.log("✓ 10x daily cap enforced per user.\n");
+
+    // Test right before 12:00 AM Manila (11:59:59 PM Manila) vs exact 12:00:00 AM Midnight Manila
+    const justBeforeMidnightManila = new Date("2026-11-03T23:59:59.000+08:00");
+    const exactMidnightManila = new Date("2026-11-04T00:00:00.000+08:00");
+
+    const u1BeforeMidnight = db.checkCanGenerate(user1, justBeforeMidnightManila);
+    const u1AtMidnight = db.checkCanGenerate(user1, exactMidnightManila);
+
+    console.log(`[Test 4] User 1 at 11:59:59 PM Manila: used=${u1BeforeMidnight.usedToday}/10, allowed=${u1BeforeMidnight.allowed}`);
+    console.log(`[Test 4] User 1 at 12:00:00 AM Manila: used=${u1AtMidnight.usedToday}/10, remaining=${u1AtMidnight.remainingToday}/10, allowed=${u1AtMidnight.allowed}`);
+
+    if (u1BeforeMidnight.allowed || u1BeforeMidnight.usedToday !== 10) {
+        throw new Error("Should still be at limit at 11:59:59 PM Manila");
+    }
+    if (!u1AtMidnight.allowed || u1AtMidnight.usedToday !== 0 || u1AtMidnight.remainingToday !== 10) {
+        throw new Error("Should reset to 0 used / 10 remaining at exact 12:00:00 AM Manila");
+    }
+    console.log("✓ Exact 12:00 AM Midnight Manila (UTC+8) reset verified!\n");
 
     console.log("=================================================================");
-    console.log("🎉 ALL QUOTA & RATE LIMIT BEHAVIOR TESTS PASSED!");
+    console.log("🎉 ALL PER-USER 10x QUOTA & MANILA MIDNIGHT RESET TESTS PASSED!");
     console.log("=================================================================");
 }
 

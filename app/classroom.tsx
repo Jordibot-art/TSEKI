@@ -1980,6 +1980,7 @@ export default function ClassroomScreen() {
         visible={confirmDeleteStudentModal}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => !isDeletingStudent && setConfirmDeleteStudentModal(false)}
       >
         <View style={styles.confirmModalOverlay}>
@@ -1987,44 +1988,74 @@ export default function ClassroomScreen() {
             <View style={StyleSheet.absoluteFillObject} />
           </TouchableWithoutFeedback>
 
-          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: border }]}>
-            <View style={styles.dangerIconWrap}>
-              <Ionicons name="person-remove" size={30} color="#EF4444" />
-            </View>
-
-            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Remove Student?</Text>
-            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
-              Are you sure you want to remove{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>{`"${studentToDelete?.full_name}"`}</Text>{" "}
-              from this classroom?
-              {"\n\n"}Their grades and quiz evaluation records will be permanently deleted.
-            </Text>
-
-            <View style={styles.confirmModalActions}>
+          <View
+            style={[
+              styles.confirmOuterGlassFrame,
+              {
+                backgroundColor: darkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.45)",
+                borderColor: darkMode ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.8)",
+              },
+            ]}
+          >
+            <View style={[styles.confirmModalCard, { backgroundColor: cardBg }]}>
               <TouchableOpacity
-                style={[styles.confirmCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
-                onPress={() => setConfirmDeleteStudentModal(false)}
+                style={styles.confirmCloseBtn}
+                onPress={() => !isDeletingStudent && setConfirmDeleteStudentModal(false)}
                 disabled={isDeletingStudent}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+                <Ionicons name="close" size={20} color={textMain} />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.confirmDeleteBtn, isDeletingStudent && styles.btnDisabled]}
-                onPress={handleConfirmDeleteStudent}
-                disabled={isDeletingStudent}
-                activeOpacity={0.8}
+              <View
+                style={[
+                  styles.dangerIconWrap,
+                  { backgroundColor: darkMode ? "rgba(217, 56, 41, 0.22)" : "#FCE8E6" },
+                ]}
               >
-                {isDeletingStudent ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                <View style={styles.dangerDiamondBadge}>
+                  <Text style={styles.dangerDiamondExclamation}>!</Text>
+                </View>
+              </View>
+
+              <Text style={[styles.confirmModalTitle, { color: textMain }]}>Remove Student?</Text>
+              <Text style={[styles.confirmModalDesc, { color: textSub }]}>
+                Are you sure you want to remove{" "}
+                <Text style={{ fontWeight: "700", color: textMain }}>{`"${studentToDelete?.full_name}"`}</Text>{" "}
+                from this classroom?
+                {"\n\n"}Their grades and quiz evaluation records will be permanently deleted.
+              </Text>
+
+              <View style={styles.confirmModalActions}>
+                <TouchableOpacity
+                  style={[styles.confirmDeleteBtn, isDeletingStudent && styles.btnDisabled]}
+                  onPress={handleConfirmDeleteStudent}
+                  disabled={isDeletingStudent}
+                  activeOpacity={0.85}
+                >
+                  {isDeletingStudent ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
                     <Text style={styles.confirmDeleteBtnText}>Remove</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.confirmCancelBtn,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: darkMode ? "#4B5563" : "#D1D5DB",
+                    },
+                  ]}
+                  onPress={() => setConfirmDeleteStudentModal(false)}
+                  disabled={isDeletingStudent}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
@@ -2035,6 +2066,7 @@ export default function ClassroomScreen() {
         visible={confirmDeleteClassModal}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => !isDeletingClass && setConfirmDeleteClassModal(false)}
       >
         <View style={styles.confirmModalOverlay}>
@@ -2042,43 +2074,73 @@ export default function ClassroomScreen() {
             <View style={StyleSheet.absoluteFillObject} />
           </TouchableWithoutFeedback>
 
-          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: border }]}>
-            <View style={styles.dangerIconWrap}>
-              <Ionicons name="trash" size={30} color="#EF4444" />
-            </View>
-
-            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
-            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
-              Are you sure you want to permanently delete{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>{`"${title}"`}</Text>?
-              {"\n\n"}All enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted.
-            </Text>
-
-            <View style={styles.confirmModalActions}>
+          <View
+            style={[
+              styles.confirmOuterGlassFrame,
+              {
+                backgroundColor: darkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.45)",
+                borderColor: darkMode ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.8)",
+              },
+            ]}
+          >
+            <View style={[styles.confirmModalCard, { backgroundColor: cardBg }]}>
               <TouchableOpacity
-                style={[styles.confirmCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
-                onPress={() => setConfirmDeleteClassModal(false)}
+                style={styles.confirmCloseBtn}
+                onPress={() => !isDeletingClass && setConfirmDeleteClassModal(false)}
                 disabled={isDeletingClass}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+                <Ionicons name="close" size={20} color={textMain} />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.confirmDeleteBtn, isDeletingClass && styles.btnDisabled]}
-                onPress={handleConfirmDeleteClassroom}
-                disabled={isDeletingClass}
-                activeOpacity={0.8}
+              <View
+                style={[
+                  styles.dangerIconWrap,
+                  { backgroundColor: darkMode ? "rgba(217, 56, 41, 0.22)" : "#FCE8E6" },
+                ]}
               >
-                {isDeletingClass ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.confirmDeleteBtnText}>Delete Class</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+                <View style={styles.dangerDiamondBadge}>
+                  <Text style={styles.dangerDiamondExclamation}>!</Text>
+                </View>
+              </View>
+
+              <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
+              <Text style={[styles.confirmModalDesc, { color: textSub }]}>
+                Are you sure you want to permanently delete{" "}
+                <Text style={{ fontWeight: "700", color: textMain }}>{`"${title}"`}</Text>?
+                {"\n\n"}All enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted.
+              </Text>
+
+              <View style={styles.confirmModalActions}>
+                <TouchableOpacity
+                  style={[styles.confirmDeleteBtn, isDeletingClass && styles.btnDisabled]}
+                  onPress={handleConfirmDeleteClassroom}
+                  disabled={isDeletingClass}
+                  activeOpacity={0.85}
+                >
+                  {isDeletingClass ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.confirmDeleteBtnText}>Delete</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.confirmCancelBtn,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: darkMode ? "#4B5563" : "#D1D5DB",
+                    },
+                  ]}
+                  onPress={() => setConfirmDeleteClassModal(false)}
+                  disabled={isDeletingClass}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.confirmCancelBtnText, { color: textMain }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
@@ -3431,44 +3493,81 @@ const styles = StyleSheet.create({
   },
   confirmModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
+  },
+  confirmOuterGlassFrame: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 28,
+    padding: 7,
+    borderWidth: 1.5,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+    elevation: 16,
   },
   confirmModalCard: {
     width: "100%",
-    maxWidth: 380,
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1.5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 10,
+    borderRadius: 22,
+    paddingTop: 28,
+    paddingBottom: 22,
+    paddingHorizontal: 22,
     alignItems: "center",
   },
-  dangerIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#FEE2E2",
+  confirmCloseBtn: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    zIndex: 10,
+  },
+  dangerIconWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#FCE8E6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  dangerDiamondBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: "#D93829",
+    transform: [{ rotate: "45deg" }],
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dangerDiamondExclamation: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+    transform: [{ rotate: "-45deg" }],
+    textAlign: "center",
+    includeFontPadding: false,
   },
   confirmModalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "800",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 8,
+    letterSpacing: -0.3,
   },
   confirmModalDesc: {
-    fontSize: 13,
+    fontSize: 13.5,
     lineHeight: 20,
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: 22,
+    paddingHorizontal: 6,
   },
   confirmModalActions: {
     flexDirection: "row",
@@ -3477,8 +3576,9 @@ const styles = StyleSheet.create({
   },
   confirmCancelBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -3488,9 +3588,9 @@ const styles = StyleSheet.create({
   },
   confirmDeleteBtn: {
     flex: 1,
-    backgroundColor: "#EF4444",
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: "#D93829",
+    height: 44,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

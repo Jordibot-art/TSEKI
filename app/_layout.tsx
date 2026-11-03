@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { GlobalAlertHost } from "../components/CustomAlertModal";
 import { ThemeProvider } from "../context/ThemeContext";
 
 export default function RootLayout() {
@@ -10,6 +11,7 @@ export default function RootLayout() {
         <Stack.Screen name="classroom" />
         <Stack.Screen name="settings" />
       </Stack>
+      <GlobalAlertHost />
     </ThemeProvider>
   );
 }
