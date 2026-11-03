@@ -113,11 +113,65 @@ function mapStoredQuizToDbPayload(quiz: StoredQuiz, teacherId: string): any {
     };
 }
 
+let layoutJsonColumnSupported = true;
+
+/**
+ * Retrieves the signed-in teacher's user ID from the local session first (0 ms network wait),
+ * falling back to supabase.auth.getUser() only if needed.
+ */
+async function getCurrentUserId(): Promise<string | null> {
+    try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+            return sessionData.session.user.id;
+        }
+        const { data: userData } = await supabase.auth.getUser();
+        return userData?.user?.id || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Upserts a quiz into Supabase `archived_assessments`, automatically caching whether
+ * the `layout_json` column exists so subsequent saves never waste an extra round-trip.
+ */
+async function upsertQuizToSupabase(quiz: StoredQuiz, userId: string): Promise<boolean> {
+    const dbPayload = mapStoredQuizToDbPayload(quiz, userId);
+    if (!layoutJsonColumnSupported) {
+        delete dbPayload.layout_json;
+    }
+
+    const { error: dbError } = await supabase
+        .from("archived_assessments")
+        .upsert(dbPayload);
+
+    if (!dbError) {
+        return true;
+    }
+
+    if (layoutJsonColumnSupported && (dbError.message?.includes("layout_json") || dbError.code === "PGRST204")) {
+        layoutJsonColumnSupported = false;
+        const { layout_json, ...fallbackPayload } = dbPayload;
+        const { error: retryError } = await supabase
+            .from("archived_assessments")
+            .upsert(fallbackPayload);
+        if (!retryError) {
+            return true;
+        }
+        console.warn("Could not save to Supabase archived_assessments (retry):", retryError.message);
+        return false;
+    }
+
+    console.warn("Could not save to Supabase archived_assessments:", dbError.message);
+    return false;
+}
+
 // ── Published & Cloud Archive Store ───────────────────────────────────────────
 
 /**
- * Saves a published assessment to the Supabase database (cloud archive)
- * and caches it in local storage.
+ * Saves a published assessment to local storage immediately and synchronizes to
+ * the Supabase database (cloud archive).
  * If a matching draft exists on this device, it is automatically removed.
  */
 export async function savePublishedQuiz(
@@ -129,7 +183,7 @@ export async function savePublishedQuiz(
     const quizId = (assessment as any).id || `quiz_${Date.now()}`;
     const nowIso = new Date().toISOString();
 
-    let newQuiz: StoredQuiz = {
+    const newQuiz: StoredQuiz = {
         ...assessment,
         id: quizId,
         classroomId,
@@ -146,40 +200,7 @@ export async function savePublishedQuiz(
         isCloudSynced: false,
     };
 
-    // 1. Synchronize to Supabase Cloud Database (archived_assessments table)
-    try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            newQuiz.teacherId = user.id;
-            const dbPayload = mapStoredQuizToDbPayload(newQuiz, user.id);
-            const { error: dbError } = await supabase
-                .from("archived_assessments")
-                .upsert(dbPayload);
-
-            if (!dbError) {
-                newQuiz.isCloudSynced = true;
-            } else {
-                // If migration adding layout_json has not been run yet, retry without layout_json
-                if (dbError.message?.includes("layout_json") || dbError.code === "PGRST204") {
-                    const { layout_json, ...fallbackPayload } = dbPayload;
-                    const { error: retryError } = await supabase
-                        .from("archived_assessments")
-                        .upsert(fallbackPayload);
-                    if (!retryError) {
-                        newQuiz.isCloudSynced = true;
-                    } else {
-                        console.warn("Could not save to Supabase archived_assessments (retry):", retryError.message);
-                    }
-                } else {
-                    console.warn("Could not save to Supabase archived_assessments:", dbError.message);
-                }
-            }
-        }
-    } catch (dbErr) {
-        console.warn("Database archive save error:", dbErr);
-    }
-
-    // 2. Cache in device storage for instant offline access
+    // 1. Save in device storage first for instant availability in Grader & Archive
     try {
         const existingJson = await AsyncStorage.getItem(key);
         const existing: StoredQuiz[] = existingJson ? JSON.parse(existingJson) : [];
@@ -193,7 +214,7 @@ export async function savePublishedQuiz(
         ];
         await AsyncStorage.setItem(key, JSON.stringify(updated));
 
-        // 3. Purge matching draft from local device cache
+        // 2. Purge matching draft from local device cache
         try {
             const draftKey = `${DRAFT_PREFIX}${classroomId}`;
             const draftJson = await AsyncStorage.getItem(draftKey);
@@ -209,21 +230,59 @@ export async function savePublishedQuiz(
         } catch (draftErr) {
             console.warn("Could not clean matching draft on publish:", draftErr);
         }
-
-        return newQuiz;
     } catch (err) {
-        console.error("Failed to save quiz to storage:", err);
-        return newQuiz;
+        console.error("Failed to save quiz to local storage:", err);
     }
+
+    // 3. Synchronize to Supabase Cloud Database (archived_assessments table) with a bounded timeout
+    const cloudSyncTask = (async () => {
+        try {
+            const userId = await getCurrentUserId();
+            if (!userId) return;
+            newQuiz.teacherId = userId;
+            const synced = await upsertQuizToSupabase(newQuiz, userId);
+            if (synced) {
+                newQuiz.isCloudSynced = true;
+                const latestJson = await AsyncStorage.getItem(key);
+                if (latestJson) {
+                    const list: StoredQuiz[] = JSON.parse(latestJson);
+                    const updatedList = list.map((q) =>
+                        q.id === quizId ? { ...q, teacherId: userId, isCloudSynced: true } : q
+                    );
+                    await AsyncStorage.setItem(key, JSON.stringify(updatedList));
+                }
+            }
+        } catch (dbErr) {
+            console.warn("Database archive save error:", dbErr);
+        }
+    })();
+
+    // Wait up to 3.5s for cloud sync; if connection is slow/offline, finish in background
+    await Promise.race([
+        cloudSyncTask,
+        new Promise<void>((resolve) => setTimeout(resolve, 3500)),
+    ]);
+
+    return newQuiz;
 }
 
 /**
  * Retrieves all published assessments for a given classroom.
  * First queries Supabase cloud database to fetch cross-device archives;
- * falls back to local device storage if offline.
+ * merges any unsynced local assessments and falls back to local device storage if offline.
  */
 export async function getPublishedQuizzes(classroomId: string): Promise<StoredQuiz[]> {
     const key = `${STORAGE_PREFIX}${classroomId}`;
+
+    let localQuizzes: StoredQuiz[] = [];
+    try {
+        const json = await AsyncStorage.getItem(key);
+        if (json) {
+            localQuizzes = JSON.parse(json);
+        }
+    } catch (err) {
+        console.error("Failed to load quizzes from storage:", err);
+    }
 
     // 1. Attempt to fetch from Supabase Cloud Database
     try {
@@ -234,8 +293,31 @@ export async function getPublishedQuizzes(classroomId: string): Promise<StoredQu
             .order("created_at", { ascending: false });
 
         if (!error && data && data.length > 0) {
-            const cloudQuizzes = data.map(mapDbRowToStoredQuiz);
-            // Update local device cache with fresh cloud state
+            const cloudQuizzes = data.map((row) => {
+                const mapped = mapDbRowToStoredQuiz(row);
+                // Preserve local layoutJson if Supabase table didn't store layout_json
+                if (!mapped.layoutJson) {
+                    const localMatch = localQuizzes.find(
+                        (lq) => lq.id === mapped.id || lq.quizTitle.trim().toLowerCase() === mapped.quizTitle.trim().toLowerCase()
+                    );
+                    if (localMatch?.layoutJson) {
+                        mapped.layoutJson = localMatch.layoutJson;
+                        mapped.answerVariants = localMatch.answerVariants;
+                    }
+                }
+                return mapped;
+            });
+
+            // Include any newly published local quizzes that haven't finished syncing yet
+            for (const lq of localQuizzes) {
+                const existsInCloud = cloudQuizzes.some(
+                    (cq) => cq.id === lq.id || cq.quizTitle.trim().toLowerCase() === lq.quizTitle.trim().toLowerCase()
+                );
+                if (!existsInCloud) {
+                    cloudQuizzes.unshift(lq);
+                }
+            }
+
             await AsyncStorage.setItem(key, JSON.stringify(cloudQuizzes));
             return cloudQuizzes;
         }
@@ -244,15 +326,7 @@ export async function getPublishedQuizzes(classroomId: string): Promise<StoredQu
     }
 
     // 2. Fallback to local device cache
-    try {
-        const json = await AsyncStorage.getItem(key);
-        if (json) {
-            return JSON.parse(json);
-        }
-    } catch (err) {
-        console.error("Failed to load quizzes from storage:", err);
-    }
-    return [];
+    return localQuizzes;
 }
 
 /**
@@ -263,12 +337,12 @@ export async function getPublishedQuizzes(classroomId: string): Promise<StoredQu
 export async function getAllPublishedQuizzes(): Promise<StoredQuiz[]> {
     // 1. Attempt to fetch cloud archives from Supabase
     try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
+        const userId = await getCurrentUserId();
+        if (userId) {
             const { data, error } = await supabase
                 .from("archived_assessments")
                 .select("*")
-                .eq("teacher_id", user.id)
+                .eq("teacher_id", userId)
                 .order("created_at", { ascending: false });
 
             if (!error && data) {
@@ -285,11 +359,8 @@ export async function getAllPublishedQuizzes(): Promise<StoredQuiz[]> {
                                 const parsed: StoredQuiz[] = JSON.parse(val);
                                 for (const localQuiz of parsed) {
                                     if (!cloudList.some((c) => c.id === localQuiz.id)) {
-                                        // Upload local archive to Supabase
-                                        supabase
-                                            .from("archived_assessments")
-                                            .upsert(mapStoredQuizToDbPayload(localQuiz, user.id))
-                                            .then(() => { });
+                                        // Upload local archive to Supabase in background
+                                        upsertQuizToSupabase(localQuiz, userId).catch(() => { });
                                         cloudList.push({ ...localQuiz, isCloudSynced: true });
                                     }
                                 }
@@ -448,17 +519,11 @@ export async function updatePublishedQuiz(
 
         // 2. Synchronize to Supabase Cloud Database
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                targetQuiz.teacherId = user.id;
-                const dbPayload = mapStoredQuizToDbPayload(targetQuiz, user.id);
-                const { error: dbError } = await supabase
-                    .from("archived_assessments")
-                    .upsert(dbPayload);
-
-                if (dbError) {
-                    console.warn("Could not update Supabase archived_assessments:", dbError.message);
-                } else {
+            const userId = await getCurrentUserId();
+            if (userId) {
+                targetQuiz.teacherId = userId;
+                const synced = await upsertQuizToSupabase(targetQuiz, userId);
+                if (synced) {
                     targetQuiz.isCloudSynced = true;
                 }
             }

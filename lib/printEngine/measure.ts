@@ -1,27 +1,43 @@
 // lib/printEngine/measure.ts
 
-import { PDFDocument, PDFFont } from 'pdf-lib';
+import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib';
 import { FONT_CONFIG } from './constants';
-import { embedPrintFonts } from './fonts/embedFonts';
 import { ScannableQuestion } from './types';
 
 let cachedRegularFont: PDFFont | null = null;
 let cachedBoldFont: PDFFont | null = null;
 
+function wrapUnicodeSafeWidth(font: PDFFont): PDFFont {
+    const origWidth = font.widthOfTextAtSize.bind(font);
+    font.widthOfTextAtSize = (text: string, size: number): number => {
+        if (!text || text.length === 0) return 0;
+        try {
+            const safeText = /[^\x20-\x7E]/.test(text) ? text.replace(/[^\x20-\x7E]/g, 'n') : text;
+            return origWidth(safeText, size);
+        } catch {
+            return text.length * size * 0.55;
+        }
+    };
+    return font;
+}
+
 /**
- * Returns a shared embedded Noto Sans Regular PDFFont instance for text measurement.
+ * Returns a shared lightweight PDFFont instance for fast text measurement (< 2 ms).
+ * Uses built-in Helvetica metrics with Unicode-safe width fallback so LAYOUT_ONLY
+ * and fit decisions never block the JS thread loading/parsing 1.15 MB TTF files.
  */
 export async function getMeasureFont(): Promise<PDFFont> {
     if (cachedRegularFont) return cachedRegularFont;
     const doc = await PDFDocument.create();
-    const { regular, bold } = await embedPrintFonts(doc);
-    cachedRegularFont = regular;
-    cachedBoldFont = bold;
+    const regular = await doc.embedFont(StandardFonts.Helvetica);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    cachedRegularFont = wrapUnicodeSafeWidth(regular);
+    cachedBoldFont = wrapUnicodeSafeWidth(bold);
     return cachedRegularFont;
 }
 
 /**
- * Returns a shared embedded Noto Sans Bold PDFFont instance.
+ * Returns a shared lightweight Bold PDFFont instance for fast text measurement.
  */
 export async function getMeasureBoldFont(): Promise<PDFFont> {
     if (cachedBoldFont) return cachedBoldFont;

@@ -233,6 +233,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [editingAnswerText, setEditingAnswerText] = useState("");
     const [savingDraft, setSavingDraft] = useState(false);
     const [publishingQuiz, setPublishingQuiz] = useState(false);
+    const [publishingStage, setPublishingStage] = useState<string>("");
 
     // Keep per-part item split synchronized when questionCount or mixedTypes changes
     const totalCountNumeric = parseInt(questionCount.split(" ")[0], 10) || 20;
@@ -676,11 +677,15 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     async function executePublish() {
         if (!generatedAssessment || publishingQuiz) return;
+        setPublishingStage(`Mapping scannable answer boxes for "${generatedAssessment.quizTitle}"...`);
         setPublishingQuiz(true);
         try {
+            // Allow the Publishing Loading Modal to mount & animate smoothly before computing
+            await new Promise((r) => setTimeout(r, 60));
+
             const quizId = `QZ-${Date.now().toString().slice(-6)}`;
 
-            // 1. Instant layout-only pass (< 50 ms, does not construct PDFDocument)
+            // 1. Instant layout-only pass (< 5 ms using built-in font metrics, does not build PDF)
             const printPkg = await generatePrintPackage(generatedAssessment, {
                 paperSize: "short",
                 version: "A",
@@ -690,6 +695,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 quizId,
                 target: "LAYOUT_ONLY",
             });
+
+            setPublishingStage(`Saving to ${classTitle} and syncing to your cloud archive...`);
 
             const quizWithMeta = {
                 ...generatedAssessment,
@@ -702,7 +709,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             };
             await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
 
-
+            setPublishingQuiz(false);
+            setPublishingStage("");
+            await new Promise((r) => setTimeout(r, 120));
 
             Alert.alert(
                 "Quiz Published!",
@@ -723,9 +732,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 ]
             );
         } catch (err: any) {
+            setPublishingQuiz(false);
+            setPublishingStage("");
             Alert.alert("Publish Failed", err.message || "Failed to save quiz to grader.");
         } finally {
             setPublishingQuiz(false);
+            setPublishingStage("");
         }
     }
 
@@ -1346,18 +1358,14 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             )}
                         </TouchableOpacity>
                         <TouchableOpacity
-                            style={[styles.publishBtn, { backgroundColor: accentColor, opacity: publishingQuiz ? 0.6 : 1 }]}
+                            style={[styles.publishBtn, { backgroundColor: accentColor, opacity: publishingQuiz ? 0.7 : 1 }]}
                             onPress={handlePublishQuiz}
                             disabled={publishingQuiz}
                         >
-                            {publishingQuiz ? (
-                                <ActivityIndicator size="small" color="#FFFFFF" />
-                            ) : (
-                                <>
-                                    <Ionicons name="send-outline" size={16} color="#FFFFFF" />
-                                    <Text style={styles.publishText}>Publish Quiz</Text>
-                                </>
-                            )}
+                            <Ionicons name="send-outline" size={16} color="#FFFFFF" />
+                            <Text style={styles.publishText}>
+                                {publishingQuiz ? "Publishing..." : "Publish Quiz"}
+                            </Text>
                         </TouchableOpacity>
                     </View>
 
@@ -1367,6 +1375,43 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     </TouchableOpacity>
                 </>
             )}
+
+            {/* ── Publishing Quiz Loading Overlay ── */}
+            <Modal
+                visible={publishingQuiz}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => { }}
+            >
+                <View style={styles.loadingOverlay}>
+                    <View style={[styles.loadingCard, { backgroundColor: cardBg }]}>
+                        <View style={[styles.loadingIconGlow, { backgroundColor: accentColor + "22" }]}>
+                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor }]}>
+                                <Ionicons name="cloud-upload" size={28} color="#FFFFFF" />
+                            </View>
+                        </View>
+                        <Text style={[styles.loadingTitle, { color: textMain }]}>Publishing Quiz</Text>
+                        <Text style={[styles.loadingSub, { color: textSub }]}>
+                            {publishingStage || `Saving "${generatedAssessment?.quizTitle || "Assessment"}" to ${classTitle} and your cloud archive...`}
+                        </Text>
+                        <View style={styles.spinnerWrap}>
+                            <ActivityIndicator size="large" color={accentColor} />
+                        </View>
+                        <View style={[styles.loadingMetaPill, { backgroundColor: inputBg }]}>
+                            <Text style={[styles.loadingMetaText, { color: textSub }]} numberOfLines={1}>
+                                {classTitle} • {generatedAssessment?.questions.length || questionCount} Items • Archive & Grader
+                            </Text>
+                        </View>
+                        <View style={styles.loadingNoticeRow}>
+                            <Ionicons name="scan-outline" size={14} color={accentColor} />
+                            <Text style={[styles.loadingNoticeText, { color: textSub }]}>
+                                Preparing scannable layout for Camera Grader...
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* ── Full-Screen Generating Loading Overlay ── */}
             <Modal

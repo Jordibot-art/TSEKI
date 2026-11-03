@@ -13,7 +13,9 @@
     "test:excel": "npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts",
     "test:print": "npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
     "test:ai": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts",
-    "test:failover": "npx tsx lib/ai/__tests__/simulateGeminiDown.ts"
+    "test:failover": "npx tsx lib/ai/__tests__/simulateGeminiDown.ts",
+    "test:retry": "npx tsx lib/ai/__tests__/simulateRetryAndBackoff.ts",
+    "test:quota": "npx tsx lib/ai/__tests__/testAiQuotaLogic.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

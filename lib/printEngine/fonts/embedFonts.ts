@@ -55,7 +55,21 @@ async function readSingleAssetBytes(assetModule: any): Promise<Uint8Array | null
         const uri = asset.localUri || asset.uri;
         if (!uri) return null;
 
-        // 1. Try fetch(uri) first — works on web, file://, and asset:// across platforms
+        // 1. Try FileSystem first if local file:// URI on Android/iOS (avoids 2.5s fetch timeout on native)
+        if (typeof uri === 'string' && uri.startsWith('file://')) {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const FileSystem = require('expo-file-system/legacy') as typeof import('expo-file-system/legacy');
+                const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+                if (b64 && b64.length > 1000) {
+                    return decodeBase64ToBytes(b64);
+                }
+            } catch {
+                // Fall through to fetch
+            }
+        }
+
+        // 2. Fallback to fetch(uri) — works on web and remote asset URIs
         try {
             const resp = await Promise.race([
                 fetch(uri),
@@ -68,17 +82,7 @@ async function readSingleAssetBytes(assetModule: any): Promise<Uint8Array | null
                 }
             }
         } catch {
-            // Fall through to FileSystem
-        }
-
-        // 2. Try FileSystem if local file URI on Android/iOS
-        if (typeof uri === 'string' && uri.startsWith('file://')) {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const FileSystem = require('expo-file-system/legacy') as typeof import('expo-file-system/legacy');
-            const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-            if (b64 && b64.length > 1000) {
-                return decodeBase64ToBytes(b64);
-            }
+            // Ignore fetch error
         }
     } catch (e) {
         console.warn('Asset byte read error:', e);

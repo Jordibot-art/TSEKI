@@ -55,8 +55,8 @@ export async function generateScannableQuiz(
     const rawDiff = params.difficulty || "Medium (Application & Analysis)";
     const diffCategory: "Easy" | "Medium" | "Hard" =
         rawDiff.toLowerCase().includes("easy") ? "Easy" :
-        rawDiff.toLowerCase().includes("hard") ? "Hard" :
-        "Medium";
+            rawDiff.toLowerCase().includes("hard") ? "Hard" :
+                "Medium";
 
     const subj = params.subject || "General Education";
     const grade = params.gradeLevel || "Grade 10";
@@ -405,8 +405,36 @@ export async function generateAssessmentWithBackupProvider(
         params.onStatusUpdate?.("Assessment generated successfully!", false);
         return assessment;
     } catch (err: any) {
+        const combinedMsg = `${geminiError?.message || ""} ${err?.message || ""}`.toLowerCase();
+        const isNetwork =
+            combinedMsg.includes("network") ||
+            combinedMsg.includes("internet") ||
+            combinedMsg.includes("failed to fetch") ||
+            combinedMsg.includes("network request failed") ||
+            combinedMsg.includes("offline") ||
+            combinedMsg.includes("enotfound");
+
+        if (isNetwork) {
+            throw new Error("No internet connection. Check your signal and try again.");
+        }
+
+        const isBusy =
+            combinedMsg.includes("429") ||
+            combinedMsg.includes("503") ||
+            combinedMsg.includes("busy") ||
+            combinedMsg.includes("quota") ||
+            combinedMsg.includes("rate") ||
+            combinedMsg.includes("overloaded") ||
+            combinedMsg.includes("resource has been exhausted");
+
+        if (isBusy) {
+            throw new Error(
+                `AI is busy right now (429/503). Both primary and backup providers were rate-limited or overloaded: ${err?.message || geminiError?.message}`
+            );
+        }
+
         throw new Error(
-            `AI is busy right now. Primary Gemini service was rate-limited or busy (${geminiError?.message || "High demand"}), and backup provider also failed:\n${err.message}`
+            `AI generation failed: ${err?.message || geminiError?.message || "Unknown error"}`
         );
     }
 }
