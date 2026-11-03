@@ -226,6 +226,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [exportingPdf, setExportingPdf] = useState(false);
     const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
     const [forceSeparateMode, setForceSeparateMode] = useState(false);
+    const [exportingStage, setExportingStage] = useState<string>("");
     const [editingAnswerQNum, setEditingAnswerQNum] = useState<number | null>(null);
     const [editingAnswerText, setEditingAnswerText] = useState("");
     const [savingDraft, setSavingDraft] = useState(false);
@@ -550,7 +551,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         versionOverride?: "A" | "B" | "C"
     ) {
         if (!generatedAssessment || exportingPdf) return;
-        setExportModalOpen(false);
 
         const activeVersion = versionOverride || exportVersion;
         const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
@@ -570,23 +570,32 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             ? `${safeTitle}_Answer_Key_Set_${activeVersion}.pdf`
             : `${safeTitle}_Set_${activeVersion}_${paperSize.toUpperCase()}.pdf`;
         const dialogTitle = includeKey
-            ? `${generatedAssessment.quizTitle} — Teacher Answer Key`
+            ? `${generatedAssessment.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
             : `${generatedAssessment.quizTitle} — Student Paper (Set ${activeVersion})`;
 
-        // 1. Instant check in cache (0ms) - If already cached, NO LOADING SCREEN!
-        const cachedUri = await getCachedPdfUri(cacheKey);
-        if (cachedUri) {
-            shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch((err) => {
-                console.warn("Share cached PDF error:", err);
-            });
-            return;
-        }
-
-        // 2. Build PDF cleanly on demand and cache for subsequent 0ms exports
+        setExportingStage(
+            includeKey
+                ? `Preparing Teacher Answer Key for Set ${activeVersion}...`
+                : `Formatting Set ${activeVersion} (${paperSize === "long" ? "Long Bond" : "Short Bond"})...`
+        );
         setExportingPdf(true);
+
         try {
-            // Give React Native a short frame tick to render the loading indicator
-            await new Promise((r) => setTimeout(r, 60));
+            // 1. Instant check in cache
+            const cachedUri = await getCachedPdfUri(cacheKey);
+            if (cachedUri) {
+                setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
+                await new Promise((r) => setTimeout(r, 200));
+                setExportModalOpen(false);
+                setExportingPdf(false);
+                await new Promise((r) => setTimeout(r, 120));
+                await shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch(console.warn);
+                return;
+            }
+
+            // 2. Build PDF cleanly on demand and cache for subsequent exports
+            setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
+            await new Promise((r) => setTimeout(r, 80));
             const printPkg = await generatePrintPackage(generatedAssessment, {
                 paperSize,
                 version: activeVersion,
@@ -606,26 +615,28 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 throw new Error("Generated PDF has no content.");
             }
 
-            // Cache it for instant subsequent exports
+            setExportingStage("Ready! Preparing share options...");
             const fileUri = await writeCachedPdf(cacheKey, bytesToExport);
-
-            // Also write under clean human-friendly file name for sharing / printing
             const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
 
-            // Hide the progress modal BEFORE launching native sharing to prevent screen freeze
+            await new Promise((r) => setTimeout(r, 250));
+            setExportModalOpen(false);
             setExportingPdf(false);
 
+            await new Promise((r) => setTimeout(r, 120));
             await shareCachedPdfUri(
                 shareUri || fileUri,
                 includeKey
-                    ? `${generatedAssessment.quizTitle} — Teacher Answer Key`
+                    ? `${generatedAssessment.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
                     : `${generatedAssessment.quizTitle} — Student Paper (${printPkg.fitMessage})`,
                 suggestedFileName
             );
         } catch (err: any) {
+            setExportingPdf(false);
             Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
         } finally {
             setExportingPdf(false);
+            setExportingStage("");
         }
     }
 
@@ -1431,12 +1442,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 visible={exportModalOpen}
                 transparent
                 animationType="fade"
-                onRequestClose={() => setExportModalOpen(false)}
+                onRequestClose={() => {
+                    if (!exportingPdf) setExportModalOpen(false);
+                }}
             >
                 <TouchableOpacity
                     style={styles.exportBackdrop}
                     activeOpacity={1}
-                    onPress={() => setExportModalOpen(false)}
+                    onPress={() => {
+                        if (!exportingPdf) setExportModalOpen(false);
+                    }}
                 >
                     <Pressable
                         style={[styles.exportSheet, { backgroundColor: cardBg }]}
@@ -1444,133 +1459,168 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             e.stopPropagation?.();
                         }}
                     >
-                        <View style={styles.exportSheetHeader}>
-                            <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
-                            <Text style={[styles.exportSheetSub, { color: textSub }]}>
-                                Download, print, or share the physical test sheet formatted with scannable answer boxes.
-                            </Text>
-                        </View>
+                        {exportingPdf ? (
+                            <View style={styles.sheetLoadingWrap}>
+                                <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#2563EB") + "20" }]}>
+                                    <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#2563EB" }]}>
+                                        <Ionicons name="print" size={28} color="#FFFFFF" />
+                                    </View>
+                                </View>
 
-                        {/* Anti-Cheating Version Selector (Set A / B / C) */}
-                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                            <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>TEST VERSION (SET):</Text>
-                            <View style={{ flexDirection: "row", gap: 6 }}>
-                                {(["A", "B", "C"] as const).map((ver) => (
-                                    <TouchableOpacity
-                                        key={ver}
-                                        onPress={() => setExportVersion(ver)}
-                                        activeOpacity={0.7}
-                                        style={{
-                                            paddingHorizontal: 14,
-                                            paddingVertical: 6,
-                                            borderRadius: 8,
-                                            borderWidth: 1,
-                                            borderColor: exportVersion === ver ? accentColor : border,
-                                            backgroundColor: exportVersion === ver ? accentColor + "18" : inputBg,
-                                        }}
-                                    >
-                                        <Text
-                                            style={{
-                                                fontSize: 12.5,
-                                                fontWeight: "700",
-                                                color: exportVersion === ver ? accentColor : textMain,
-                                            }}
-                                        >
-                                            Set {ver}
+                                <Text style={[styles.loadingTitle, { color: textMain }]}>
+                                    Generating Set {exportVersion} PDF
+                                </Text>
+
+                                <Text style={[styles.loadingSub, { color: textSub }]}>
+                                    {exportingStage || `Formatting Set ${exportVersion} scannable test sheet...`}
+                                </Text>
+
+                                <View style={styles.spinnerWrap}>
+                                    <ActivityIndicator size="large" color={accentColor || "#2563EB"} />
+                                </View>
+
+                                <View style={[styles.loadingNoticeRow, { backgroundColor: inputBg, marginTop: 14 }]}>
+                                    <Ionicons name="shield-checkmark" size={16} color={accentColor || "#2563EB"} />
+                                    <Text style={[styles.loadingNoticeText, { color: textSub }]}>
+                                        Anti-cheating exam version • Optimizing for camera grading
+                                    </Text>
+                                </View>
+
+                                <Text style={{ fontSize: 11.5, color: textSub, marginTop: 14, textAlign: "center" }}>
+                                    Please wait a moment while TSEKI prepares your document...
+                                </Text>
+                            </View>
+                        ) : (
+                            <>
+                                <View style={styles.exportSheetHeader}>
+                                    <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
+                                    <Text style={[styles.exportSheetSub, { color: textSub }]}>
+                                        Download, print, or share the physical test sheet formatted with scannable answer boxes.
+                                    </Text>
+                                </View>
+
+                                {/* Anti-Cheating Version Selector (Set A / B / C) */}
+                                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                                    <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>TEST VERSION (SET):</Text>
+                                    <View style={{ flexDirection: "row", gap: 6 }}>
+                                        {(["A", "B", "C"] as const).map((ver) => (
+                                            <TouchableOpacity
+                                                key={ver}
+                                                onPress={() => setExportVersion(ver)}
+                                                activeOpacity={0.7}
+                                                style={{
+                                                    paddingHorizontal: 14,
+                                                    paddingVertical: 6,
+                                                    borderRadius: 8,
+                                                    borderWidth: 1,
+                                                    borderColor: exportVersion === ver ? accentColor : border,
+                                                    backgroundColor: exportVersion === ver ? accentColor + "18" : inputBg,
+                                                }}
+                                            >
+                                                <Text
+                                                    style={{
+                                                        fontSize: 12.5,
+                                                        fontWeight: "700",
+                                                        color: exportVersion === ver ? accentColor : textMain,
+                                                    }}
+                                                >
+                                                    Set {ver}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </View>
+
+                                {/* Force Separate Answer Sheet Toggle */}
+                                <TouchableOpacity
+                                    onPress={() => setForceSeparateMode((prev) => !prev)}
+                                    style={{
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        paddingVertical: 8,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 10,
+                                        backgroundColor: inputBg,
+                                        borderWidth: 1,
+                                        borderColor: border,
+                                        marginBottom: 12,
+                                    }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
+                                        Always use separate Question Booklet + Answer Sheet
+                                    </Text>
+                                    <Ionicons
+                                        name={forceSeparateMode ? "checkbox" : "square-outline"}
+                                        size={20}
+                                        color={forceSeparateMode ? accentColor : textSub}
+                                    />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={styles.exportOptionBtn}
+                                    onPress={() => handleExportPaper(false, "short")}
+                                    disabled={exportingPdf}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.exportOptionIcon, { backgroundColor: (accentColor || "#2563EB") + "18" }]}>
+                                        <Ionicons name="document-text" size={22} color={accentColor || "#2563EB"} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.exportOptionTitle}>{'Short Bond Paper (8.5" × 11")'}</Text>
+                                        <Text style={styles.exportOptionSub}>
+                                            {`1 single sheet (Letter size) • Set ${exportVersion} scannable layout for 1-shot camera scanning`}
                                         </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
+                                    </View>
+                                    <Ionicons name="download-outline" size={20} color="#6B7280" />
+                                </TouchableOpacity>
 
-                        {/* Force Separate Answer Sheet Toggle */}
-                        <TouchableOpacity
-                            onPress={() => setForceSeparateMode((prev) => !prev)}
-                            style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                paddingVertical: 8,
-                                paddingHorizontal: 12,
-                                borderRadius: 10,
-                                backgroundColor: inputBg,
-                                borderWidth: 1,
-                                borderColor: border,
-                                marginBottom: 12,
-                            }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
-                                Always use separate Question Booklet + Answer Sheet
-                            </Text>
-                            <Ionicons
-                                name={forceSeparateMode ? "checkbox" : "square-outline"}
-                                size={20}
-                                color={forceSeparateMode ? accentColor : textSub}
-                            />
-                        </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.exportOptionBtn}
+                                    onPress={() => handleExportPaper(false, "long")}
+                                    disabled={exportingPdf}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.exportOptionIcon, { backgroundColor: "#8B5CF618" }]}>
+                                        <Ionicons name="document-outline" size={22} color="#8B5CF6" />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.exportOptionTitle}>{'Long Bond Paper (8.5" × 13")'}</Text>
+                                        <Text style={styles.exportOptionSub}>
+                                            {`1 single sheet (Philippine Folio) • Fits all questions with Set ${exportVersion} spacing`}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="download-outline" size={20} color="#6B7280" />
+                                </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={styles.exportOptionBtn}
-                            onPress={() => handleExportPaper(false, "short")}
-                            disabled={exportingPdf}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.exportOptionIcon, { backgroundColor: (accentColor || "#2563EB") + "18" }]}>
-                                <Ionicons name="document-text" size={22} color={accentColor || "#2563EB"} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.exportOptionTitle}>{'Short Bond Paper (8.5" × 11")'}</Text>
-                                <Text style={styles.exportOptionSub}>
-                                    1 single sheet (Letter size) • 2-column scannable layout for 1-shot camera scanning
-                                </Text>
-                            </View>
-                            <Ionicons name="download-outline" size={20} color="#6B7280" />
-                        </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.exportOptionBtn}
+                                    onPress={() => handleExportPaper(true, "short")}
+                                    disabled={exportingPdf}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.exportOptionIcon, { backgroundColor: "#10B98118" }]}>
+                                        <Ionicons name="checkmark-done-circle" size={22} color="#10B981" />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.exportOptionTitle}>Teacher Answer Key Paper (PDF)</Text>
+                                        <Text style={styles.exportOptionSub}>
+                                            {`1 single sheet with correct answers pre-printed in boxes for Set ${exportVersion}`}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="download-outline" size={20} color="#6B7280" />
+                                </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={styles.exportOptionBtn}
-                            onPress={() => handleExportPaper(false, "long")}
-                            disabled={exportingPdf}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.exportOptionIcon, { backgroundColor: "#8B5CF618" }]}>
-                                <Ionicons name="document-outline" size={22} color="#8B5CF6" />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.exportOptionTitle}>{'Long Bond Paper (8.5" × 13")'}</Text>
-                                <Text style={styles.exportOptionSub}>
-                                    1 single sheet (Philippine Folio) • Fits all questions with extra spacing on 1 page
-                                </Text>
-                            </View>
-                            <Ionicons name="download-outline" size={20} color="#6B7280" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.exportOptionBtn}
-                            onPress={() => handleExportPaper(true, "short")}
-                            disabled={exportingPdf}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.exportOptionIcon, { backgroundColor: "#10B98118" }]}>
-                                <Ionicons name="checkmark-done-circle" size={22} color="#10B981" />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.exportOptionTitle}>Teacher Answer Key Paper (PDF)</Text>
-                                <Text style={styles.exportOptionSub}>
-                                    1 single sheet with correct answers pre-printed in the boxes for grading reference
-                                </Text>
-                            </View>
-                            <Ionicons name="download-outline" size={20} color="#6B7280" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.exportCancelBtn}
-                            onPress={() => setExportModalOpen(false)}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.exportCancelText}>Cancel</Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.exportCancelBtn}
+                                    onPress={() => setExportModalOpen(false)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.exportCancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
                     </Pressable>
                 </TouchableOpacity>
             </Modal>
@@ -2324,14 +2374,20 @@ const styles = StyleSheet.create({
         fontWeight: "600",
         color: "#6B7280",
     },
+    sheetLoadingWrap: {
+        alignItems: "center",
+        paddingVertical: 18,
+        paddingHorizontal: 8,
+    },
 
     /* Full-screen Loading Overlay */
     loadingOverlay: {
-        flex: 1,
+        ...StyleSheet.absoluteFillObject,
         backgroundColor: "rgba(17, 24, 39, 0.85)",
         justifyContent: "center",
         alignItems: "center",
         paddingHorizontal: 28,
+        zIndex: 9999,
     },
     loadingCard: {
         width: "100%",
