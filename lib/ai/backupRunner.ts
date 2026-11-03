@@ -80,8 +80,12 @@ function buildAttempts(provider: AIProvider, models: string[]) {
  * explicitly selected, because a missing local server would just time out.
  */
 export function buildProviderPlans(config: BackupAIConfig, kind: BackupTaskKind): ProviderPlan[] {
-    // Failover priority: Groq first (high speed LPU), then OpenRouter / OpenAI
-    const order: AIProvider[] = uniq(["groq", config.provider, "openrouter"]) as AIProvider[];
+    // Failover priority: For vision, use OpenRouter / Ollama (Groq decommissioned vision endpoints).
+    // For text, Groq is first (high speed LPU), then OpenRouter.
+    const order: AIProvider[] =
+        kind === "vision"
+            ? (uniq([config.provider === "groq" ? "openrouter" : config.provider, "openrouter", "ollama"]) as AIProvider[])
+            : (uniq(["groq", config.provider, "openrouter"]) as AIProvider[]);
     const plans: ProviderPlan[] = [];
 
     for (const provider of order) {
@@ -94,9 +98,10 @@ export function buildProviderPlans(config: BackupAIConfig, kind: BackupTaskKind)
                     : uniq([config.openRouterModel, ...DEFAULT_OPENROUTER_MODELS]);
             plans.push({ provider, apiKey: key, attempts: buildAttempts(provider, models) });
         } else if (provider === "groq") {
+            if (kind === "vision") continue; // Skip Groq for vision
             const key = config.groqKey?.trim();
             if (!key) continue;
-            const models = kind === "vision" ? DEFAULT_GROQ_VISION_MODELS : uniq([config.groqModel, ...DEFAULT_GROQ_MODELS]);
+            const models = uniq([config.groqModel, ...DEFAULT_GROQ_MODELS]);
             plans.push({ provider, apiKey: key, attempts: buildAttempts(provider, models) });
         } else if (provider === "ollama" && config.provider === "ollama") {
             const models =

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -19,6 +19,9 @@ import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
 import { saveStudentQuizResult } from "../lib/questionAnalysis";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
 import { supabase } from "../supabase";
+import { BatchScannerModal } from "./BatchScannerModal";
+import { BatchReviewDashboard } from "./BatchReviewDashboard";
+import { BatchGradingQueue, BatchSheetItem } from "../lib/batchGradingQueue";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
@@ -145,6 +148,14 @@ export default function GraderTab({
     const [reviewInitialQNum, setReviewInitialQNum] = useState<number | undefined>(undefined);
     const [savingScore, setSavingScore] = useState(false);
     const [isRecorded, setIsRecorded] = useState(false);
+
+    // ── Batch Scanning States ──────────────────────────────────────────────────
+    const [gradingMode, setGradingMode] = useState<"single" | "batch">("single");
+    const [batchScannerOpen, setBatchScannerOpen] = useState(false);
+    const [batchReviewOpen, setBatchReviewOpen] = useState(false);
+    const [batchItems, setBatchItems] = useState<BatchSheetItem[]>([]);
+    const batchQueueRef = useRef<BatchGradingQueue | null>(null);
+
     const { darkMode } = useTheme();
 
     const bg = darkMode ? "#111827" : "#F9FAFB";
@@ -205,7 +216,13 @@ export default function GraderTab({
     const flaggedCount = useMemo(() => {
         if (!gradingResult || !Array.isArray(gradingResult.results)) return 0;
         return gradingResult.results.filter(
-            (r) => (r.flaggedForReview || (r.confidence !== undefined && r.confidence < 0.75)) && !r.isOverridden
+            (r) =>
+                (r.flaggedForReview ||
+                    r.flagReason === "double_mark" ||
+                    r.flagReason === "unclear" ||
+                    r.flagReason === "low_confidence" ||
+                    (r.confidence !== undefined && r.confidence < 0.75)) &&
+                !r.isOverridden
         ).length;
     }, [gradingResult]);
 
@@ -325,14 +342,7 @@ export default function GraderTab({
                 }
             }
 
-            // Auto-prompt review if any double-shaded or low-confidence marks exist
-            const hasFlags = result.results.some(
-                (r) => r.flaggedForReview || (r.confidence !== undefined && r.confidence < 0.75)
-            );
-            if (hasFlags) {
-                setReviewInitialQNum(undefined);
-                setReviewModalOpen(true);
-            }
+            // Keep user on the Scanned Student Sheet view first; teacher can tap "Review" on the alert banner when ready
         } catch (error: any) {
             console.error("Grading failed:", error);
             Alert.alert(
@@ -488,6 +498,206 @@ export default function GraderTab({
         }
     }
 
+    // ── Batch Queue Management ────────────────────────────────────────────────
+    const getOrCreateBatchQueue = () => {
+        const activeQuizTitle = selectedQuiz || currentQuizValue;
+        const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
+        const activeAnswerKey = published?.answerKey || [];
+
+        if (!batchQueueRef.current) {
+            batchQueueRef.current = new BatchGradingQueue({
+                answerKey: activeAnswerKey,
+                layoutJson: published?.layoutJson,
+                roster: roster.map((s) => ({
+                    id: s.id,
+                    full_name: s.full_name,
+                    email: s.email,
+                    average: s.average,
+                })),
+                onProgress: (updatedItems) => {
+                    setBatchItems([...updatedItems]);
+                },
+                concurrency: 1,
+            });
+        } else {
+            batchQueueRef.current.updateOptions({
+                answerKey: activeAnswerKey,
+                layoutJson: published?.layoutJson,
+                roster: roster.map((s) => ({
+                    id: s.id,
+                    full_name: s.full_name,
+                    email: s.email,
+                    average: s.average,
+                })),
+            });
+        }
+        return batchQueueRef.current;
+    };
+
+    const handleStartBatchScanner = () => {
+        if (publishedQuizzes.length === 0) {
+            Alert.alert(
+                "No Quizzes Available",
+                "Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
+            );
+            return;
+        }
+        getOrCreateBatchQueue();
+        setBatchScannerOpen(true);
+    };
+
+    const handleBatchCaptureSheet = (uri: string) => {
+        const q = getOrCreateBatchQueue();
+        q.enqueueImages([uri]);
+    };
+
+    const handleBatchImportSheets = (uris: string[]) => {
+        const q = getOrCreateBatchQueue();
+        q.enqueueImages(uris);
+    };
+
+    const handleFinishAndReview = () => {
+        setBatchScannerOpen(false);
+        setBatchReviewOpen(true);
+    };
+
+    const handleScanMoreInBatch = () => {
+        setBatchReviewOpen(false);
+        setBatchScannerOpen(true);
+    };
+
+    const handleUpdateBatchItem = (id: string, updates: Partial<BatchSheetItem>) => {
+        const q = getOrCreateBatchQueue();
+        q.updateItem(id, updates);
+    };
+
+    const handleRemoveBatchItem = (id: string) => {
+        const q = getOrCreateBatchQueue();
+        q.removeItem(id);
+    };
+
+    const handleCommitBatch = async (approvedItems: BatchSheetItem[]) => {
+        if (approvedItems.length === 0) return;
+        const activeQuizTitle = selectedQuiz || currentQuizValue || "Assessment";
+        const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
+
+        try {
+            let updatedRoster = [...roster];
+
+            for (const item of approvedItems) {
+                if (!item.gradingResult) continue;
+
+                const percentage = Math.round(
+                    (item.gradingResult.totalScore / (item.gradingResult.maxScore || 1)) * 100
+                );
+
+                let student = updatedRoster.find(
+                    (s) =>
+                        (item.matchedStudentId && s.id === item.matchedStudentId) ||
+                        (item.matchedStudentName && s.full_name.toLowerCase() === item.matchedStudentName.toLowerCase()) ||
+                        (item.studentNameExtracted && s.full_name.toLowerCase() === item.studentNameExtracted.toLowerCase())
+                );
+
+                if (student) {
+                    await supabase
+                        .from("students")
+                        .update({ average: percentage })
+                        .eq("id", student.id);
+
+                    updatedRoster = updatedRoster.map((s) =>
+                        s.id === student!.id ? { ...s, average: percentage } : s
+                    );
+                    onScoreRecorded?.(student.id, percentage);
+                } else if (classroomId) {
+                    const newName =
+                        item.matchedStudentName ||
+                        (item.studentNameExtracted && item.studentNameExtracted !== "Unknown"
+                            ? item.studentNameExtracted
+                            : `Student ${updatedRoster.length + 1}`);
+
+                    const { data } = await supabase
+                        .from("students")
+                        .insert({
+                            classroom_id: classroomId,
+                            full_name: newName,
+                            email: null,
+                            attendance: 100,
+                            average: percentage,
+                        })
+                        .select()
+                        .single();
+
+                    if (data) {
+                        student = data as Student;
+                        updatedRoster.push(student);
+                        onStudentCreated?.(student);
+                        onScoreRecorded?.(student.id, percentage);
+                    }
+                }
+
+                // Record quiz trend and question analysis
+                if (classroomId && student) {
+                    await saveQuizPerformanceRecord(classroomId, activeQuizTitle, percentage);
+
+                    await saveStudentQuizResult({
+                        studentId: student.id,
+                        studentName: student.full_name,
+                        classroomId,
+                        quizTitle: activeQuizTitle,
+                        scorePercentage: percentage,
+                        totalScore: item.gradingResult.totalScore,
+                        maxScore: item.gradingResult.maxScore,
+                        results: item.gradingResult.results.map((r) => {
+                            const matchedQuestion = published?.questions?.find(
+                                (q) => q.questionNumber === r.questionNumber
+                            );
+                            return {
+                                questionNumber: r.questionNumber,
+                                questionText: matchedQuestion?.questionText,
+                                questionType: matchedQuestion?.type,
+                                studentAnswer: r.studentAnswer,
+                                correctAnswer: r.correctAnswer,
+                                isCorrect: r.isCorrect,
+                                pointsAwarded: r.pointsAwarded,
+                            };
+                        }),
+                        gradedAt: new Date().toISOString(),
+                    });
+
+                    if (percentage <= 50) {
+                        await saveRosterAlert({
+                            studentId: student.id,
+                            studentName: student.full_name,
+                            classroomId,
+                            classroomTitle: classTitle || "Classroom",
+                            classroomSchedule: "",
+                            classroomRoom: "",
+                            classroomColor: accentColor || "#3B82F6",
+                            scorePercentage: percentage,
+                            quizTitle: activeQuizTitle,
+                            alertType: percentage <= 40 ? "HIGH RISK" : "URGENT REVIEW",
+                            message: `${student.full_name} has dropped to an average of ${percentage}%. Performance Flagged: At-Risk.`,
+                        });
+                    }
+                }
+            }
+
+            setRoster(updatedRoster);
+            setBatchReviewOpen(false);
+            batchQueueRef.current?.clear();
+            setBatchItems([]);
+
+            Alert.alert(
+                "Batch Grading Recorded!",
+                `Successfully recorded grades for ${approvedItems.length} student(s) to ${classTitle || "the classroom"}.`,
+                [{ text: "OK" }]
+            );
+        } catch (err: any) {
+            console.error("Batch save error:", err);
+            Alert.alert("Save Error", err.message || "Failed to commit batch records.");
+        }
+    };
+
 
     return (
         <ScrollView
@@ -585,7 +795,16 @@ export default function GraderTab({
                                     <TouchableOpacity
                                         style={[styles.reviewAlertBtn, { backgroundColor: "#F59E0B" }]}
                                         onPress={() => {
-                                            setReviewInitialQNum(undefined);
+                                            const firstFlagged = gradingResult?.results?.find(
+                                                (r) =>
+                                                    (r.flaggedForReview ||
+                                                        r.flagReason === "double_mark" ||
+                                                        r.flagReason === "unclear" ||
+                                                        r.flagReason === "low_confidence" ||
+                                                        (r.confidence !== undefined && r.confidence < 0.75)) &&
+                                                    !r.isOverridden
+                                            );
+                                            setReviewInitialQNum(firstFlagged ? firstFlagged.questionNumber : undefined);
                                             setReviewModalOpen(true);
                                         }}
                                         activeOpacity={0.8}
@@ -602,7 +821,16 @@ export default function GraderTab({
                                     <TouchableOpacity
                                         style={[styles.miniReviewChip, { backgroundColor: darkMode ? "#78350F40" : "#FEF3C7", borderColor: "#F59E0B" }]}
                                         onPress={() => {
-                                            setReviewInitialQNum(undefined);
+                                            const firstFlagged = gradingResult?.results?.find(
+                                                (r) =>
+                                                    (r.flaggedForReview ||
+                                                        r.flagReason === "double_mark" ||
+                                                        r.flagReason === "unclear" ||
+                                                        r.flagReason === "low_confidence" ||
+                                                        (r.confidence !== undefined && r.confidence < 0.75)) &&
+                                                    !r.isOverridden
+                                            );
+                                            setReviewInitialQNum(firstFlagged ? firstFlagged.questionNumber : undefined);
                                             setReviewModalOpen(true);
                                         }}
                                     >
@@ -617,7 +845,12 @@ export default function GraderTab({
                             {/* List of Questions */}
                             {gradingResult.results.map((item) => {
                                 const isFlagged = Boolean(
-                                    (item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75)) && !item.isOverridden
+                                    (item.flaggedForReview ||
+                                        item.flagReason === "double_mark" ||
+                                        item.flagReason === "unclear" ||
+                                        item.flagReason === "low_confidence" ||
+                                        (item.confidence !== undefined && item.confidence < 0.75)) &&
+                                        !item.isOverridden
                                 );
                                 const isDouble = item.flagReason === "double_mark";
                                 const isUnclear = item.flagReason === "unclear" || item.flagReason === "low_confidence";
@@ -773,49 +1006,175 @@ export default function GraderTab({
                     <View style={[styles.divider, { backgroundColor: subBorder }]}>
                     </View>
 
-                    {/* 1. GRADE AGAINST QUIZ */}
-                    <View style={styles.fieldGroup}>
-                        <Text style={[styles.fieldLabel, { color: textSub }]}>1. GRADE AGAINST QUIZ</Text>
-                        <Dropdown
-                            label="GRADE AGAINST QUIZ"
-                            value={currentQuizValue}
-                            placeholder="No quizzes created yet"
-                            options={quizOptions}
-                            onSelect={setSelectedQuiz}
-                            accentColor={accentColor}
-                        />
+                    {/* Mode Toggle Pills: Single vs Batch */}
+                    <View style={[styles.modeToggleRow, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                        <TouchableOpacity
+                            style={[
+                                styles.modePill,
+                                gradingMode === "single" && {
+                                    backgroundColor: cardBg,
+                                    shadowColor: "#000",
+                                    shadowOffset: { width: 0, height: 1 },
+                                    shadowOpacity: 0.1,
+                                    shadowRadius: 2,
+                                    elevation: 2,
+                                },
+                            ]}
+                            onPress={() => setGradingMode("single")}
+                            activeOpacity={0.8}
+                        >
+                            <Ionicons
+                                name="document-text-outline"
+                                size={15}
+                                color={gradingMode === "single" ? (accentColor || "#F97316") : textSub}
+                            />
+                            <Text
+                                style={[
+                                    styles.modePillText,
+                                    gradingMode === "single"
+                                        ? { color: accentColor || "#F97316", fontWeight: "800" }
+                                        : { color: textSub },
+                                ]}
+                            >
+                                Single Paper
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.modePill,
+                                gradingMode === "batch" && {
+                                    backgroundColor: cardBg,
+                                    shadowColor: "#000",
+                                    shadowOffset: { width: 0, height: 1 },
+                                    shadowOpacity: 0.1,
+                                    shadowRadius: 2,
+                                    elevation: 2,
+                                },
+                            ]}
+                            onPress={() => setGradingMode("batch")}
+                            activeOpacity={0.8}
+                        >
+                            <Ionicons
+                                name="flash"
+                                size={15}
+                                color={gradingMode === "batch" ? (accentColor || "#F97316") : textSub}
+                            />
+                            <Text
+                                style={[
+                                    styles.modePillText,
+                                    gradingMode === "batch"
+                                        ? { color: accentColor || "#F97316", fontWeight: "800" }
+                                        : { color: textSub },
+                                ]}
+                            >
+                                Batch Scan Class
+                            </Text>
+                        </TouchableOpacity>
                     </View>
 
-                    {/* 2. IDENTIFY STUDENT SHEET */}
-                    <View style={styles.fieldGroup}>
-                        <Text style={[styles.fieldLabel, { color: textSub }]}>2. IDENTIFY STUDENT SHEET</Text>
-                        <Dropdown
-                            label="IDENTIFY STUDENT SHEET"
-                            value={currentStudentValue}
-                            options={studentOptions}
-                            onSelect={setSelectedStudent}
-                            accentColor={accentColor}
-                        />
-                    </View>
+                    {gradingMode === "single" ? (
+                        <>
+                            {/* 1. GRADE AGAINST QUIZ */}
+                            <View style={styles.fieldGroup}>
+                                <Text style={[styles.fieldLabel, { color: textSub }]}>1. GRADE AGAINST QUIZ</Text>
+                                <Dropdown
+                                    label="GRADE AGAINST QUIZ"
+                                    value={currentQuizValue}
+                                    placeholder="No quizzes created yet"
+                                    options={quizOptions}
+                                    onSelect={setSelectedQuiz}
+                                    accentColor={accentColor}
+                                />
+                            </View>
 
-                    {/* Primary Scan Button */}
-                    <TouchableOpacity
-                        style={[styles.primaryScanBtn, { backgroundColor: accentColor || "#F97316" }]}
-                        onPress={() => {
-                            if (publishedQuizzes.length === 0) {
-                                Alert.alert(
-                                    "No Quizzes Available",
-                                    "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
-                                );
-                                return;
-                            }
-                            setSourceModalOpen(true);
-                        }}
-                        activeOpacity={0.8}
-                    >
-                        <Ionicons name="camera-outline" size={20} color="#FFFFFF" />
-                        <Text style={styles.primaryScanBtnText}>Open Camera & Scan</Text>
-                    </TouchableOpacity>
+                            {/* 2. IDENTIFY STUDENT SHEET */}
+                            <View style={styles.fieldGroup}>
+                                <Text style={[styles.fieldLabel, { color: textSub }]}>2. IDENTIFY STUDENT SHEET</Text>
+                                <Dropdown
+                                    label="IDENTIFY STUDENT SHEET"
+                                    value={currentStudentValue}
+                                    options={studentOptions}
+                                    onSelect={setSelectedStudent}
+                                    accentColor={accentColor}
+                                />
+                            </View>
+
+                            {/* Primary Scan Button */}
+                            <TouchableOpacity
+                                style={[styles.primaryScanBtn, { backgroundColor: accentColor || "#F97316" }]}
+                                onPress={() => {
+                                    if (publishedQuizzes.length === 0) {
+                                        Alert.alert(
+                                            "No Quizzes Available",
+                                            "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
+                                        );
+                                        return;
+                                    }
+                                    setSourceModalOpen(true);
+                                }}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="camera-outline" size={20} color="#FFFFFF" />
+                                <Text style={styles.primaryScanBtnText}>Open Camera & Scan</Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : (
+                        <>
+                            {/* 1. GRADE AGAINST QUIZ */}
+                            <View style={styles.fieldGroup}>
+                                <Text style={[styles.fieldLabel, { color: textSub }]}>1. SELECT ASSESSMENT TO GRADE</Text>
+                                <Dropdown
+                                    label="GRADE AGAINST QUIZ"
+                                    value={currentQuizValue}
+                                    placeholder="No quizzes created yet"
+                                    options={quizOptions}
+                                    onSelect={setSelectedQuiz}
+                                    accentColor={accentColor}
+                                />
+                            </View>
+
+                            {/* Batch Info Card */}
+                            <View style={[styles.batchInfoCard, { backgroundColor: darkMode ? "#374151" : "#FFF7ED", borderColor: (accentColor || "#F97316") + "40" }]}>
+                                <View style={[styles.batchInfoIconBg, { backgroundColor: (accentColor || "#F97316") + "20" }]}>
+                                    <Ionicons name="flash" size={20} color={accentColor || "#F97316"} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.batchInfoTitle, { color: darkMode ? "#FED7AA" : "#9A3412" }]}>
+                                        Continuous Batch Scanner
+                                    </Text>
+                                    <Text style={[styles.batchInfoSub, { color: darkMode ? "#FDBA74" : "#C2410C" }]}>
+                                        Keep the camera open and snap your entire stack of test papers without stopping. The AI grades in the background and auto-matches students from the {roster.length}-student roster.
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Start Continuous Batch Scanner Button */}
+                            <TouchableOpacity
+                                style={[styles.primaryScanBtn, { backgroundColor: accentColor || "#F97316" }]}
+                                onPress={handleStartBatchScanner}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="flash-outline" size={20} color="#FFFFFF" />
+                                <Text style={styles.primaryScanBtnText}>Start Batch Scanner</Text>
+                            </TouchableOpacity>
+
+                            {/* View Current Batch If Exists */}
+                            {batchItems.length > 0 && (
+                                <TouchableOpacity
+                                    style={[styles.batchViewBtn, { borderColor: accentColor || "#F97316" }]}
+                                    onPress={handleFinishAndReview}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="documents-outline" size={18} color={accentColor || "#F97316"} />
+                                    <Text style={[styles.batchViewBtnText, { color: accentColor || "#F97316" }]}>
+                                        View Scanned Batch ({batchItems.length} Papers)
+                                    </Text>
+                                    <Ionicons name="chevron-forward" size={16} color={accentColor || "#F97316"} />
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    )}
 
                 </View>
             )}
@@ -938,6 +1297,40 @@ export default function GraderTab({
                         setIsRecorded(false);
                     }
                 }}
+            />
+
+            {/* ── Continuous Batch Scanner Modal ── */}
+            <BatchScannerModal
+                visible={batchScannerOpen}
+                onClose={() => setBatchScannerOpen(false)}
+                onCaptureSheet={handleBatchCaptureSheet}
+                onBatchImportSheets={handleBatchImportSheets}
+                onFinishAndReview={handleFinishAndReview}
+                items={batchItems}
+                quizTitle={selectedQuiz || currentQuizValue || "Assessment"}
+                classTitle={classTitle || "Classroom"}
+                accentColor={accentColor}
+            />
+
+            {/* ── Batch Review & Approval Dashboard ── */}
+            <BatchReviewDashboard
+                visible={batchReviewOpen}
+                onClose={() => setBatchReviewOpen(false)}
+                onScanMore={handleScanMoreInBatch}
+                items={batchItems}
+                onUpdateItem={handleUpdateBatchItem}
+                onRemoveItem={handleRemoveBatchItem}
+                roster={roster.map((s) => ({
+                    id: s.id,
+                    full_name: s.full_name,
+                    email: s.email,
+                    average: s.average,
+                }))}
+                quizTitle={selectedQuiz || currentQuizValue || "Assessment"}
+                classTitle={classTitle || "Classroom"}
+                classroomId={classroomId}
+                accentColor={accentColor}
+                onCommitBatch={handleCommitBatch}
             />
         </ScrollView>
     );
@@ -1244,84 +1637,68 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 
-    /* Review Alert & Flagged Item Styles */
-    reviewAlertBanner: {
+    /* Mode Toggle Row */
+    modeToggleRow: {
         flexDirection: "row",
-        alignItems: "center",
-        borderWidth: 1.5,
-        borderRadius: 16,
-        padding: 12,
+        borderRadius: 12,
+        padding: 4,
         marginBottom: 16,
     },
-    reviewAlertIconBg: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: "#FEF3C7",
+    modePill: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingVertical: 9,
+        borderRadius: 10,
+    },
+    modePillText: {
+        fontSize: 13,
+        fontWeight: "600",
+    },
+
+    /* Batch Info Card */
+    batchInfoCard: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        padding: 14,
+        borderRadius: 14,
+        borderWidth: 1,
+        marginBottom: 20,
+    },
+    batchInfoIconBg: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
         alignItems: "center",
         justifyContent: "center",
     },
-    reviewAlertTitle: {
+    batchInfoTitle: {
         fontSize: 13.5,
         fontWeight: "800",
     },
-    reviewAlertSub: {
-        fontSize: 11.5,
-        fontWeight: "500",
+    batchInfoSub: {
+        fontSize: 12,
+        lineHeight: 16,
         marginTop: 2,
     },
-    reviewAlertBtn: {
+    batchViewBtn: {
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+        justifyContent: "space-between",
+        borderWidth: 1.5,
         borderRadius: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        marginTop: 10,
     },
-    reviewAlertBtnText: {
-        color: "#FFFFFF",
-        fontWeight: "800",
-        fontSize: 12,
-    },
-    miniReviewChip: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
-        borderWidth: 1,
-    },
-    miniStatusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 8,
-        borderWidth: 1,
-        marginLeft: 8,
-    },
-    logFlagNotice: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginTop: 4,
-    },
-    logFlagNoticeText: {
-        fontSize: 11.5,
-        color: "#D97706",
+    batchViewBtnText: {
+        fontSize: 13.5,
         fontWeight: "700",
         flex: 1,
-    },
-    logFixBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 10,
-        backgroundColor: "#FEF3C7",
-        borderWidth: 1,
-        borderColor: "#F59E0B",
-    },
-    logFixBtnText: {
-        fontSize: 12,
-        fontWeight: "800",
-        color: "#D97706",
+        marginHorizontal: 8,
     },
 
     /* Tseki Approved Scan Card */

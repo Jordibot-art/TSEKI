@@ -439,3 +439,264 @@ export async function generateAssessmentWithBackupProvider(
     }
 }
 
+export interface RegenerateSingleQuestionParams {
+    questionNumber: number;
+    questionType: QuestionType;
+    currentQuestionText: string;
+    otherQuestions?: ScannableQuestion[];
+    quizTitle?: string;
+    subject?: string;
+    gradeLevel?: string;
+    difficulty?: string;
+    lessonNotes?: string;
+    attachedPdfBase64?: string;
+    attachedPdfName?: string;
+    attachedFileName?: string;
+    attachedFileType?: "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt";
+    attachedFileText?: string;
+    onProviderUsed?: (provider: string, model: string) => void;
+    onStatusUpdate?: (status: string, isBusy?: boolean) => void;
+}
+
+export interface RegenerateSingleQuestionResult {
+    question: ScannableQuestion;
+    answerKey: AnswerKeyItem;
+    generatedBy?: string;
+}
+
+/**
+ * Regenerates a single specific question in an assessment while keeping all other questions intact.
+ * Produces a fresh question of the same type matching Bloom's difficulty and topic,
+ * ensuring no duplicate content with other questions in the quiz.
+ */
+export async function regenerateSingleQuestion(
+    params: RegenerateSingleQuestionParams
+): Promise<RegenerateSingleQuestionResult> {
+    const apiKey = getGeminiApiKey();
+
+    const rawDiff = params.difficulty || "Medium (Application & Analysis)";
+    const diffCategory: "Easy" | "Medium" | "Hard" =
+        rawDiff.toLowerCase().includes("easy") ? "Easy" :
+            rawDiff.toLowerCase().includes("hard") ? "Hard" :
+                "Medium";
+
+    const subj = params.subject || "General Education";
+    const grade = params.gradeLevel || "Grade 10";
+    const qType = params.questionType;
+
+    const difficultyGuide = {
+        Easy: `Focus on direct definitions, basic facts, core terminology, and straightforward identification. Simple sentence structure, no trick wording.`,
+        Medium: `Test cause-and-effect relationships, practical applications, standard scenarios. Distractors must represent plausible student misconceptions.`,
+        Hard: `Multi-step critical deduction, evaluating contrasting scenarios, subtle edge cases. Demands deep mastery.`,
+    }[diffCategory];
+
+    const docName = params.attachedFileName || params.attachedPdfName;
+    const isPdf = params.attachedFileType === "pdf" || Boolean(params.attachedPdfBase64);
+
+    let documentSourceInstruction = "";
+    if (docName) {
+        if (params.attachedFileText) {
+            documentSourceInstruction = `
+- Attached Reference Document: "${docName}"
+Content snippet:
+--- BEGIN ATTACHED CONTENT ---
+${params.attachedFileText.slice(0, 4000)}
+--- END ATTACHED CONTENT ---
+`;
+        } else if (isPdf) {
+            documentSourceInstruction = `- Attached Reference Document: Strictly derive this replacement question from the attached PDF ("${docName}").`;
+        }
+    }
+
+    let lessonNotesInstruction = "";
+    if (params.lessonNotes && params.lessonNotes.trim().length > 0) {
+        lessonNotesInstruction = `
+- Teacher's Lesson Notes:
+${params.lessonNotes.trim().slice(0, 2000)}
+`;
+    }
+
+    const otherQuestionsList = (params.otherQuestions || [])
+        .filter((q) => q.questionNumber !== params.questionNumber)
+        .map((q) => `- [Q${q.questionNumber}] ${q.questionText}`)
+        .slice(0, 15)
+        .join("\n");
+
+    const promptText = `
+You are an expert curriculum designer and psychometrician.
+The teacher is reviewing an educational assessment titled "${params.quizTitle || "Assessment"}" (${grade}, ${subj}, Difficulty: ${rawDiff}) and requests to REGENERATE A SINGLE SPECIFIC QUESTION.
+
+TASK:
+Generate a single fresh replacement question for Question #${params.questionNumber}.
+- Required Question Type: "${qType}"
+- Question being replaced: "${params.currentQuestionText}" (DO NOT repeat this exact question, provide a new one on a different aspect of the topic!)
+${otherQuestionsList ? `\nDO NOT duplicate any of these other existing questions from the quiz:\n${otherQuestionsList}\n` : ""}
+
+${documentSourceInstruction}
+${lessonNotesInstruction}
+
+COGNITIVE DIFFICULTY (${diffCategory}):
+${difficultyGuide}
+
+QUESTION TYPE RULES FOR "${qType}":
+${
+    qType === "multiple_choice"
+        ? `* type: "multiple_choice"
+* options: array of 4 choices formatted as ["A) ...", "B) ...", "C) ...", "D) ..."]
+* answerBoxesRequired: 1
+* correctAnswer: single capital letter "A", "B", "C", or "D"`
+        : qType === "true_false"
+        ? `* type: "true_false"
+* options: ["A) True", "B) False"]
+* answerBoxesRequired: 1
+* correctAnswer: single letter "T" or "F"`
+        : qType === "fill_blank"
+        ? `* type: "fill_blank"
+* options: [] (EMPTY ARRAY)
+* answerBoxesRequired: 1
+* correctAnswer: 1 to 3 words, maximum 25 characters`
+        : qType === "identification"
+        ? `* type: "identification"
+* options: [] (EMPTY ARRAY)
+* answerBoxesRequired: 1
+* correctAnswer: 1 to 3 words, maximum 25 characters`
+        : qType === "enumeration"
+        ? `* type: "enumeration"
+* questionText: state clearly how many items to list (e.g. "Name 3 types of...", "List 4 components of...")
+* options: [] (EMPTY ARRAY)
+* answerBoxesRequired: number between 2 and 4
+* correctAnswer: comma-separated list of items, each item 1-3 words max 25 chars`
+        : `* type: "word_box"
+* questionText: statement with a blank indicated by "______"
+* options: 4 to 6 choices total, plain words WITHOUT letter prefixes
+* answerBoxesRequired: 1
+* correctAnswer: exact word/phrase from options array`
+}
+
+Return ONLY strict valid JSON matching this exact structure:
+{
+  "question": {
+    "questionNumber": ${params.questionNumber},
+    "type": "${qType}",
+    "questionText": "Question text here?",
+    "options": ${qType === "multiple_choice" ? '["A) ...", "B) ...", "C) ...", "D) ..."]' : qType === "true_false" ? '["A) True", "B) False"]' : qType === "word_box" ? '["word1", "word2", "word3", "word4"]' : '[]'},
+    "answerBoxesRequired": ${qType === "enumeration" ? 3 : 1}
+  },
+  "answerKey": {
+    "questionNumber": ${params.questionNumber},
+    "correctAnswer": "Answer here",
+    "points": ${qType === "enumeration" ? 3 : 1}
+  }
+}
+`;
+
+    const parts: any[] = [];
+    if (isPdf && params.attachedPdfBase64) {
+        parts.push({
+            inlineData: {
+                data: params.attachedPdfBase64,
+                mimeType: "application/pdf",
+            },
+        });
+    }
+    parts.push({ text: promptText });
+
+    let lastError: any = null;
+
+    if (apiKey) {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const candidateModels = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"];
+
+        for (const modelName of candidateModels) {
+            try {
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        temperature: 0.3,
+                    },
+                });
+
+                const result = await model.generateContent(parts);
+                if (result) {
+                    const rawText = result.response.text().trim();
+                    const cleanJson = rawText
+                        .replace(/^```(?:json)?\s*/i, "")
+                        .replace(/\s*```$/i, "")
+                        .trim();
+                    const parsed = JSON.parse(cleanJson);
+                    const q: ScannableQuestion = parsed.question || (Array.isArray(parsed.questions) ? parsed.questions[0] : null);
+                    const ak: AnswerKeyItem = parsed.answerKey || (Array.isArray(parsed.answerKey) ? parsed.answerKey[0] : null);
+
+                    if (q && q.questionText && ak && ak.correctAnswer !== undefined) {
+                        q.questionNumber = params.questionNumber;
+                        q.type = q.type || params.questionType;
+                        q.options = Array.isArray(q.options) ? q.options : [];
+                        q.answerBoxesRequired = q.answerBoxesRequired || (q.type === "enumeration" ? 3 : 1);
+                        ak.questionNumber = params.questionNumber;
+                        ak.points = ak.points || (q.type === "enumeration" ? q.answerBoxesRequired : 1);
+                        params.onProviderUsed?.("gemini", modelName);
+                        return {
+                            question: q,
+                            answerKey: ak,
+                            generatedBy: `Google Gemini (${modelName})`,
+                        };
+                    }
+                }
+            } catch (err: any) {
+                lastError = err;
+                console.warn(`[QuizGen Single] Model ${modelName} error:`, err?.message);
+            }
+        }
+    }
+
+    // Failover to backup provider
+    const { runBackupChain } = await import("./ai/backupRunner");
+    const backupMessages = [
+        {
+            role: "system" as const,
+            content: "You are an expert curriculum designer. Return only valid JSON for a single question replacement matching the requested schema.",
+        },
+        {
+            role: "user" as const,
+            content: promptText,
+        },
+    ];
+
+    const backupResult = await runBackupChain<RegenerateSingleQuestionResult>({
+        kind: "text",
+        messages: backupMessages,
+        logTag: "[QuizGen Single Backup]",
+        timeoutMs: 25000,
+        totalBudgetMs: 40000,
+        maxTokens: 800,
+        temperature: 0.3,
+        onStatusUpdate: (status) => {
+            params.onStatusUpdate?.(status, true);
+        },
+        validate: (json: any) => {
+            const q = json?.question || (Array.isArray(json?.questions) ? json.questions[0] : null);
+            const ak = json?.answerKey || (Array.isArray(json?.answerKey) ? json.answerKey[0] : null);
+            if (q && q.questionText && ak && ak.correctAnswer !== undefined) {
+                q.questionNumber = params.questionNumber;
+                q.type = q.type || params.questionType;
+                q.options = Array.isArray(q.options) ? q.options : [];
+                q.answerBoxesRequired = q.answerBoxesRequired || (q.type === "enumeration" ? 3 : 1);
+                ak.questionNumber = params.questionNumber;
+                ak.points = ak.points || (q.type === "enumeration" ? q.answerBoxesRequired : 1);
+                return {
+                    question: q,
+                    answerKey: ak,
+                };
+            }
+            return null;
+        },
+    });
+
+    return {
+        question: backupResult.value.question,
+        answerKey: backupResult.value.answerKey,
+        generatedBy: `${backupResult.provider.toUpperCase()} (${backupResult.model})`,
+    };
+}
+

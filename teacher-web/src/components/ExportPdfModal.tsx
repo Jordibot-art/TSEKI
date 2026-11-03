@@ -199,8 +199,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 Short Bond Paper (8.5" × 11")
               </h4>
               <p className={styles.cardSub}>
-                1 single sheet (Letter size) • Set {exportVersion} scannable
-                layout for 1-shot camera scanning
+                1 single sheet (Letter size) • 2-column scannable layout for 1-shot camera scanning
               </p>
             </div>
             <Download size={20} className={styles.downloadIcon} />
@@ -221,8 +220,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 Long Bond Paper (8.5" × 13")
               </h4>
               <p className={styles.cardSub}>
-                1 single sheet (Philippine Folio) • Fits all questions with Set{" "}
-                {exportVersion} spacing
+                1 single sheet (Philippine Folio) • Fits all questions with extra spacing on 1 page
               </p>
             </div>
             <Download size={20} className={styles.downloadIcon} />
@@ -241,8 +239,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <div className={styles.cardContent}>
               <h4 className={styles.cardTitle}>Teacher Answer Key Paper (PDF)</h4>
               <p className={styles.cardSub}>
-                1 single sheet with correct answers pre-printed in boxes for Set{" "}
-                {exportVersion}
+                1 single sheet with correct answers pre-printed in the boxes for grading reference
               </p>
             </div>
             <Download size={20} className={styles.downloadIcon} />

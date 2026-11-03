@@ -37,6 +37,7 @@ import {
     GeneratedAssessment,
     generateScannableQuiz,
     QuestionType,
+    regenerateSingleQuestion,
     ScannableQuestion,
 } from "../lib/quizGeneratorService";
 import { saveDraftQuiz, savePublishedQuiz } from "../lib/quizStore";
@@ -241,6 +242,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [exportingStage, setExportingStage] = useState<string>("");
     const [editingAnswerQNum, setEditingAnswerQNum] = useState<number | null>(null);
     const [editingAnswerText, setEditingAnswerText] = useState("");
+    const [regeneratingQNum, setRegeneratingQNum] = useState<number | null>(null);
+    const [editingQuestionQNum, setEditingQuestionQNum] = useState<number | null>(null);
+    const [editingQuestionText, setEditingQuestionText] = useState("");
     const [savingDraft, setSavingDraft] = useState(false);
     const [publishingQuiz, setPublishingQuiz] = useState(false);
     const [publishingStage, setPublishingStage] = useState<string>("");
@@ -625,6 +629,110 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setGeneratedAssessment(updated);
         setEditingAnswerQNum(null);
         setEditingAnswerText("");
+    }
+
+    function handleRegenerateQuestion(questionNumber: number) {
+        if (!generatedAssessment || regeneratingQNum !== null) return;
+        const targetQ = generatedAssessment.questions.find((q) => q.questionNumber === questionNumber);
+        if (!targetQ) return;
+
+        const typeLabel = targetQ.type.replace(/_/g, " ").toUpperCase();
+
+        Alert.alert(
+            `Regenerate Question #${questionNumber}?`,
+            `This will replace Question #${questionNumber} with a new AI-generated ${typeLabel} question, keeping all other questions untouched.\n\n(Single-question regeneration does not consume your daily quiz quota.)`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Regenerate",
+                    onPress: async () => {
+                        setRegeneratingQNum(questionNumber);
+                        try {
+                            let attachedPdfBase64: string | undefined;
+                            let attachedFileText: string | undefined;
+                            let attachedFileType: SupportedDocType | undefined;
+
+                            if (attachedFile) {
+                                const parsed = await parseDocumentFile({
+                                    uri: attachedFile.uri,
+                                    name: attachedFile.name,
+                                    mimeType: attachedFile.mimeType,
+                                });
+                                attachedFileType = parsed.type;
+                                if (parsed.type === "pdf") {
+                                    attachedPdfBase64 = parsed.base64;
+                                } else if (parsed.text) {
+                                    attachedFileText = parsed.text;
+                                }
+                            }
+
+                            const result = await regenerateSingleQuestion({
+                                questionNumber,
+                                questionType: targetQ.type,
+                                currentQuestionText: targetQ.questionText,
+                                otherQuestions: generatedAssessment.questions,
+                                quizTitle: generatedAssessment.quizTitle,
+                                subject,
+                                gradeLevel,
+                                difficulty,
+                                lessonNotes: lessonNotes.trim() || undefined,
+                                attachedPdfBase64,
+                                attachedPdfName: attachedFile ? attachedFile.name : undefined,
+                                attachedFileName: attachedFile ? attachedFile.name : undefined,
+                                attachedFileType,
+                                attachedFileText,
+                            });
+
+                            setGeneratedAssessment((prev) => {
+                                if (!prev) return null;
+                                const updatedQuestions = prev.questions.map((q) =>
+                                    q.questionNumber === questionNumber ? result.question : q
+                                );
+                                const updatedAnswerKey = prev.answerKey.map((ak) =>
+                                    ak.questionNumber === questionNumber ? result.answerKey : ak
+                                );
+                                return {
+                                    ...prev,
+                                    questions: updatedQuestions,
+                                    answerKey: updatedAnswerKey,
+                                };
+                            });
+
+                            Alert.alert(
+                                "Question Regenerated!",
+                                `Question #${questionNumber} has been replaced with a fresh ${targetQ.type.replace(/_/g, " ")} question.`
+                            );
+                        } catch (err: any) {
+                            console.error("Single question regeneration error:", err);
+                            Alert.alert(
+                                "Regeneration Failed",
+                                err?.message || "Could not regenerate question. Please try again."
+                            );
+                        } finally {
+                            setRegeneratingQNum(null);
+                        }
+                    },
+                },
+            ]
+        );
+    }
+
+    function handleSaveQuestionTextEdit(questionNumber: number) {
+        if (!generatedAssessment) return;
+        const trimmed = editingQuestionText.trim();
+        if (!trimmed) {
+            setEditingQuestionQNum(null);
+            return;
+        }
+        const updatedQ = generatedAssessment.questions.map((q) =>
+            q.questionNumber === questionNumber ? { ...q, questionText: trimmed } : q
+        );
+        setGeneratedAssessment({
+            ...generatedAssessment,
+            questions: updatedQ,
+        });
+        setEditingQuestionQNum(null);
+        setEditingQuestionText("");
     }
 
     async function handleExportPaper(
@@ -1210,25 +1318,60 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 </>
             ) : (
                 <>
-                    {/* ── Results Header ── */}
-                    <View style={[styles.resultsBanner, { backgroundColor: accentColor + "18", borderColor: accentColor + "44" }]}>
-                        <Ionicons name="checkmark-circle" size={24} color={accentColor} />
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                            <Text style={[styles.resultsBannerTitle, { color: accentColor }]} numberOfLines={1}>
-                                {generatedAssessment?.quizTitle || "Assessment Generated!"}
-                            </Text>
-                            <Text style={[styles.resultsBannerSub, { color: textSub }]}>
-                                {generatedAssessment?.questions.length || questionCount} Questions • {difficulty} • Scannable Paper Layout
-                            </Text>
-                            {generatedAssessment?.generatedBy && (
-                                <Text style={{ fontSize: 10.5, color: accentColor, fontWeight: "700", marginTop: 2 }}>
-                                    Engine: {generatedAssessment.generatedBy}
-                                </Text>
-                            )}
+                    {/* ── Preview Screen Header Banner ── */}
+                    <View style={[styles.previewScreenBanner, { backgroundColor: cardBg, borderColor: border }]}>
+                        <View style={styles.previewTopRow}>
+                            <View style={[styles.previewModeBadge, { backgroundColor: accentColor + "18", borderColor: accentColor + "33" }]}>
+                                <Ionicons name="eye-outline" size={13} color={accentColor} />
+                                <Text style={[styles.previewModeBadgeText, { color: accentColor }]}>PREVIEW BEFORE SAVING</Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={handleReset}
+                                style={[styles.previewResetBtn, { backgroundColor: inputBg, borderColor: border }]}
+                                activeOpacity={0.7}
+                            >
+                                <Ionicons name="refresh" size={13} color={textSub} style={{ marginRight: 4 }} />
+                                <Text style={[styles.previewResetBtnText, { color: textSub }]}>New Quiz</Text>
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity onPress={handleReset} style={{ padding: 6 }}>
-                            <Ionicons name="refresh" size={20} color={accentColor} />
-                        </TouchableOpacity>
+
+                        <Text style={[styles.previewTitle, { color: textMain }]} numberOfLines={2}>
+                            {generatedAssessment?.quizTitle || "Assessment Preview"}
+                        </Text>
+
+                        <Text style={[styles.previewSubtext, { color: textSub }]}>
+                            Review questions, edit answers, or tap "Regenerate this question only" on any card to replace it before saving or publishing.
+                        </Text>
+
+                        <View style={[styles.previewStatsRow, { backgroundColor: inputBg, borderColor: border }]}>
+                            <View style={styles.previewStatItem}>
+                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                    {generatedAssessment?.questions.length || questionCount}
+                                </Text>
+                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Questions</Text>
+                            </View>
+                            <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
+                            <View style={styles.previewStatItem}>
+                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                    {generatedAssessment?.questions.reduce((sum, q) => sum + (q.type === "enumeration" ? (q.answerBoxesRequired || 3) : 1), 0) || questionCount}
+                                </Text>
+                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Points</Text>
+                            </View>
+                            <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
+                            <View style={styles.previewStatItem}>
+                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                    {difficulty.split(" ")[0]}
+                                </Text>
+                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Difficulty</Text>
+                            </View>
+                            <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
+                            <View style={styles.previewStatItem}>
+                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                    {gradeLevel.replace(/Grade\s*/i, "Gr ")}
+                                </Text>
+                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Grade</Text>
+                            </View>
+                        </View>
                     </View>
 
                     {/* ── Scannable Question Cards ── */}
@@ -1255,16 +1398,72 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                 </Text>
                                             </View>
                                         </View>
-                                        <Text style={[styles.questionText, { color: textMain }]} numberOfLines={4}>{q.questionText}</Text>
+                                        {editingQuestionQNum === q.questionNumber ? (
+                                            <View style={{ marginTop: 4 }}>
+                                                <TextInput
+                                                    style={[
+                                                        styles.questionEditInput,
+                                                        {
+                                                            backgroundColor: inputBg,
+                                                            borderColor: accentColor,
+                                                            color: textMain,
+                                                        },
+                                                    ]}
+                                                    value={editingQuestionText}
+                                                    onChangeText={setEditingQuestionText}
+                                                    multiline
+                                                    autoFocus
+                                                />
+                                                <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+                                                    <TouchableOpacity
+                                                        onPress={() => setEditingQuestionQNum(null)}
+                                                        style={[styles.smallCancelBtn, { borderColor: border }]}
+                                                    >
+                                                        <Text style={{ fontSize: 11, fontWeight: "600", color: textSub }}>Cancel</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        onPress={() => handleSaveQuestionTextEdit(q.questionNumber)}
+                                                        style={[styles.smallSaveBtn, { backgroundColor: accentColor }]}
+                                                    >
+                                                        <Text style={{ fontSize: 11, fontWeight: "700", color: "#FFFFFF" }}>Save Question</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        ) : (
+                                            <Text style={[styles.questionText, { color: textMain }]} numberOfLines={6}>
+                                                {q.questionText}
+                                            </Text>
+                                        )}
                                     </View>
-                                    {/* Delete question button */}
-                                    <TouchableOpacity
-                                        onPress={() => handleDeleteQuestion(q.questionNumber)}
-                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                        style={styles.deleteQBtn}
-                                    >
-                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                    </TouchableOpacity>
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                        {/* Edit question text button */}
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                if (editingQuestionQNum === q.questionNumber) {
+                                                    setEditingQuestionQNum(null);
+                                                } else {
+                                                    setEditingQuestionQNum(q.questionNumber);
+                                                    setEditingQuestionText(q.questionText);
+                                                }
+                                            }}
+                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            style={styles.actionIconBtn}
+                                        >
+                                            <Ionicons
+                                                name={editingQuestionQNum === q.questionNumber ? "close" : "pencil-outline"}
+                                                size={16}
+                                                color={editingQuestionQNum === q.questionNumber ? textSub : accentColor}
+                                            />
+                                        </TouchableOpacity>
+                                        {/* Delete question button */}
+                                        <TouchableOpacity
+                                            onPress={() => handleDeleteQuestion(q.questionNumber)}
+                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            style={styles.deleteQBtn}
+                                        >
+                                            <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                        </TouchableOpacity>
+                                    </View>
                                 </View>
 
                                 {/* Word Bank display for word_box questions */}
@@ -1432,6 +1631,40 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                         </View>
                                     );
                                 })()}
+
+                                {/* ── Regenerate this question only button ── */}
+                                <TouchableOpacity
+                                    style={[
+                                        styles.regenerateQBtn,
+                                        {
+                                            borderColor: accentColor + "35",
+                                            backgroundColor: accentColor + "0D",
+                                        },
+                                        regeneratingQNum === q.questionNumber && {
+                                            backgroundColor: accentColor + "1A",
+                                            borderColor: accentColor,
+                                        },
+                                    ]}
+                                    onPress={() => handleRegenerateQuestion(q.questionNumber)}
+                                    disabled={regeneratingQNum !== null}
+                                    activeOpacity={0.7}
+                                >
+                                    {regeneratingQNum === q.questionNumber ? (
+                                        <View style={styles.regeneratingRow}>
+                                            <ActivityIndicator size="small" color={accentColor} style={{ marginRight: 8 }} />
+                                            <Text style={[styles.regenerateQBtnText, { color: accentColor, fontWeight: "700" }]}>
+                                                Regenerating Question #{q.questionNumber} with AI...
+                                            </Text>
+                                        </View>
+                                    ) : (
+                                        <View style={styles.regeneratingRow}>
+                                            <Ionicons name="sparkles" size={15} color={accentColor} style={{ marginRight: 6 }} />
+                                            <Text style={[styles.regenerateQBtnText, { color: accentColor }]}>
+                                                Regenerate this question only
+                                            </Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
                             </View>
                         );
                     })}
@@ -2366,6 +2599,132 @@ const styles = StyleSheet.create({
         marginTop: 14, paddingHorizontal: 4,
     },
     infoText: { fontSize: 11, color: "#9CA3AF", flex: 1 },
+
+    /* Preview Screen Banner */
+    previewScreenBanner: {
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+        borderWidth: 1,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 5,
+        elevation: 2,
+    },
+    previewTopRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 10,
+    },
+    previewModeBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 20,
+        borderWidth: 1,
+    },
+    previewModeBadgeText: {
+        fontSize: 10.5,
+        fontWeight: "800",
+        letterSpacing: 0.5,
+    },
+    previewResetBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 1,
+    },
+    previewResetBtnText: {
+        fontSize: 11.5,
+        fontWeight: "600",
+    },
+    previewTitle: {
+        fontSize: 16.5,
+        fontWeight: "800",
+        marginBottom: 5,
+        letterSpacing: -0.2,
+    },
+    previewSubtext: {
+        fontSize: 12,
+        lineHeight: 17,
+        marginBottom: 12,
+    },
+    previewStatsRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-around",
+        paddingVertical: 10,
+        borderRadius: 10,
+        borderWidth: 1,
+    },
+    previewStatItem: {
+        alignItems: "center",
+        flex: 1,
+    },
+    previewStatValue: {
+        fontSize: 14.5,
+        fontWeight: "800",
+        marginBottom: 2,
+    },
+    previewStatLabel: {
+        fontSize: 10,
+        fontWeight: "600",
+        textTransform: "uppercase",
+        letterSpacing: 0.3,
+    },
+    previewStatDivider: {
+        width: 1,
+        height: 20,
+    },
+
+    /* Regenerate single question */
+    regenerateQBtn: {
+        marginTop: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: 10,
+        borderWidth: 1.2,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    regeneratingRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    regenerateQBtnText: {
+        fontSize: 12.5,
+        fontWeight: "700",
+    },
+    questionEditInput: {
+        borderWidth: 1,
+        borderRadius: 8,
+        padding: 10,
+        fontSize: 13.5,
+        lineHeight: 19,
+        minHeight: 64,
+        textAlignVertical: "top",
+    },
+    smallCancelBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+        borderWidth: 1,
+    },
+    smallSaveBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+    },
+    actionIconBtn: {
+        padding: 5,
+    },
 
     /* Results */
     resultsBanner: {

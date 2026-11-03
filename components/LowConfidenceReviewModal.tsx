@@ -24,6 +24,7 @@ export interface LowConfidenceReviewModalProps {
     scannedImageUri?: string | null;
     accentColor?: string;
     initialQuestionNumber?: number;
+    initialFilterOnlyFlagged?: boolean;
     onSaveReviewedResults: (updatedResults: GradingResultItem[], newTotalScore: number) => void;
 }
 
@@ -34,6 +35,7 @@ export function LowConfidenceReviewModal({
     scannedImageUri,
     accentColor = "#F97316",
     initialQuestionNumber,
+    initialFilterOnlyFlagged,
     onSaveReviewedResults,
 }: LowConfidenceReviewModalProps) {
     const { darkMode } = useTheme();
@@ -45,19 +47,37 @@ export function LowConfidenceReviewModal({
     const [imagePreviewOpen, setImagePreviewOpen] = useState<boolean>(false);
     const [customAnswerInput, setCustomAnswerInput] = useState<string>("");
 
+    // Helper to determine if an item was flagged by AI for manual review
+    const isItemFlaggedByAi = (r: GradingResultItem) =>
+        Boolean(
+            r.flaggedForReview ||
+            r.flagReason === "double_mark" ||
+            r.flagReason === "unclear" ||
+            r.flagReason === "low_confidence" ||
+            (r.confidence !== undefined && r.confidence < 0.75)
+        );
+
     // Initialize working copy when modal opens or gradingResult changes
     useEffect(() => {
         if (gradingResult && Array.isArray(gradingResult.results)) {
             const deepCopy = gradingResult.results.map((r) => ({ ...r }));
             setWorkingResults(deepCopy);
 
+            const hasAnyFlagged = deepCopy.some(isItemFlaggedByAi);
+            if (typeof initialFilterOnlyFlagged === "boolean") {
+                setFilterOnlyFlagged(initialFilterOnlyFlagged && hasAnyFlagged);
+            } else {
+                setFilterOnlyFlagged(hasAnyFlagged);
+            }
+
             // Determine first question to focus on
             if (initialQuestionNumber) {
                 setSelectedQNum(initialQuestionNumber);
+            } else if (initialFilterOnlyFlagged === false) {
+                setSelectedQNum(1);
             } else {
-                const firstFlagged = deepCopy.find(
-                    (r) => r.flaggedForReview || (r.confidence !== undefined && r.confidence < 0.75)
-                );
+                const firstUnresolvedFlagged = deepCopy.find((r) => isItemFlaggedByAi(r) && !r.isOverridden);
+                const firstFlagged = firstUnresolvedFlagged || deepCopy.find(isItemFlaggedByAi);
                 setSelectedQNum(firstFlagged ? firstFlagged.questionNumber : 1);
             }
         }
@@ -75,11 +95,9 @@ export function LowConfidenceReviewModal({
         }
     }, [activeItem?.questionNumber]);
 
-    // Compute flagged items
+    // Compute flagged items (keep resolved items in list so teacher sees progress e.g. "1 item flagged • 1 resolved")
     const flaggedItems = useMemo(() => {
-        return workingResults.filter(
-            (r) => r.flaggedForReview || (r.confidence !== undefined && r.confidence < 0.75)
-        );
+        return workingResults.filter(isItemFlaggedByAi);
     }, [workingResults]);
 
     const flaggedCount = flaggedItems.length;
@@ -109,6 +127,7 @@ export function LowConfidenceReviewModal({
         const isMatch = isAnswerAccepted(normalizedChoice, official);
         const itemPoints = 1; // standard point
 
+        setCustomAnswerInput(normalizedChoice);
         setWorkingResults((prev) =>
             prev.map((r) => {
                 if (r.questionNumber === activeItem.questionNumber) {
@@ -118,7 +137,6 @@ export function LowConfidenceReviewModal({
                         isCorrect: isMatch,
                         pointsAwarded: isMatch ? itemPoints : 0,
                         isOverridden: true,
-                        flaggedForReview: false, // marked as resolved by teacher
                     };
                 }
                 return r;
@@ -136,7 +154,6 @@ export function LowConfidenceReviewModal({
                         isCorrect: award,
                         pointsAwarded: award ? 1 : 0,
                         isOverridden: true,
-                        flaggedForReview: false,
                     };
                 }
                 return r;
@@ -148,6 +165,7 @@ export function LowConfidenceReviewModal({
         if (!activeItem) return;
         const orig = activeItem.originalStudentAnswer ?? "";
         const isMatch = isAnswerAccepted(orig, activeItem.correctAnswer);
+        setCustomAnswerInput(orig);
         setWorkingResults((prev) =>
             prev.map((r) => {
                 if (r.questionNumber === activeItem.questionNumber) {
@@ -195,12 +213,17 @@ export function LowConfidenceReviewModal({
     const textMain = darkMode ? "#F9FAFB" : "#0F172A";
     const textSub = darkMode ? "#9CA3AF" : "#64748B";
 
-    const isCurrentFlagged = Boolean(
-        activeItem?.flaggedForReview || (activeItem?.confidence !== undefined && activeItem.confidence < 0.75)
-    );
+    const isCurrentFlagged = activeItem ? isItemFlaggedByAi(activeItem) : false;
 
-    const isMC = activeItem && ["A", "B", "C", "D"].includes(activeItem.correctAnswer.toUpperCase());
-    const isTF = activeItem && ["T", "F", "TRUE", "FALSE"].includes(activeItem.correctAnswer.toUpperCase());
+    const isMC = Boolean(
+        activeItem &&
+        (["A", "B", "C", "D"].includes(activeItem.correctAnswer.trim().toUpperCase()) ||
+            /^[A-D](?:\s*[,/&]\s*[A-D])*$/i.test((activeItem.studentAnswer || "").trim()) ||
+            (activeItem.detectedOptions && activeItem.detectedOptions.some((o) => ["A", "B", "C", "D"].includes(o.toUpperCase()))))
+    );
+    const isTF = Boolean(
+        activeItem && ["T", "F", "TRUE", "FALSE"].includes(activeItem.correctAnswer.trim().toUpperCase())
+    );
 
     return (
         <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
@@ -251,7 +274,7 @@ export function LowConfidenceReviewModal({
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
                         {displayItems.map((item) => {
                             const isCur = item.questionNumber === selectedQNum;
-                            const isFlagged = item.flaggedForReview || (item.confidence !== undefined && item.confidence < 0.75);
+                            const isFlagged = isItemFlaggedByAi(item);
                             const isDone = item.isOverridden;
 
                             let pillBg = darkMode ? "#1F2937" : "#F1F5F9";
@@ -517,15 +540,15 @@ export function LowConfidenceReviewModal({
                                     </View>
                                 )}
 
-                                {/* Written / Custom text input (Identification / Fill-blank) */}
-                                {!isMC && !isTF && (
-                                    <View style={styles.customInputRow}>
+                                {/* Written / Custom text input (Identification / Fill-blank or custom override) */}
+                                {!["A", "B", "C", "D"].includes(activeItem.correctAnswer.trim().toUpperCase()) && !isTF && (
+                                    <View style={[styles.customInputRow, isMC && { marginTop: 10 }]}>
                                         <TextInput
                                             style={[
                                                 styles.customInput,
                                                 { backgroundColor: darkMode ? "#111827" : "#FFFFFF", color: textMain, borderColor: border },
                                             ]}
-                                            placeholder="Type student's handwritten word..."
+                                            placeholder="Type student's handwritten answer..."
                                             placeholderTextColor={textSub}
                                             value={customAnswerInput}
                                             onChangeText={setCustomAnswerInput}
@@ -873,28 +896,34 @@ const styles = StyleSheet.create({
     },
     keyBadge: {
         backgroundColor: "#10B981",
-        width: 42,
-        height: 42,
+        minWidth: 42,
+        minHeight: 42,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
         borderRadius: 10,
         alignItems: "center",
         justifyContent: "center",
     },
     keyBadgeText: {
         color: "#FFFFFF",
-        fontSize: 20,
+        fontSize: 16,
         fontWeight: "900",
+        textAlign: "center",
     },
     studentBadge: {
-        width: 42,
-        height: 42,
+        minWidth: 42,
+        minHeight: 42,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
         borderRadius: 10,
         borderWidth: 1.5,
         alignItems: "center",
         justifyContent: "center",
     },
     studentBadgeText: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: "900",
+        textAlign: "center",
     },
     compSub: {
         fontSize: 10.5,

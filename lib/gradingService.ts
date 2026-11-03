@@ -138,53 +138,72 @@ export async function gradeStudentTest(
         layoutPromptSection = lines.join("\n") + "\n";
     }
 
-    const systemInstruction = `You are an expert automated grading assistant. Your task is to analyze the provided image of a student's completed test paper and grade it against this official Answer Key:
+    const systemInstruction = `You are an expert automated grading assistant for TSEKI test sheets. Your task is to analyze the provided image of a student's completed test paper and grade it against this official Answer Key:
 ${JSON.stringify(keyArray, null, 2)}
 ${layoutPromptSection}
 INSTRUCTIONS:
 1. Extract the student's name from the top "Name:" line (field: "studentName").
-2. Read the student's answers located inside the black answer boxes or shaded bubbles on the paper.
-3. For each question number in the Answer Key, inspect the answer marking closely:
-   - MULTIPLE/DOUBLE MARKS: If multiple bubbles appear shaded or marked (e.g. both A and C shaded, or messy erasure leaving two options filled):
-     * set "studentAnswer" to the comma-separated detected letters (e.g. "A, C")
-     * set "confidence" to 0.50
+2. Read the student's handwritten answers inside the numbered square answer boxes (1, 2, 3...) or shaded bubbles on the paper.
+3. CRITICAL — MANDATORY LOW-CONFIDENCE & AMBIGUITY FLAGGING FOR TEACHER REVIEW:
+   Teachers rely on you to flag ANY messy, scribbled, overwritten, crossed-out, or double-marked box so they can manually inspect and fix it on the "Flagged Answers Review" screen. NEVER assign high confidence (>= 0.75) to a messy, scribbled, or overwritten box!
+   For EACH question number, inspect the box or bubble closely:
+   - OVERWRITTEN / DOUBLE-MARKED BOX OR BUBBLES (flagReason: "double_mark"):
+     If a square box contains one letter written/traced on top of another letter (e.g., an A overwritten with B or D, superimposed strokes, heavy correction), two letters written in the same box, or multiple bubbles shaded:
+     * set "studentAnswer" to the comma-separated candidate letters (e.g. "A, D" or "B, C")
+     * set "confidence" to 0.45 (MUST be < 0.70)
      * set "flagReason" to "double_mark"
-     * set "flagDetails" to "Double-shaded bubbles detected: A and C"
-     * set "detectedOptions" to ["A", "C"]
-   - UNCLEAR/FAINT MARKS: If the handwriting or bubble shading is faint, messy, scratched out, or ambiguous:
-     * set "studentAnswer" to your best guess
-     * set "confidence" to 0.40 - 0.65
+     * set "flagDetails" to "Overwritten or multiple letters/marks detected in box"
+     * set "detectedOptions" to the candidate letters (e.g. ["A", "D"])
+   - SCRIBBLED / CROSSED-OUT / MESSY / FAINT BOX (flagReason: "unclear"):
+     If a box has heavy scribbling, scratch-outs, ink loops spilling outside the box border (like a crossed-out letter with another letter written over or beside it), erasure smudges, or ambiguous handwriting—EVEN IF you can guess a letter:
+     * set "studentAnswer" to your best guess of the letter(s)
+     * set "confidence" to 0.40 (MUST be < 0.70)
      * set "flagReason" to "unclear"
-     * set "flagDetails" to "Faint, messy, or ambiguous marking"
-   - CLEAR MARKS: If clearly and cleanly marked with a single answer:
+     * set "flagDetails" to "Scribbled, crossed-out, or unclear handwritten mark in box"
+     * set "detectedOptions" to any possible letters visible (e.g. ["A", "D"])
+   - CLEAN & CLEAR MARK (flagReason: null):
+     ONLY if the box contains a single, clean, unambiguous letter/word with no scribbles or overwriting:
      * set "studentAnswer" to the single option letter or text
-     * set "confidence" to 0.90 - 1.00
-   - BLANK: If completely blank or unattempted:
+     * set "confidence" to 0.92 - 0.99
+     * set "flagReason" to null
+   - BLANK (flagReason: "blank"):
+     If the box is completely empty/unattempted:
      * set "studentAnswer" to ""
      * set "confidence" to 0.95
      * set "flagReason" to "blank"
 4. Compare "studentAnswer" directly to the official "correctAnswer":
-   - If the answer matches cleanly: set "isCorrect" to true, and "pointsAwarded" to the question's points (usually 1).
-   - If the answer does NOT match, is blank, or has multiple shaded bubbles: set "isCorrect" to false, and "pointsAwarded" to 0.
+   - If the answer matches cleanly and is NOT double-marked: set "isCorrect" to true, and "pointsAwarded" to the question's points (usually 1).
+   - If the answer does NOT match, is blank, or is double-marked: set "isCorrect" to false, and "pointsAwarded" to 0.
 5. "totalScore" MUST be the EXACT mathematical sum of all "pointsAwarded" across the results array.
 6. "maxScore" MUST be ${totalPossiblePoints}.
 
-You MUST return the final result as a strict, valid JSON object with this exact structure:
+You MUST return the final result as a strict, valid JSON object with this exact structure (note how clean vs. scribbled/overwritten items are formatted):
 {
   "studentName": "Extracted Student Name",
-  "totalScore": 0,
+  "totalScore": 1,
   "maxScore": ${totalPossiblePoints},
   "results": [
     {
       "questionNumber": 1,
-      "studentAnswer": "C",
-      "correctAnswer": "C",
+      "studentAnswer": "B",
+      "correctAnswer": "B",
       "isCorrect": true,
       "pointsAwarded": 1,
-      "confidence": 0.98,
+      "confidence": 0.96,
       "flagReason": null,
       "flagDetails": null,
-      "detectedOptions": ["C"]
+      "detectedOptions": ["B"]
+    },
+    {
+      "questionNumber": 10,
+      "studentAnswer": "D",
+      "correctAnswer": "A",
+      "isCorrect": false,
+      "pointsAwarded": 0,
+      "confidence": 0.42,
+      "flagReason": "unclear",
+      "flagDetails": "Heavy scribbling / overwritten letter in box #10",
+      "detectedOptions": ["A", "D"]
     }
   ]
 }`;
@@ -204,35 +223,91 @@ You MUST return the final result as a strict, valid JSON object with this exact 
 
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"];
+        // Primary models ordered by speed and availability:
+        // gemini-3.5-flash-lite is the fastest and most available, followed by 3.6-flash, 3.8-flash, and 1.5-flash
+        const candidateModels = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+            "gemini-1.5-flash",
+        ];
+        const MAX_RETRIES_PER_MODEL = 2;
+        const BASE_BACKOFF_MS = 1500;
 
         for (const modelName of candidateModels) {
-            try {
-                const model = genAI.getGenerativeModel({
-                    model: modelName,
-                    generationConfig: {
-                        responseMimeType: "application/json",
-                        temperature: 0.1,
-                    },
-                });
+            let attempt = 0;
 
-                result = await model.generateContent(parts);
-                if (result) break;
-            } catch (apiErr: any) {
-                lastError = apiErr;
-                const errMsg = apiErr?.message || "";
-                const is429 = errMsg.includes("429") || errMsg.includes("quota");
-                const is503 = errMsg.includes("503");
-                const isInvalidKey = errMsg.includes("API key not valid") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("400");
+            while (attempt <= MAX_RETRIES_PER_MODEL) {
+                try {
+                    const model = genAI.getGenerativeModel({
+                        model: modelName,
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            temperature: 0.1,
+                        },
+                    });
 
-                if (isInvalidKey) {
-                    console.warn(`[Grading] Gemini API key invalid. Fast-failing over to backup vision AI...`);
+                    result = await model.generateContent(parts);
+                    if (result) break;
+                } catch (apiErr: any) {
+                    lastError = apiErr;
+                    const errMsg = (apiErr?.message || "").toLowerCase();
+                    const status = Number(apiErr?.status);
+
+                    const isInvalidKey =
+                        status === 400 ||
+                        status === 401 ||
+                        errMsg.includes("api key not valid") ||
+                        errMsg.includes("api_key_invalid");
+
+                    if (isInvalidKey) {
+                        console.warn(`[Grading] Gemini API key invalid. Fast-failing over to backup vision AI...`);
+                        break;
+                    }
+
+                    const isNotFound =
+                        status === 404 ||
+                        errMsg.includes("not found") ||
+                        errMsg.includes("is no longer available") ||
+                        errMsg.includes("is not supported");
+
+                    if (isNotFound) {
+                        console.warn(`[Grading] Gemini ${modelName} not available (404), trying next model...`);
+                        break; // Move to next model candidate immediately
+                    }
+
+                    const isBusyOrRateLimited =
+                        status === 429 ||
+                        status === 503 ||
+                        status === 500 ||
+                        status === 502 ||
+                        status === 504 ||
+                        errMsg.includes("429") ||
+                        errMsg.includes("quota") ||
+                        errMsg.includes("resource_exhausted") ||
+                        errMsg.includes("rate limit") ||
+                        errMsg.includes("503") ||
+                        errMsg.includes("overloaded") ||
+                        errMsg.includes("high demand") ||
+                        errMsg.includes("busy") ||
+                        errMsg.includes("service unavailable");
+
+                    if (isBusyOrRateLimited && attempt < MAX_RETRIES_PER_MODEL) {
+                        attempt++;
+                        const backoffMs = Math.round(BASE_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 500);
+                        console.warn(
+                            `[Grading] Gemini ${modelName} busy (503/429). Retrying in ${backoffMs}ms (attempt ${attempt}/${MAX_RETRIES_PER_MODEL})...`
+                        );
+                        await new Promise((r) => setTimeout(r, backoffMs));
+                        continue;
+                    }
+
+                    console.warn(`[Grading] Gemini ${modelName} failed (${errMsg.slice(0, 90)}). Trying next candidate...`);
                     break;
                 }
-
-                console.warn(`[Grading] Gemini ${modelName} failed (${is429 ? "Quota 429" : is503 ? "Busy 503" : "Error"}). Trying next model...`);
-                continue;
             }
+
+            if (result) break;
         }
     } else {
         lastError = new Error("Missing EXPO_PUBLIC_GEMINI_API_KEY.");
@@ -280,23 +355,57 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         let confidence = typeof detected.confidence === "number" ? detected.confidence : 0.95;
         const acceptedVariants = variantMap.get(qNum) || [];
 
-        let flagReason: ReviewFlagReason | undefined = detected.flagReason;
-        let flagDetails: string | undefined = detected.flagDetails;
-        let detectedOptions: string[] = Array.isArray(detected.detectedOptions) ? detected.detectedOptions : [];
+        let flagReason: ReviewFlagReason | undefined = detected.flagReason || undefined;
+        let flagDetails: string | undefined = detected.flagDetails || undefined;
+        let detectedOptions: string[] = Array.isArray(detected.detectedOptions)
+            ? detected.detectedOptions.map((o: any) => String(o).trim().toUpperCase()).filter(Boolean)
+            : [];
 
-        // Deterministic detection of double-shaded / multiple marked bubbles
+        // Normalize string "null" or "none" from AI JSON
+        if ((flagReason as any) === "null" || (flagReason as any) === "none" || (flagReason as any) === "") {
+            flagReason = undefined;
+        }
+        if ((flagReason as any) === "faint" || (flagReason as any) === "scribbled" || (flagReason as any) === "messy") {
+            flagReason = "unclear";
+        }
+        if ((flagReason as any) === "multiple_answers" || (flagReason as any) === "overwritten") {
+            flagReason = "double_mark";
+        }
+
+        // Deterministic detection of double-shaded / overwritten / multiple marked boxes
         const isSingleChoice = !officialCorrect.includes(",") && (officialCorrect.length === 1 || officialCorrect === "T" || officialCorrect === "F");
-        const multipleMarkRegex = /([A-D]|[T|F])\s*[,/&+\s]\s*([A-D]|[T|F])/i;
+        const multipleMarkRegex = /^([A-D]|[T|F])\s*[,/&+\sor]+\s*([A-D]|[T|F])$/i;
         const compactLetters = rawStudentAnswer.replace(/[^A-Za-z0-9]/g, "");
 
-        if (isSingleChoice) {
-            if (multipleMarkRegex.test(rawStudentAnswer) || (compactLetters.length >= 2 && compactLetters.length <= 4 && /^[A-D]+$/i.test(compactLetters))) {
-                flagReason = "double_mark";
-                flagDetails = `Double-shaded bubbles detected (${rawStudentAnswer})`;
-                confidence = Math.min(confidence, 0.50);
-                if (detectedOptions.length === 0) {
-                    detectedOptions = Array.from(new Set(rawStudentAnswer.toUpperCase().match(/[A-D]/g) || []));
-                }
+        // Even if officialCorrect is longer, if the student wrote multiple single-letter MC choices (e.g. "A, D" or "B/C") or detectedOptions has >= 2 letters
+        if (
+            multipleMarkRegex.test(rawStudentAnswer) ||
+            (isSingleChoice && compactLetters.length >= 2 && compactLetters.length <= 4 && /^[A-D]+$/i.test(compactLetters)) ||
+            (detectedOptions.length >= 2 && !flagReason)
+        ) {
+            flagReason = flagReason || "double_mark";
+            flagDetails = flagDetails || `Multiple or overwritten marks detected (${rawStudentAnswer || detectedOptions.join(", ")})`;
+            confidence = Math.min(confidence, 0.50);
+            if (detectedOptions.length === 0) {
+                detectedOptions = Array.from(new Set(rawStudentAnswer.toUpperCase().match(/[A-D]/g) || []));
+            }
+        }
+
+        // Detect uncertainty markers in rawStudentAnswer (e.g., "?", "unclear", "scribble")
+        if (/[?*]|\b(unclear|scribble|illegible|messy)\b/i.test(rawStudentAnswer)) {
+            flagReason = flagReason || "unclear";
+            flagDetails = flagDetails || `Unclear or scribbled mark detected inside box #${qNum}`;
+            confidence = Math.min(confidence, 0.45);
+        }
+
+        // If AI explicitly flagged reason as double_mark, unclear, or low_confidence, enforce low confidence (< 0.75)
+        if (flagReason === "double_mark" || flagReason === "unclear" || flagReason === "low_confidence" || detected.flaggedForReview === true) {
+            confidence = Math.min(confidence, 0.55);
+            if (!flagDetails) {
+                flagDetails =
+                    flagReason === "double_mark"
+                        ? `Overwritten or double-shaded mark in box #${qNum}`
+                        : `Unclear or scribbled mark in box #${qNum}`;
             }
         }
 
@@ -304,10 +413,16 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         const isLowConfidence = confidence < 0.75;
         if (isLowConfidence && !flagReason) {
             flagReason = "low_confidence";
-            flagDetails = `Low OCR confidence (${Math.round(confidence * 100)}%)`;
+            flagDetails = flagDetails || `Low OCR confidence (${Math.round(confidence * 100)}%)`;
         }
 
-        const isFlagged = Boolean(flagReason === "double_mark" || flagReason === "unclear" || isLowConfidence);
+        const isFlagged = Boolean(
+            detected.flaggedForReview === true ||
+            flagReason === "double_mark" ||
+            flagReason === "unclear" ||
+            flagReason === "low_confidence" ||
+            isLowConfidence
+        );
 
         let awarded = 0;
         let isMatch = false;

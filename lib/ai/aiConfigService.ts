@@ -64,9 +64,9 @@ export const DEFAULT_GROQ_MODELS = [
 ];
 
 export const DEFAULT_GROQ_VISION_MODELS = [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "qwen/qwen3.8-27b",
+    "meta-llama/llama-3.2-11b-vision-preview",
+    "llama-3.2-11b-vision-preview",
+    "meta-llama/llama-3.2-90b-vision-preview",
 ];
 
 function normalizeOpenRouterModel(model?: string | null): string {
