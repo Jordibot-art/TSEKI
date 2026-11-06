@@ -522,15 +522,23 @@ export function buildPaperSheetHtml({
     </div>
 
     <div class="student-fields-row">
-      <div class="field-pair">
-        <strong>Name:</strong>
+      <div class="field-pair" style="flex: 1.3;">
+        <strong>Last Name:</strong>
         <div class="field-underline"></div>
       </div>
-      <div class="field-pair">
+      <div class="field-pair" style="flex: 1.3;">
+        <strong>First Name:</strong>
+        <div class="field-underline"></div>
+      </div>
+      <div class="field-pair" style="flex: 1;">
+        <strong>Middle Name:</strong>
+        <div class="field-underline"></div>
+      </div>
+      <div class="field-pair" style="flex: 0.8;">
         <strong>Date:</strong>
         <div class="field-underline" style="padding-left: 4px;">${currentDate}</div>
       </div>
-      <div class="field-pair">
+      <div class="field-pair" style="flex: 0.8;">
         <strong>Section:</strong>
         <div class="field-underline"></div>
       </div>

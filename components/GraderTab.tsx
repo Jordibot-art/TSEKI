@@ -18,6 +18,7 @@ import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gra
 import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
 import { saveStudentQuizResult } from "../lib/questionAnalysis";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
+import { normalizeStudentRecord, splitStudentFullName } from "../lib/classListParserService";
 import { supabase } from "../supabase";
 import { BatchScannerModal } from "./BatchScannerModal";
 import { BatchReviewDashboard } from "./BatchReviewDashboard";
@@ -26,6 +27,9 @@ import { BatchGradingQueue, BatchSheetItem } from "../lib/batchGradingQueue";
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
     id: string;
+    last_name?: string;
+    first_name?: string;
+    middle_name?: string | null;
     full_name: string;
     email: string | null;
     average: number;
@@ -412,12 +416,22 @@ export default function GraderTab({
                 const newName = gradingResult.studentName && gradingResult.studentName !== "Unknown"
                     ? gradingResult.studentName
                     : `Student ${roster.length + 1}`;
+                const parsedParts = splitStudentFullName(newName);
+                const resolvedLastName = gradingResult.lastName?.trim() || parsedParts.last_name;
+                const resolvedFirstName = gradingResult.firstName?.trim() || parsedParts.first_name;
+                const resolvedMiddleName = (gradingResult.middleName ?? parsedParts.middle_name) || null;
+                const formattedFullName = resolvedLastName && resolvedFirstName
+                    ? `${resolvedLastName}, ${resolvedFirstName}${resolvedMiddleName ? ` ${resolvedMiddleName}` : ""}`
+                    : newName;
 
-                const { data, error } = await supabase
+                let { data, error } = await supabase
                     .from("students")
                     .insert({
                         classroom_id: classroomId,
-                        full_name: newName,
+                        last_name: resolvedLastName,
+                        first_name: resolvedFirstName,
+                        middle_name: resolvedMiddleName,
+                        full_name: formattedFullName,
                         email: null,
                         attendance: 100,
                         average: percentage,
@@ -425,9 +439,26 @@ export default function GraderTab({
                     .select()
                     .single();
 
+                if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+                    const fallback = await supabase
+                        .from("students")
+                        .insert({
+                            classroom_id: classroomId,
+                            full_name: formattedFullName,
+                            email: null,
+                            attendance: 100,
+                            average: percentage,
+                        })
+                        .select()
+                        .single();
+                    data = fallback.data;
+                    error = fallback.error;
+                }
+
                 if (error) throw error;
                 if (data) {
-                    const newStudent = data as Student;
+                    const newStudent = normalizeStudentRecord(data) as Student;
+                    student = newStudent;
                     setRoster((prev) => [...prev, newStudent]);
                     onStudentCreated?.(newStudent);
                     onScoreRecorded?.(newStudent.id, percentage);
@@ -614,12 +645,22 @@ export default function GraderTab({
                         (item.studentNameExtracted && item.studentNameExtracted !== "Unknown"
                             ? item.studentNameExtracted
                             : `Student ${updatedRoster.length + 1}`);
+                    const parsedParts = splitStudentFullName(newName);
+                    const resolvedLastName = item.gradingResult.lastName?.trim() || parsedParts.last_name;
+                    const resolvedFirstName = item.gradingResult.firstName?.trim() || parsedParts.first_name;
+                    const resolvedMiddleName = (item.gradingResult.middleName ?? parsedParts.middle_name) || null;
+                    const formattedFullName = resolvedLastName && resolvedFirstName
+                        ? `${resolvedLastName}, ${resolvedFirstName}${resolvedMiddleName ? ` ${resolvedMiddleName}` : ""}`
+                        : newName;
 
-                    const { data } = await supabase
+                    let { data, error } = await supabase
                         .from("students")
                         .insert({
                             classroom_id: classroomId,
-                            full_name: newName,
+                            last_name: resolvedLastName,
+                            first_name: resolvedFirstName,
+                            middle_name: resolvedMiddleName,
+                            full_name: formattedFullName,
                             email: null,
                             attendance: 100,
                             average: percentage,
@@ -627,8 +668,23 @@ export default function GraderTab({
                         .select()
                         .single();
 
+                    if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+                        const fallback = await supabase
+                            .from("students")
+                            .insert({
+                                classroom_id: classroomId,
+                                full_name: formattedFullName,
+                                email: null,
+                                attendance: 100,
+                                average: percentage,
+                            })
+                            .select()
+                            .single();
+                        data = fallback.data;
+                    }
+
                     if (data) {
-                        student = data as Student;
+                        student = normalizeStudentRecord(data) as Student;
                         updatedRoster.push(student);
                         onStudentCreated?.(student);
                         onScoreRecorded?.(student.id, percentage);

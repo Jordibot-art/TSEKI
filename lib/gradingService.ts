@@ -22,6 +22,9 @@ export interface GradingResultItem {
 
 export interface GradingResponse {
     studentName: string;
+    lastName?: string;
+    firstName?: string;
+    middleName?: string | null;
     totalScore: number;
     maxScore: number;
     results: GradingResultItem[];
@@ -142,7 +145,7 @@ export async function gradeStudentTest(
 ${JSON.stringify(keyArray, null, 2)}
 ${layoutPromptSection}
 INSTRUCTIONS:
-1. Extract the student's name from the top "Name:" line (field: "studentName").
+1. Extract the student's name from the top "Last Name:", "First Name:", "Middle Name:" (or "Name:") line (fields: "lastName", "firstName", "middleName", and combined "studentName" formatted as "Last Name, First Name Middle Name").
 2. Read the student's handwritten answers inside the numbered square answer boxes (1, 2, 3...) or shaded bubbles on the paper.
 3. CRITICAL — MANDATORY LOW-CONFIDENCE & AMBIGUITY FLAGGING FOR TEACHER REVIEW:
    Teachers rely on you to flag ANY messy, scribbled, overwritten, crossed-out, or double-marked box so they can manually inspect and fix it on the "Flagged Answers Review" screen. NEVER assign high confidence (>= 0.75) to a messy, scribbled, or overwritten box!
@@ -472,8 +475,19 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         };
     });
 
+    const extractedLast = typeof parsed.lastName === "string" ? parsed.lastName.trim() : "";
+    const extractedFirst = typeof parsed.firstName === "string" ? parsed.firstName.trim() : "";
+    const extractedMiddle = typeof parsed.middleName === "string" ? parsed.middleName.trim() : "";
+    const combinedExtractedName =
+        extractedLast && extractedFirst
+            ? `${extractedLast}, ${extractedFirst}${extractedMiddle ? ` ${extractedMiddle}` : ""}`
+            : parsed.studentName || extractedLast || extractedFirst || "Student";
+
     return {
-        studentName: parsed.studentName || "Student",
+        studentName: combinedExtractedName,
+        lastName: extractedLast || undefined,
+        firstName: extractedFirst || undefined,
+        middleName: extractedMiddle || null,
         totalScore: computedTotalScore,
         maxScore: computedMaxScore || totalPossiblePoints,
         results: verifiedResults,

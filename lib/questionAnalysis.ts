@@ -23,6 +23,7 @@ export interface StudentQuizResult {
   studentId: string;
   studentName: string;
   classroomId: string;
+  quizId?: string | null;
   quizTitle: string;
   scorePercentage: number;
   totalScore: number;
@@ -97,14 +98,21 @@ function getStorageKey(classroomId: string): string {
 // ── Save Per-Student Quiz Results ─────────────────────────────────────────────
 /**
  * Persists a student's per-question grading results for later analysis.
- * Stores one entry per student per quiz (updates if regraded).
+ * Stores one entry per student per quiz (updates if regraded) in both local
+ * AsyncStorage and Supabase `student_quiz_results`.
  */
 export async function saveStudentQuizResult(
   result: StudentQuizResult
 ): Promise<void> {
   const key = getStorageKey(result.classroomId);
   try {
-    const existing = await getAllStudentQuizResults(result.classroomId);
+    let existing: StudentQuizResult[] = [];
+    try {
+      const json = await AsyncStorage.getItem(key);
+      if (json) existing = JSON.parse(json);
+    } catch {
+      existing = [];
+    }
 
     // Remove previous entry for same student + quiz (if regraded)
     const filtered = existing.filter(
@@ -118,7 +126,29 @@ export async function saveStudentQuizResult(
     filtered.push(result);
     await AsyncStorage.setItem(key, JSON.stringify(filtered));
   } catch (err) {
-    console.error("Failed to save student quiz result:", err);
+    console.error("Failed to save student quiz result locally:", err);
+  }
+
+  // Also sync to Supabase `student_quiz_results` table if available
+  try {
+    if (process.env.EXPO_PUBLIC_SUPABASE_URL && result.studentId && result.classroomId) {
+      const { supabase } = await import("../supabase");
+      await supabase.from("student_quiz_results").upsert(
+        {
+          student_id: result.studentId,
+          classroom_id: result.classroomId,
+          quiz_title: result.quizTitle,
+          total_score: result.totalScore,
+          max_score: result.maxScore,
+          score_percentage: result.scorePercentage,
+          item_results: result.results || [],
+          graded_at: result.gradedAt || new Date().toISOString(),
+        },
+        { onConflict: "student_id,classroom_id,quiz_title" }
+      );
+    }
+  } catch (cloudErr) {
+    console.warn("Could not sync student quiz result to Supabase:", cloudErr);
   }
 }
 
@@ -127,15 +157,56 @@ export async function getAllStudentQuizResults(
   classroomId: string
 ): Promise<StudentQuizResult[]> {
   const key = getStorageKey(classroomId);
+  let localResults: StudentQuizResult[] = [];
   try {
     const json = await AsyncStorage.getItem(key);
     if (json) {
-      return JSON.parse(json);
+      localResults = JSON.parse(json);
     }
   } catch (err) {
     console.error("Failed to load student quiz results:", err);
   }
-  return [];
+
+  // Attempt to merge from Supabase `student_quiz_results`
+  try {
+    if (process.env.EXPO_PUBLIC_SUPABASE_URL && classroomId) {
+      const { supabase } = await import("../supabase");
+      const { data, error } = await supabase
+        .from("student_quiz_results")
+        .select("*")
+        .eq("classroom_id", classroomId)
+        .order("graded_at", { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mergedMap = new Map<string, StudentQuizResult>();
+        for (const lr of localResults) {
+          mergedMap.set(`${lr.studentId}:::${lr.quizTitle}`, lr);
+        }
+        for (const row of data) {
+          const k = `${row.student_id}:::${row.quiz_title}`;
+          const existing = mergedMap.get(k);
+          mergedMap.set(k, {
+            studentId: row.student_id,
+            studentName: existing?.studentName || "",
+            classroomId: row.classroom_id,
+            quizTitle: row.quiz_title,
+            scorePercentage: Number(row.score_percentage) || 0,
+            totalScore: Number(row.total_score) || 0,
+            maxScore: Number(row.max_score) || 0,
+            results: Array.isArray(row.item_results) ? row.item_results : (existing?.results || []),
+            gradedAt: row.graded_at || existing?.gradedAt || new Date().toISOString(),
+          });
+        }
+        const merged = Array.from(mergedMap.values());
+        await AsyncStorage.setItem(key, JSON.stringify(merged)).catch(() => {});
+        return merged;
+      }
+    }
+  } catch {
+    // Ignore cloud fetch errors when offline or table not migrated yet
+  }
+
+  return localResults;
 }
 
 // ── Get Results for a Specific Student ────────────────────────────────────────
@@ -515,7 +586,7 @@ export function generateDemoQuizAnalysis(
       })
     : defaultItems;
 
-  const questionBreakdown: QuestionAnalysisSummary[] = itemsToUse.map((item) => {
+  const questionBreakdown: QuestionAnalysisSummary[] = itemsToUse.map((item: any) => {
     const correctCount = Math.max(1, Math.round((item.accuracy / 100) * totalStudents));
     const incorrectCount = totalStudents - correctCount;
     const accuracyRate = Math.round((correctCount / totalStudents) * 100);

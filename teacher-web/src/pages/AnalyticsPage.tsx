@@ -13,6 +13,7 @@ import {
   Target,
 } from "lucide-react";
 import styles from "./AnalyticsPage.module.css";
+import { normalizeStudentRecord } from "../lib/studentNameUtils";
 
 type ClassroomOption = {
   id: string;
@@ -22,6 +23,9 @@ type ClassroomOption = {
 
 type StudentRecord = {
   id: string;
+  last_name?: string;
+  first_name?: string;
+  middle_name?: string | null;
   full_name: string;
   email: string | null;
   average: number;
@@ -68,11 +72,14 @@ export default function AnalyticsPage() {
           .select("*")
           .in("classroom_id", classIds);
 
-        const mappedStudents: StudentRecord[] = (studs || []).map((s) => ({
-          ...s,
-          average: s.average != null ? Number(s.average) : 0,
-          classroom_name: clsMap[s.classroom_id] || "Classroom",
-        }));
+        const mappedStudents: StudentRecord[] = (studs || []).map((s) => {
+          const norm = normalizeStudentRecord(s);
+          return {
+            ...norm,
+            average: s.average != null ? Number(s.average) : 0,
+            classroom_name: clsMap[s.classroom_id] || "Classroom",
+          };
+        });
         setStudents(mappedStudents);
       }
     } catch (err) {

@@ -82,12 +82,27 @@ function runExcelScoreTests() {
     assert(d3Cell && d3Cell.t === 'n' && d3Cell.v === 24, `Jane Quiz 1 cell is numeric 24 (got ${JSON.stringify(d3Cell)})`);
     assert(e3Cell === undefined, `Jane Quiz 2 cell is blank/undefined (got ${JSON.stringify(e3Cell)})`);
 
-    // Verify existing roster export generateExcelClasslistBase64 remains intact
+    // Verify roster export generateExcelClasslistBase64 has Last Name, First Name, Middle Name, and Quiz 1, Quiz 2 scores (no Average %)
     const rosterBase64 = generateExcelClasslistBase64({
         classroomTitle: 'BSIT-4 Networking',
-        students: [{ full_name: 'Doe, John', email: 'john@example.com', average: 85, attendance: 100 }],
+        students: [
+            { id: 's1', last_name: 'Doe', first_name: 'John', middle_name: 'M.', full_name: 'Doe, John M.', email: 'john@example.com', average: 85, attendance: 100 },
+        ],
+        quizzes,
+        results,
     });
     assert(Boolean(rosterBase64 && rosterBase64.length > 500), 'Existing generateExcelClasslistBase64 roster export remains unchanged and working');
+    const rosterWb = XLSX.read(rosterBase64, { type: 'base64' });
+    const rosterSheet = rosterWb.Sheets[rosterWb.SheetNames[0]];
+    const rosterRows: any[][] = XLSX.utils.sheet_to_json(rosterSheet, { header: 1, defval: undefined });
+    const rosterHeader = rosterRows.find((r) => r && r[0] === 'Item') || [];
+    assert(rosterHeader[1] === 'Last Name', 'Classlist col 1 is "Last Name"');
+    assert(rosterHeader[2] === 'First Name', 'Classlist col 2 is "First Name"');
+    assert(rosterHeader[3] === 'Middle Name', 'Classlist col 3 is "Middle Name"');
+    assert(rosterHeader[4] === 'Email Address', 'Classlist col 4 is "Email Address"');
+    assert(rosterHeader[5] === 'Quiz 1: Network Concepts (25 pts)', 'Classlist col 5 is Quiz 1');
+    assert(rosterHeader[6] === 'Quiz 2: Server Architecture (20 pts)', 'Classlist col 6 is Quiz 2');
+    assert(!JSON.stringify(rosterHeader).toLowerCase().includes('average'), 'Classlist header does NOT contain Average');
 
     console.log(`\nResults: ${passed} passed, ${failed} failed.\n`);
     if (failed > 0) process.exit(1);

@@ -221,7 +221,7 @@ function drawAllInOneHeader(
 
     // Student information line
     const infoY = startY - 62;
-    page.drawText('Name: _____________________________________________   Date: ________________   Section: ____________', {
+    page.drawText('Last Name: ____________, First Name: ____________, Middle Name: _________   Date: _________   Section: _______', {
         x: MARGINS.left,
         y: infoY,
         size: 8.0,

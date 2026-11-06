@@ -16,6 +16,9 @@ export interface ParsedClasslistMetadata {
 
 export interface ParsedStudentRow {
   studentId?: string;
+  lastName: string;
+  firstName: string;
+  middleName?: string | null;
   fullName: string;
   gender?: string;
   course?: string;
@@ -31,7 +34,135 @@ export interface ParsedClasslistResult {
   totalDetected: number;
 }
 
-// ── Name Formatting ─────────────────────────────────────────────────────────
+// ── Name Formatting & Splitting Helpers ─────────────────────────────────────
+
+/**
+ * Splits a combined full name string into { last_name, first_name, middle_name }.
+ * Handles both "Lastname, Firstname [Middlename]" and "Firstname [Middlename] Lastname".
+ */
+export function splitStudentFullName(rawName: string): {
+  last_name: string;
+  first_name: string;
+  middle_name: string | null;
+} {
+  const cleaned = (rawName || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) {
+    return { last_name: "", first_name: "", middle_name: null };
+  }
+
+  if (cleaned.includes(",")) {
+    const [lastPart, ...restParts] = cleaned.split(",");
+    const last_name = lastPart.trim();
+    const afterComma = restParts.join(",").trim();
+    const tokens = afterComma.split(" ").filter(Boolean);
+    if (tokens.length === 0) {
+      return { last_name, first_name: "", middle_name: null };
+    }
+    if (tokens.length === 1) {
+      return { last_name, first_name: tokens[0], middle_name: null };
+    }
+    const middle_name = tokens[tokens.length - 1];
+    const first_name = tokens.slice(0, -1).join(" ");
+    return { last_name, first_name, middle_name: middle_name || null };
+  }
+
+  const tokens = cleaned.split(" ").filter(Boolean);
+  if (tokens.length === 1) {
+    return { last_name: tokens[0], first_name: "", middle_name: null };
+  }
+  if (tokens.length === 2) {
+    return { last_name: tokens[1], first_name: tokens[0], middle_name: null };
+  }
+
+  // Check for compound Filipino/Spanish surnames like "Dela Cruz", "De Guzman", "De Los Reyes", "San Jose"
+  const compoundPrefixes = new Set(["dela", "de", "del", "delos", "san", "sta", "sta.", "st", "st."]);
+  let lastStartIdx = tokens.length - 1;
+  if (
+    lastStartIdx >= 2 &&
+    compoundPrefixes.has(tokens[lastStartIdx - 1].toLowerCase())
+  ) {
+    lastStartIdx -= 1;
+    if (
+      lastStartIdx >= 2 &&
+      tokens[lastStartIdx - 1].toLowerCase() === "de" &&
+      (tokens[lastStartIdx].toLowerCase() === "la" || tokens[lastStartIdx].toLowerCase() === "los" || tokens[lastStartIdx].toLowerCase() === "las")
+    ) {
+      lastStartIdx -= 1;
+    }
+  }
+
+  const last_name = tokens.slice(lastStartIdx).join(" ");
+  const beforeLast = tokens.slice(0, lastStartIdx);
+  if (beforeLast.length === 1) {
+    return { last_name, first_name: beforeLast[0], middle_name: null };
+  }
+  const first_name = beforeLast[0];
+  const middle_name = beforeLast.slice(1).join(" ");
+  return { last_name, first_name, middle_name: middle_name || null };
+}
+
+/**
+ * Formats { last_name, first_name, middle_name } into "Last Name, First Name Middle Name".
+ */
+export function formatStudentFullName(student: {
+  last_name?: string | null;
+  first_name?: string | null;
+  middle_name?: string | null;
+  full_name?: string | null;
+}): string {
+  const last = (student.last_name || "").trim();
+  const first = (student.first_name || "").trim();
+  const middle = (student.middle_name || "").trim();
+
+  if (last && first) {
+    return `${last}, ${first}${middle ? ` ${middle}` : ""}`;
+  }
+  if (last) {
+    return `${last}${middle ? ` ${middle}` : ""}`;
+  }
+  if (first) {
+    return `${first}${middle ? ` ${middle}` : ""}`;
+  }
+  return (student.full_name || "").trim();
+}
+
+/**
+ * Normalizes a database student row so that last_name, first_name, middle_name, and full_name
+ * are always populated consistently.
+ */
+export function normalizeStudentRecord<T extends Record<string, any>>(
+  row: T
+): T & {
+  last_name: string;
+  first_name: string;
+  middle_name: string | null;
+  full_name: string;
+} {
+  const hasSplit = Boolean(
+    (row.last_name && String(row.last_name).trim()) ||
+      (row.first_name && String(row.first_name).trim())
+  );
+  const split = hasSplit
+    ? {
+        last_name: String(row.last_name || "").trim(),
+        first_name: String(row.first_name || "").trim(),
+        middle_name: row.middle_name ? String(row.middle_name).trim() || null : null,
+      }
+    : splitStudentFullName(String(row.full_name || ""));
+
+  const full_name = formatStudentFullName({
+    ...split,
+    full_name: row.full_name,
+  });
+
+  return {
+    ...row,
+    last_name: split.last_name,
+    first_name: split.first_name,
+    middle_name: split.middle_name,
+    full_name,
+  };
+}
 
 /**
  * Converts an all-caps string to Smart Title Case.
@@ -159,6 +290,10 @@ const HEADER_KEYWORDS = [
   "student id",
   "student's name",
   "student name",
+  "last name",
+  "first name",
+  "middle name",
+  "surname",
   "name",
   "gender",
   "course",
@@ -209,9 +344,16 @@ function mapHeaderColumns(headerRow: any[]): Record<string, number> {
     const text = cellToString(headerRow[c]).toLowerCase();
     if (text.includes("student id") || text === "id") {
       map["studentId"] = c;
+    } else if (text.includes("last name") || text === "lastname" || text.includes("surname") || text === "family name") {
+      map["lastName"] = c;
+    } else if (text.includes("first name") || text === "firstname" || text.includes("given name")) {
+      map["firstName"] = c;
+    } else if (text.includes("middle name") || text === "middlename" || text.includes("middle initial") || text === "m.i." || text === "mi") {
+      map["middleName"] = c;
     } else if (
       text.includes("student's name") ||
       text.includes("student name") ||
+      text === "full name" ||
       text === "name"
     ) {
       map["fullName"] = c;
@@ -275,7 +417,7 @@ export async function parseClasslistFile(
   const headerIdx = findHeaderRow(rows);
   if (headerIdx === -1) {
     throw new Error(
-      "Could not detect a student roster table in this spreadsheet. Expected columns like 'Student ID', 'Student's Name', etc."
+      "Could not detect a student roster table in this spreadsheet. Expected columns like 'Last Name', 'First Name', or 'Student's Name'."
     );
   }
 
@@ -292,18 +434,44 @@ export async function parseClasslistFile(
     const row = rows[r];
     if (!row) continue;
 
-    // Get the full name — this is the required field
-    const nameIdx = colMap["fullName"];
-    if (nameIdx === undefined) continue;
+    let lastName = "";
+    let firstName = "";
+    let middleName: string | null = null;
+    let formattedName = "";
 
-    const rawName = cellToString(row[nameIdx]);
-    if (!rawName || rawName.length < 2) continue;
+    if (colMap["lastName"] !== undefined || colMap["firstName"] !== undefined) {
+      const rawLast = colMap["lastName"] !== undefined ? cellToString(row[colMap["lastName"]]) : "";
+      const rawFirst = colMap["firstName"] !== undefined ? cellToString(row[colMap["firstName"]]) : "";
+      const rawMid = colMap["middleName"] !== undefined ? cleanNullable(row[colMap["middleName"]]) : null;
 
-    // Skip summary/total rows
-    if (/^(total|subtotal|count|summary)/i.test(rawName)) continue;
+      if (!rawLast && !rawFirst) continue;
+      if (/^(total|subtotal|count|summary)/i.test(rawLast || rawFirst)) continue;
 
-    // Format name: Smart Title Case, preserving "LASTNAME, FIRSTNAME" order
-    const formattedName = toSmartTitleCase(rawName);
+      lastName = toSmartTitleCase(rawLast);
+      firstName = toSmartTitleCase(rawFirst);
+      middleName = rawMid ? toSmartTitleCase(rawMid) : null;
+      formattedName = formatStudentFullName({
+        last_name: lastName,
+        first_name: firstName,
+        middle_name: middleName,
+      });
+    } else {
+      const nameIdx = colMap["fullName"];
+      if (nameIdx === undefined) continue;
+
+      const rawName = cellToString(row[nameIdx]);
+      if (!rawName || rawName.length < 2) continue;
+
+      // Skip summary/total rows
+      if (/^(total|subtotal|count|summary)/i.test(rawName)) continue;
+
+      formattedName = toSmartTitleCase(rawName);
+      const split = splitStudentFullName(formattedName);
+      lastName = split.last_name;
+      firstName = split.first_name;
+      middleName = split.middle_name;
+      formattedName = formatStudentFullName(split) || formattedName;
+    }
 
     const studentId = colMap["studentId"] !== undefined
       ? cleanNullable(row[colMap["studentId"]])
@@ -331,6 +499,9 @@ export async function parseClasslistFile(
 
     rawStudents.push({
       studentId: studentId ?? undefined,
+      lastName,
+      firstName,
+      middleName,
       fullName: formattedName,
       gender: gender ?? undefined,
       course: course ?? undefined,
@@ -341,9 +512,9 @@ export async function parseClasslistFile(
     });
   }
 
-  // 5. Sort students alphabetically by surname (since names are in "Lastname, Firstname" format)
+  // 5. Sort students alphabetically by surname
   const sortedStudents = rawStudents.sort((a, b) =>
-    a.fullName.localeCompare(b.fullName, "en", { sensitivity: "base" })
+    (a.lastName || a.fullName).localeCompare(b.lastName || b.fullName, "en", { sensitivity: "base" })
   );
 
   return {
@@ -381,14 +552,26 @@ export function deriveSection(students: ParsedStudentRow[]): string {
  */
 export function isDuplicateStudent(
   newStudent: ParsedStudentRow,
-  existingRoster: Array<{ full_name: string; email?: string | null }>
+  existingRoster: Array<{ full_name?: string; last_name?: string; first_name?: string; middle_name?: string | null; email?: string | null }>
 ): boolean {
   const newNameNorm = newStudent.fullName.toLowerCase().replace(/\s+/g, " ").trim();
   const newEmail = newStudent.email?.toLowerCase().trim();
 
   return existingRoster.some((existing) => {
-    const existNameNorm = existing.full_name.toLowerCase().replace(/\s+/g, " ").trim();
+    const existFull = formatStudentFullName(existing) || existing.full_name || "";
+    const existNameNorm = existFull.toLowerCase().replace(/\s+/g, " ").trim();
     if (existNameNorm === newNameNorm) return true;
+
+    if (
+      existing.last_name &&
+      existing.first_name &&
+      newStudent.lastName &&
+      newStudent.firstName &&
+      existing.last_name.trim().toLowerCase() === newStudent.lastName.trim().toLowerCase() &&
+      existing.first_name.trim().toLowerCase() === newStudent.firstName.trim().toLowerCase()
+    ) {
+      return true;
+    }
 
     if (newEmail && existing.email) {
       return existing.email.toLowerCase().trim() === newEmail;
@@ -408,19 +591,46 @@ export interface ExportClasslistOptions {
   schedule?: string;
   teacher?: string;
   students: Array<{
+    id?: string;
     full_name: string;
+    last_name?: string;
+    first_name?: string;
+    middle_name?: string | null;
     email?: string | null;
     average?: number;
     attendance?: number;
   }>;
+  quizzes?: Array<{ id?: string; quizTitle: string; maxScore?: number }>;
+  results?: Array<{ studentId?: string; studentName: string; quizTitle: string; totalScore: number }>;
 }
 
 /**
- * Generates an Excel workbook (.xlsx) from classroom metadata and student roster,
- * returning the base64 string representation ready for FileSystem & Sharing.
+ * Formats a quiz column header as "Quiz 1: <Title> (<Max> pts)" or "Quiz 1"
+ */
+export function formatQuizColumnHeader(
+  quiz: { quizTitle: string; maxScore?: number },
+  index: number
+): string {
+  const rawTitle = (quiz.quizTitle || "").trim();
+  const hasQuizPrefix = /^quiz\s*\d+/i.test(rawTitle);
+  const baseTitle = rawTitle
+    ? hasQuizPrefix
+      ? rawTitle
+      : `Quiz ${index + 1}: ${rawTitle}`
+    : `Quiz ${index + 1}`;
+  if (typeof quiz.maxScore === "number" && quiz.maxScore > 0) {
+    return `${baseTitle} (${quiz.maxScore} pts)`;
+  }
+  return baseTitle;
+}
+
+/**
+ * Generates an Excel workbook (.xlsx) from classroom metadata, student roster
+ * (with Last Name, First Name, Middle Name), and individual Quiz 1, Quiz 2, Quiz 3... scores
+ * (never Average % score).
  */
 export function generateExcelClasslistBase64(options: ExportClasslistOptions): string {
-  const { classroomTitle, subject, section, room, schedule, teacher, students } = options;
+  const { classroomTitle, subject, section, room, schedule, teacher, students, quizzes = [], results = [] } = options;
 
   const formattedDate = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -428,37 +638,73 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
     day: "numeric",
   });
 
+  // Determine quiz columns: use provided quizzes, or derive from results, or default to Quiz 1, Quiz 2, Quiz 3
+  const effectiveQuizzes: Array<{ quizTitle: string; maxScore?: number }> =
+    quizzes.length > 0
+      ? quizzes
+      : results.length > 0
+        ? Array.from(new Set(results.map((r) => r.quizTitle.trim()).filter(Boolean))).map((qt) => ({
+            quizTitle: qt,
+          }))
+        : [
+            { quizTitle: "Quiz 1" },
+            { quizTitle: "Quiz 2" },
+            { quizTitle: "Quiz 3" },
+          ];
+
+  const quizHeaders = effectiveQuizzes.map((q, idx) => formatQuizColumnHeader(q, idx));
+
+  // Build fast lookup map by studentId:::quizTitle and studentName:::quizTitle
+  const scoreById = new Map<string, number>();
+  const scoreByName = new Map<string, number>();
+
+  for (const r of results) {
+    const qTitle = (r.quizTitle || "").trim().toLowerCase();
+    if (r.studentId) {
+      scoreById.set(`${r.studentId}:::${qTitle}`, r.totalScore);
+    }
+    if (r.studentName) {
+      scoreByName.set(`${r.studentName.trim().toLowerCase()}:::${qTitle}`, r.totalScore);
+    }
+  }
+
   // Build rows array for SheetJS
   const rows: any[][] = [
-    ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
+    ["TSEKI - CLASS ROSTER & QUIZ SCORES RECORD"],
     ["Classroom:", classroomTitle, "", "Subject:", subject || "N/A"],
     ["Section:", section || "N/A", "", "Room:", room || "N/A"],
     ["Schedule:", schedule || "N/A", "", "Teacher:", teacher || "N/A"],
     ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
     [], // Blank separator row
-    ["Item", "Student's Name", "Email Address", "Attendance (%)", "Average Grade (%)", "Academic Status"],
+    ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders],
   ];
 
-  // Populate student records
+  // Populate student records with individual quiz scores (no average % column)
   students.forEach((s, idx) => {
-    const avg = s.average ?? 0;
-    let status = "On Track";
-    if (avg > 50) {
-      status = "Passing";
-    }
-    if (avg <= 50 && avg > 0) {
-      status = "At-Risk";
-    } else if (avg === 0) {
-      status = "No Grades Recorded";
-    }
+    const norm = normalizeStudentRecord(s);
+    const normFull = (norm.full_name || "").trim().toLowerCase();
+    const normSimple = `${norm.first_name} ${norm.last_name}`.trim().toLowerCase();
+
+    const quizScoreCells = effectiveQuizzes.map((q) => {
+      const qTitle = (q.quizTitle || "").trim().toLowerCase();
+      let score: number | undefined;
+      if (s.id && scoreById.has(`${s.id}:::${qTitle}`)) {
+        score = scoreById.get(`${s.id}:::${qTitle}`);
+      } else if (scoreByName.has(`${normFull}:::${qTitle}`)) {
+        score = scoreByName.get(`${normFull}:::${qTitle}`);
+      } else if (scoreByName.has(`${normSimple}:::${qTitle}`)) {
+        score = scoreByName.get(`${normSimple}:::${qTitle}`);
+      }
+      return typeof score === "number" && !Number.isNaN(score) ? { t: "n", v: score } : undefined;
+    });
 
     rows.push([
       idx + 1,
-      s.full_name,
+      norm.last_name,
+      norm.first_name,
+      norm.middle_name || "",
       s.email || "N/A",
-      s.attendance !== undefined ? `${s.attendance}%` : "100%",
-      `${avg}%`,
-      status,
+      ...quizScoreCells,
     ]);
   });
 
@@ -467,11 +713,11 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
   // Set standard column widths so text is nicely readable in Excel
   ws["!cols"] = [
     { wch: 8 },  // Item
-    { wch: 34 }, // Student's Name
-    { wch: 32 }, // Email Address
-    { wch: 18 }, // Attendance (%)
-    { wch: 20 }, // Average Grade (%)
-    { wch: 20 }, // Academic Status
+    { wch: 22 }, // Last Name
+    { wch: 22 }, // First Name
+    { wch: 18 }, // Middle Name
+    { wch: 30 }, // Email Address
+    ...quizHeaders.map((h) => ({ wch: Math.max(16, h.length + 4) })),
   ];
 
   const wb = XLSX.utils.book_new();
@@ -487,7 +733,14 @@ export interface ScoreExportOptions {
   classroomTitle: string;
   subject?: string;
   section?: string;
-  students: Array<{ id?: string; full_name: string; studentId?: string }>;
+  students: Array<{
+    id?: string;
+    full_name: string;
+    last_name?: string;
+    first_name?: string;
+    middle_name?: string | null;
+    studentId?: string;
+  }>;
   quizzes: Array<{ id: string; quizTitle: string; maxScore: number }>;
   results: Array<{ studentId?: string; studentName: string; quizTitle: string; totalScore: number }>;
 }
@@ -505,7 +758,7 @@ export function generateScoreExportBase64(options: ScoreExportOptions): string {
     "#",
     "Student ID",
     "Student Name",
-    ...quizzes.map((q) => `${q.quizTitle.trim()} (${q.maxScore} pts)`),
+    ...quizzes.map((q, idx) => formatQuizColumnHeader(q, idx)),
   ];
 
   // Build fast lookup map by studentId:::quizTitle and studentName:::quizTitle
@@ -525,13 +778,16 @@ export function generateScoreExportBase64(options: ScoreExportOptions): string {
   const rows: any[][] = [headerRow];
 
   students.forEach((student, idx) => {
+    const norm = normalizeStudentRecord(student);
+    const displayName = norm.full_name || student.full_name;
     const row: any[] = [
       { t: "n", v: idx + 1 },
       student.studentId || "",
-      student.full_name,
+      displayName,
     ];
 
-    const normName = (student.full_name || "").trim().toLowerCase();
+    const normName = (displayName || "").trim().toLowerCase();
+    const normAlt = `${norm.first_name} ${norm.last_name}`.trim().toLowerCase();
 
     for (const q of quizzes) {
       const qTitle = (q.quizTitle || "").trim().toLowerCase();
@@ -541,6 +797,8 @@ export function generateScoreExportBase64(options: ScoreExportOptions): string {
         score = scoreById.get(`${student.id}:::${qTitle}`);
       } else if (scoreByName.has(`${normName}:::${qTitle}`)) {
         score = scoreByName.get(`${normName}:::${qTitle}`);
+      } else if (scoreByName.has(`${normAlt}:::${qTitle}`)) {
+        score = scoreByName.get(`${normAlt}:::${qTitle}`);
       }
 
       if (typeof score === "number" && !Number.isNaN(score)) {
@@ -559,7 +817,7 @@ export function generateScoreExportBase64(options: ScoreExportOptions): string {
     { wch: 6 },  // #
     { wch: 16 }, // Student ID
     { wch: 34 }, // Student Name
-    ...quizzes.map((q) => ({ wch: Math.max(18, q.quizTitle.length + 10) })),
+    ...quizzes.map((q, idx) => ({ wch: Math.max(18, formatQuizColumnHeader(q, idx).length + 4) })),
   ];
 
   const wb = XLSX.utils.book_new();

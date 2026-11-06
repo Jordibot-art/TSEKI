@@ -235,10 +235,10 @@ function drawAnswerSheetHeader(
 
     // Student Information line (below 56pt QR code)
     const infoY = startY - 64;
-    page.drawText('Name: _____________________________________________   Date: ________________   Section: ____________', {
+    page.drawText('Last Name: ____________, First Name: ____________, Middle Name: _________   Date: _________   Section: _______', {
         x: MARGINS.left,
         y: infoY,
-        size: 8.5,
+        size: 8.0,
         font: fontBold,
         color: rgb(0.15, 0.15, 0.15),
     });
@@ -290,10 +290,10 @@ function drawContinuationSheetHeader(
         color: rgb(0.1, 0.12, 0.16),
     });
 
-    page.drawText('Name: _____________________________________________', {
+    page.drawText('Last Name: ____________, First Name: ____________, Middle Name: _________', {
         x: MARGINS.left + 24,
         y: startY - 44,
-        size: 8.5,
+        size: 8.0,
         font,
         color: rgb(0.2, 0.2, 0.2),
     });

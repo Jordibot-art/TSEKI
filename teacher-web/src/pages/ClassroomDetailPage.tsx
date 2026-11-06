@@ -26,9 +26,18 @@ import {
 } from "lucide-react";
 import styles from "./ClassroomDetailPage.module.css";
 import { showAlert, showConfirm } from "../components/CustomAlertModal";
+import {
+  formatQuizColumnHeader,
+  formatStudentFullName,
+  normalizeStudentRecord,
+  splitStudentFullName,
+} from "../lib/studentNameUtils";
 
 type Student = {
   id: string;
+  last_name?: string;
+  first_name?: string;
+  middle_name?: string | null;
   full_name: string;
   email: string | null;
   average: number;
@@ -41,6 +50,23 @@ type Quiz = {
   status: string;
   created_at: string;
   questions: any[];
+  answer_key?: any[];
+};
+
+type StudentQuizResultRow = {
+  student_id: string;
+  quiz_id?: string | null;
+  quiz_title: string;
+  total_score: number;
+  max_score: number;
+};
+
+type BulkImportCandidate = {
+  lastName: string;
+  firstName: string;
+  middleName: string | null;
+  fullName: string;
+  email: string;
 };
 
 type ClassroomInfo = {
@@ -61,19 +87,22 @@ export default function ClassroomDetailPage() {
   const [classroom, setClassroom] = useState<ClassroomInfo | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [quizResults, setQuizResults] = useState<StudentQuizResultRow[]>([]);
   const [activeTab, setActiveTab] = useState<"roster" | "quizzes">("roster");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [newStudentName, setNewStudentName] = useState("");
+  const [newLastName, setNewLastName] = useState("");
+  const [newFirstName, setNewFirstName] = useState("");
+  const [newMiddleName, setNewMiddleName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   // Excel import/export state
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [bulkImporting, setBulkImporting] = useState(false);
-  const [bulkImportPreview, setBulkImportPreview] = useState<{ name: string; email: string }[]>([]);
+  const [bulkImportPreview, setBulkImportPreview] = useState<BulkImportCandidate[]>([]);
   const [bulkImportFileName, setBulkImportFileName] = useState("");
   const [bulkImportResult, setBulkImportResult] = useState<{ success: number; failed: number } | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -110,10 +139,14 @@ export default function ClassroomDetailPage() {
       const { data: studs } = await supabase
         .from("students")
         .select("*")
-        .eq("classroom_id", id)
-        .order("full_name", { ascending: true });
+        .eq("classroom_id", id);
 
-      setStudents(studs || []);
+      const normalizedStuds = ((studs || []) as Student[])
+        .map((s) => normalizeStudentRecord(s))
+        .sort((a, b) =>
+          (a.last_name || a.full_name).localeCompare(b.last_name || b.full_name)
+        );
+      setStudents(normalizedStuds);
 
       const { data: qz } = await supabase
         .from("archived_assessments")
@@ -122,6 +155,14 @@ export default function ClassroomDetailPage() {
         .order("created_at", { ascending: false });
 
       setQuizzes(qz || []);
+
+      // Load individual student quiz results if available
+      const { data: qResults } = await supabase
+        .from("student_quiz_results")
+        .select("student_id, quiz_id, quiz_title, total_score, max_score")
+        .eq("classroom_id", id);
+
+      setQuizResults((qResults as StudentQuizResultRow[]) || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -131,18 +172,45 @@ export default function ClassroomDetailPage() {
 
   async function handleAddStudent(e: React.FormEvent) {
     e.preventDefault();
-    if (!newStudentName.trim()) return;
+    const ln = newLastName.trim();
+    const fn = newFirstName.trim();
+    const mn = newMiddleName.trim() || null;
+    if (!ln && !fn) return;
     setSaving(true);
 
+    const formattedFullName = formatStudentFullName({
+      last_name: ln,
+      first_name: fn,
+      middle_name: mn,
+    });
+
     try {
-      await supabase.from("students").insert({
+      let { error } = await supabase.from("students").insert({
         classroom_id: id,
-        full_name: newStudentName.trim(),
+        last_name: ln,
+        first_name: fn,
+        middle_name: mn,
+        full_name: formattedFullName,
         email: newStudentEmail.trim() || null,
         average: 0,
       });
+
+      if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+        const fallback = await supabase.from("students").insert({
+          classroom_id: id,
+          full_name: formattedFullName,
+          email: newStudentEmail.trim() || null,
+          average: 0,
+        });
+        error = fallback.error;
+      }
+
+      if (error) throw error;
+
       setShowAddModal(false);
-      setNewStudentName("");
+      setNewLastName("");
+      setNewFirstName("");
+      setNewMiddleName("");
       setNewStudentEmail("");
       await loadData();
     } catch (err) {
@@ -195,76 +263,103 @@ export default function ClassroomDetailPage() {
     }
   }
 
-  /* ── Excel Export ── */
+  /* ── Excel Export (Quiz 1, Quiz 2, Quiz 3... Scores — NOT Average %) ── */
   function exportToExcel() {
     setExporting(true);
     try {
-      // Sheet 1: Student Roster with Scores
+      // Build chronological quizzes (oldest first so Quiz 1, Quiz 2, Quiz 3...)
+      const chronologicalQuizzes = [...quizzes]
+        .reverse()
+        .map((q) => {
+          const maxScore =
+            (q.answer_key || []).reduce((sum: number, k: any) => sum + (Number(k?.points) || 1), 0) ||
+            (q.questions?.length || 0);
+          return {
+            id: q.id,
+            quizTitle: q.quiz_title,
+            maxScore,
+          };
+        });
+
+      const knownTitles = new Set(chronologicalQuizzes.map((q) => q.quizTitle.toLowerCase().trim()));
+      for (const r of quizResults) {
+        const normTitle = (r.quiz_title || "").toLowerCase().trim();
+        if (normTitle && !knownTitles.has(normTitle)) {
+          knownTitles.add(normTitle);
+          chronologicalQuizzes.push({
+            id: r.quiz_id || r.quiz_title,
+            quizTitle: r.quiz_title,
+            maxScore: r.max_score || 0,
+          });
+        }
+      }
+
+      const quizHeaders = chronologicalQuizzes.map((q, idx) =>
+        formatQuizColumnHeader(q.quizTitle, idx, q.maxScore)
+      );
+
+      // Sheet 1: Student Roster with Individual Quiz Scores (Quiz 1, Quiz 2, Quiz 3...)
       const rosterData = [
-        ["#", "Student Name", "Email", "Average Score (%)", "Status"],
-        ...students.map((s, i) => [
-          i + 1,
-          s.full_name,
-          s.email || "",
-          s.average > 0 ? Number(s.average.toFixed(1)) : 0,
-          s.average > 50 ? "On Track" : s.average > 0 ? "At Risk" : "No Data",
-        ]),
+        ["#", "Last Name", "First Name", "Middle Name", "Email", ...quizHeaders],
+        ...students.map((s, i) => {
+          const norm = normalizeStudentRecord(s);
+          const quizCells = chronologicalQuizzes.map((q) => {
+            const match = quizResults.find(
+              (r) =>
+                r.student_id === s.id &&
+                (r.quiz_id === q.id ||
+                  r.quiz_title.toLowerCase().trim() === q.quizTitle.toLowerCase().trim())
+            );
+            return match !== undefined ? Number(match.total_score) : "";
+          });
+          return [
+            i + 1,
+            norm.last_name || "",
+            norm.first_name || "",
+            norm.middle_name || "",
+            s.email || "",
+            ...quizCells,
+          ];
+        }),
       ];
       const rosterSheet = XLSX.utils.aoa_to_sheet(rosterData);
-      // Set column widths
       rosterSheet["!cols"] = [
-        { wch: 5 }, { wch: 30 }, { wch: 28 }, { wch: 18 }, { wch: 12 },
+        { wch: 5 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 28 },
+        ...chronologicalQuizzes.map((q, idx) => ({
+          wch: Math.max(formatQuizColumnHeader(q.quizTitle, idx, q.maxScore).length + 4, 16),
+        })),
       ];
 
-      // Sheet 2: Class Analytics Summary
-      const passCount = students.filter((s) => s.average >= 50).length;
-      const failCount = students.filter((s) => s.average > 0 && s.average < 50).length;
-      const noDataCount = students.filter((s) => s.average === 0).length;
-      const highest = students.length ? Math.max(...students.map((s) => s.average)) : 0;
-      const lowest = students.length
-        ? Math.min(...students.filter((s) => s.average > 0).map((s) => s.average))
-        : 0;
-
-      const analyticsData = [
-        ["Class Analytics — " + (classroom?.title || "")],
-        [],
-        ["Metric", "Value"],
-        ["Total Students", students.length],
-        ["Class Average", classAverage > 0 ? Number(classAverage.toFixed(1)) + "%" : "—"],
-        ["Highest Score", highest > 0 ? highest.toFixed(1) + "%" : "—"],
-        ["Lowest Score", lowest > 0 ? lowest.toFixed(1) + "%" : "—"],
-        ["On Track (≥50%)", passCount],
-        ["At Risk (<50%)", failCount],
-        ["No Data", noDataCount],
-        [],
-        ["Total Assessments", quizzes.length],
-      ];
-      const analyticsSheet = XLSX.utils.aoa_to_sheet(analyticsData);
-      analyticsSheet["!cols"] = [{ wch: 20 }, { wch: 18 }];
-
-      // Sheet 3: Assessment List
+      // Sheet 2: Assessment List
       const assessmentData = [
-        ["Assessment Title", "Subject", "Status", "Questions", "Date Created"],
-        ...quizzes.map((q) => [
-          q.quiz_title,
-          q.subject || "General",
-          q.status,
-          q.questions?.length || 0,
-          new Date(q.created_at).toLocaleDateString(),
-        ]),
+        ["Quiz #", "Assessment Title", "Subject", "Status", "Questions", "Date Created"],
+        ...chronologicalQuizzes.map((cq, idx) => {
+          const fullQuiz = quizzes.find((q) => q.id === cq.id || q.quiz_title === cq.quizTitle);
+          return [
+            `Quiz ${idx + 1}`,
+            cq.quizTitle,
+            fullQuiz?.subject || classroom?.subject || "General",
+            fullQuiz?.status || "PUBLISHED",
+            fullQuiz?.questions?.length || cq.maxScore || 0,
+            fullQuiz?.created_at ? new Date(fullQuiz.created_at).toLocaleDateString() : "—",
+          ];
+        }),
       ];
       const assessmentSheet = XLSX.utils.aoa_to_sheet(assessmentData);
       assessmentSheet["!cols"] = [
-        { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+        { wch: 10 }, { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
       ];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, rosterSheet, "Student Scores");
-      XLSX.utils.book_append_sheet(wb, analyticsSheet, "Class Analytics");
       XLSX.utils.book_append_sheet(wb, assessmentSheet, "Assessments");
 
       const cleanTitle = (classroom?.title || "classroom").trim().replace(/[^a-zA-Z0-9_\-\s]/g, "").replace(/\s+/g, "_");
-      const fileName = `${cleanTitle}_report.xlsx`;
+      const fileName = `${cleanTitle}_quiz_scores.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (err) {
       console.error("Export error", err);
@@ -288,13 +383,61 @@ export default function ClassroomDetailPage() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-        const preview: { name: string; email: string }[] = [];
+        if (rows.length < 2) {
+          setBulkImportPreview([]);
+          return;
+        }
+
+        const headerRow = (rows[0] || []).map((c: any) =>
+          String(c || "").toLowerCase().trim()
+        );
+        const lastIdx = headerRow.findIndex((h: string) => h.includes("last") || h === "surname" || h === "family name");
+        const firstIdx = headerRow.findIndex((h: string) => h.includes("first") || h === "given name");
+        const middleIdx = headerRow.findIndex((h: string) => h.includes("middle") || h === "mi" || h === "m.i.");
+        const emailIdx = headerRow.findIndex((h: string) => h.includes("email") || h.includes("e-mail"));
+        const hasSeparateCols = lastIdx !== -1 && firstIdx !== -1;
+
+        const preview: BulkImportCandidate[] = [];
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
-          const name = String(row[0] || "").trim();
-          const email = String(row[1] || "").trim();
-          if (name) {
-            preview.push({ name, email });
+          if (!row) continue;
+
+          if (hasSeparateCols) {
+            const lastName = String(row[lastIdx] || "").trim();
+            const firstName = String(row[firstIdx] || "").trim();
+            const middleName = middleIdx !== -1 ? String(row[middleIdx] || "").trim() || null : null;
+            const email = emailIdx !== -1 ? String(row[emailIdx] || "").trim() : "";
+            if (lastName || firstName) {
+              preview.push({
+                lastName,
+                firstName,
+                middleName,
+                fullName: formatStudentFullName({
+                  last_name: lastName,
+                  first_name: firstName,
+                  middle_name: middleName,
+                }),
+                email,
+              });
+            }
+          } else {
+            const rawName = String(row[0] || "").trim();
+            const email = String(row[emailIdx !== -1 ? emailIdx : 1] || "").trim();
+            if (rawName) {
+              const parts = splitStudentFullName(rawName);
+              preview.push({
+                lastName: parts.lastName,
+                firstName: parts.firstName,
+                middleName: parts.middleName,
+                fullName: formatStudentFullName({
+                  last_name: parts.lastName,
+                  first_name: parts.firstName,
+                  middle_name: parts.middleName,
+                  full_name: rawName,
+                }),
+                email,
+              });
+            }
           }
         }
         setBulkImportPreview(preview);
@@ -317,12 +460,26 @@ export default function ClassroomDetailPage() {
     try {
       const inserts = bulkImportPreview.map((s) => ({
         classroom_id: id,
-        full_name: s.name,
+        last_name: s.lastName,
+        first_name: s.firstName,
+        middle_name: s.middleName || null,
+        full_name: s.fullName,
         email: s.email || null,
         average: 0,
       }));
 
-      const { error } = await supabase.from("students").insert(inserts);
+      let { error } = await supabase.from("students").insert(inserts);
+      if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+        const fallbackInserts = bulkImportPreview.map((s) => ({
+          classroom_id: id,
+          full_name: s.fullName,
+          email: s.email || null,
+          average: 0,
+        }));
+        const fallback = await supabase.from("students").insert(fallbackInserts);
+        error = fallback.error;
+      }
+
       if (error) {
         console.error("Bulk insert error", error);
         failed = inserts.length;
@@ -350,12 +507,12 @@ export default function ClassroomDetailPage() {
 
   function downloadTemplate() {
     const templateData = [
-      ["Full Name", "Email (optional)"],
-      ["Juan Dela Cruz", "juan@email.com"],
-      ["Maria Santos", "maria@email.com"],
+      ["Last Name", "First Name", "Middle Name (optional)", "Email (optional)"],
+      ["Dela Cruz", "Juan", "Santos", "juan@email.com"],
+      ["Santos", "Maria", "", "maria@email.com"],
     ];
     const ws = XLSX.utils.aoa_to_sheet(templateData);
-    ws["!cols"] = [{ wch: 28 }, { wch: 28 }];
+    ws["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 28 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Students");
     XLSX.writeFile(wb, "student_import_template.xlsx");
@@ -363,7 +520,9 @@ export default function ClassroomDetailPage() {
 
   function getInitials(name: string) {
     return name
-      .split(" ")
+      .replace(/,/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
       .map((n) => n[0])
       .join("")
       .toUpperCase()
@@ -384,8 +543,12 @@ export default function ClassroomDetailPage() {
     return "var(--text-tertiary)";
   }
 
-  const filteredStudents = students.filter((s) =>
-    s.full_name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredStudents = students.filter(
+    (s) =>
+      s.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.last_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.first_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.middle_name || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const classAverage = students.length
@@ -510,7 +673,7 @@ export default function ClassroomDetailPage() {
                 className={styles.excelBtn}
                 onClick={exportToExcel}
                 disabled={exporting || students.length === 0}
-                title="Export student scores & analytics to Excel"
+                title="Export student quiz scores to Excel"
               >
                 <Download size={15} />
                 {exporting ? "Exporting…" : "Export"}
@@ -539,7 +702,7 @@ export default function ClassroomDetailPage() {
           ) : (
             <div className={styles.rosterTable}>
               <div className={styles.tableHeader}>
-                <span style={{ flex: 1 }}>Student</span>
+                <span style={{ flex: 1 }}>Student (Last, First Middle)</span>
                 <span style={{ width: 200 }}>Email</span>
                 <span style={{ width: 100, textAlign: "center" }}>Average</span>
                 <span style={{ width: 80, textAlign: "center" }}>Status</span>
@@ -651,15 +814,41 @@ export default function ClassroomDetailPage() {
                 <div className={styles.fieldGroup}>
                   <label>
                     <User size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
-                    Full Name *
+                    Last Name *
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Juan Dela Cruz"
-                    value={newStudentName}
-                    onChange={(e) => setNewStudentName(e.target.value)}
+                    placeholder="e.g. Dela Cruz"
+                    value={newLastName}
+                    onChange={(e) => setNewLastName(e.target.value)}
                     className={styles.input}
                     autoFocus
+                  />
+                </div>
+                <div className={styles.fieldGroup}>
+                  <label>
+                    <User size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                    First Name *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Juan"
+                    value={newFirstName}
+                    onChange={(e) => setNewFirstName(e.target.value)}
+                    className={styles.input}
+                  />
+                </div>
+                <div className={styles.fieldGroup}>
+                  <label>
+                    <User size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                    Middle Name (optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Santos"
+                    value={newMiddleName}
+                    onChange={(e) => setNewMiddleName(e.target.value)}
+                    className={styles.input}
                   />
                 </div>
                 <div className={styles.fieldGroup}>
@@ -687,7 +876,7 @@ export default function ClassroomDetailPage() {
                 <button
                   type="submit"
                   className={styles.saveBtn}
-                  disabled={saving || !newStudentName.trim()}
+                  disabled={saving || (!newLastName.trim() && !newFirstName.trim())}
                 >
                   {saving ? <Loader2 size={16} className={styles.spinner} /> : null}
                   Add Student
@@ -787,7 +976,7 @@ export default function ClassroomDetailPage() {
                       Drop an Excel file or <strong>click to browse</strong>
                     </p>
                     <p className={styles.uploadHint}>
-                      File should have columns: <strong>Full Name</strong>, <strong>Email</strong> (optional)
+                      File should have columns: <strong>Last Name</strong>, <strong>First Name</strong>, <strong>Middle Name</strong> (optional), <strong>Email</strong> (optional)
                     </p>
                     <input
                       ref={fileInputRef}
@@ -815,7 +1004,7 @@ export default function ClassroomDetailPage() {
                   <div className={styles.importPreviewList}>
                     {bulkImportPreview.slice(0, 10).map((s, i) => (
                       <div key={i} className={styles.importPreviewRow}>
-                        <span className={styles.importPreviewName}>{s.name}</span>
+                        <span className={styles.importPreviewName}>{s.fullName}</span>
                         <span className={styles.importPreviewEmail}>{s.email || "—"}</span>
                       </div>
                     ))}

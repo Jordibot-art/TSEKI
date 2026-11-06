@@ -38,9 +38,12 @@ import {
   RosterAlert,
 } from "../lib/alertStore";
 import {
+  formatQuizColumnHeader,
+  formatStudentFullName,
   generateExcelClasslistBase64,
   generateScoreExportBase64,
   isDuplicateStudent,
+  normalizeStudentRecord,
   parseClasslistFile,
   ParsedClasslistResult,
   ParsedStudentRow
@@ -57,6 +60,9 @@ import { supabase } from "../supabase";
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Student = {
   id: string;
+  last_name?: string;
+  first_name?: string;
+  middle_name?: string | null;
   full_name: string;
   email: string | null;
   average: number;
@@ -133,14 +139,18 @@ export default function ClassroomScreen() {
 
   // Add-student modal
   const [modalVisible, setModalVisible] = useState(false);
-  const [fullName, setFullName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [middleName, setMiddleName] = useState("");
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Edit-student modal state
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [studentToEdit, setStudentToEdit] = useState<Student | null>(null);
-  const [editFullName, setEditFullName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editMiddleName, setEditMiddleName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -407,7 +417,7 @@ export default function ClassroomScreen() {
       .order("created_at", { ascending: true });
 
     if (!error && data) {
-      setStudents(data as Student[]);
+      setStudents(data.map((row) => normalizeStudentRecord(row) as Student));
     } else {
       setStudents([]);
     }
@@ -416,7 +426,9 @@ export default function ClassroomScreen() {
 
   // ── Modal handlers ─────────────────────────────────────────────────────────
   function openAddModal() {
-    setFullName("");
+    setLastName("");
+    setFirstName("");
+    setMiddleName("");
     setEmail("");
     setModalVisible(true);
   }
@@ -427,14 +439,26 @@ export default function ClassroomScreen() {
   }
 
   async function handleAddStudent() {
-    if (!fullName.trim() || saving) return;
+    if (!lastName.trim() || !firstName.trim() || saving) return;
     setSaving(true);
 
-    const { data, error } = await supabase
+    const cleanLast = lastName.trim();
+    const cleanFirst = firstName.trim();
+    const cleanMiddle = middleName.trim() || null;
+    const computedFull = formatStudentFullName({
+      last_name: cleanLast,
+      first_name: cleanFirst,
+      middle_name: cleanMiddle,
+    });
+
+    let { data, error } = await supabase
       .from("students")
       .insert({
         classroom_id: id,
-        full_name: fullName.trim(),
+        last_name: cleanLast,
+        first_name: cleanFirst,
+        middle_name: cleanMiddle,
+        full_name: computedFull,
         email: email.trim() || null,
         attendance: 100,
         average: 0,
@@ -442,8 +466,24 @@ export default function ClassroomScreen() {
       .select()
       .single();
 
+    if (error && (error.code === "PGRST204" || error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+      const retry = await supabase
+        .from("students")
+        .insert({
+          classroom_id: id,
+          full_name: computedFull,
+          email: email.trim() || null,
+          attendance: 100,
+          average: 0,
+        })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (!error && data) {
-      setStudents((prev) => [...prev, data as Student]);
+      setStudents((prev) => [...prev, normalizeStudentRecord(data) as Student]);
     } else if (error) {
       Alert.alert("Error adding student", error.message);
     }
@@ -456,9 +496,12 @@ export default function ClassroomScreen() {
   // ── Edit Student Handlers ───────────────────────────────────────────────────
   function openEditModal(student: Student | null) {
     if (!student) return;
-    setStudentToEdit(student);
-    setEditFullName(student.full_name || "");
-    setEditEmail(student.email || "");
+    const norm = normalizeStudentRecord(student);
+    setStudentToEdit(norm);
+    setEditLastName(norm.last_name || "");
+    setEditFirstName(norm.first_name || "");
+    setEditMiddleName(norm.middle_name || "");
+    setEditEmail(norm.email || "");
     setEditModalVisible(true);
   }
 
@@ -469,20 +512,41 @@ export default function ClassroomScreen() {
   }
 
   async function handleSaveEditStudent() {
-    if (!studentToEdit || !editFullName.trim() || savingEdit) return;
+    if (!studentToEdit || !editLastName.trim() || !editFirstName.trim() || savingEdit) return;
     setSavingEdit(true);
 
     try {
-      const updatedName = editFullName.trim();
+      const cleanLast = editLastName.trim();
+      const cleanFirst = editFirstName.trim();
+      const cleanMiddle = editMiddleName.trim() ? editMiddleName.trim() : null;
+      const updatedName = formatStudentFullName({
+        last_name: cleanLast,
+        first_name: cleanFirst,
+        middle_name: cleanMiddle,
+      });
       const updatedEmail = editEmail.trim() ? editEmail.trim() : null;
 
-      const { error } = await supabase
+      let { error } = await supabase
         .from("students")
         .update({
+          last_name: cleanLast,
+          first_name: cleanFirst,
+          middle_name: cleanMiddle,
           full_name: updatedName,
           email: updatedEmail,
         })
         .eq("id", studentToEdit.id);
+
+      if (error && (error.code === "PGRST204" || error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+        const retry = await supabase
+          .from("students")
+          .update({
+            full_name: updatedName,
+            email: updatedEmail,
+          })
+          .eq("id", studentToEdit.id);
+        error = retry.error;
+      }
 
       if (error) throw error;
 
@@ -490,7 +554,14 @@ export default function ClassroomScreen() {
       setStudents((prev) =>
         prev.map((s) =>
           s.id === studentToEdit.id
-            ? { ...s, full_name: updatedName, email: updatedEmail }
+            ? {
+                ...s,
+                last_name: cleanLast,
+                first_name: cleanFirst,
+                middle_name: cleanMiddle,
+                full_name: updatedName,
+                email: updatedEmail,
+              }
             : s
         )
       );
@@ -499,7 +570,14 @@ export default function ClassroomScreen() {
       if (selectedProfile && selectedProfile.id === studentToEdit.id) {
         setSelectedProfile((prev) =>
           prev
-            ? { ...prev, full_name: updatedName, email: updatedEmail }
+            ? {
+                ...prev,
+                last_name: cleanLast,
+                first_name: cleanFirst,
+                middle_name: cleanMiddle,
+                full_name: updatedName,
+                email: updatedEmail,
+              }
             : null
         );
       }
@@ -579,21 +657,43 @@ export default function ClassroomScreen() {
     try {
       const inserts = selectedStudents.map((s) => ({
         classroom_id: id,
+        last_name: s.lastName,
+        first_name: s.firstName,
+        middle_name: s.middleName || null,
         full_name: s.fullName,
         email: s.email || null,
         attendance: 100,
         average: 0,
       }));
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("students")
         .insert(inserts)
         .select();
 
+      if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+        const fallbackInserts = selectedStudents.map((s) => ({
+          classroom_id: id,
+          full_name: s.fullName,
+          email: s.email || null,
+          attendance: 100,
+          average: 0,
+        }));
+        const fallback = await supabase
+          .from("students")
+          .insert(fallbackInserts)
+          .select();
+        data = fallback.data;
+        error = fallback.error;
+      }
+
       if (error) throw error;
 
       if (data) {
-        setStudents((prev) => [...prev, ...(data as Student[])]);
+        setStudents((prev) => [
+          ...prev,
+          ...(data as any[]).map((row) => normalizeStudentRecord(row) as Student),
+        ]);
       }
 
       setImportModalVisible(false);
@@ -860,6 +960,40 @@ export default function ClassroomScreen() {
     }
   }
 
+  // ── Helper to build chronological quizzes & results for Excel/CSV exports ────
+  async function getClassroomExportQuizData() {
+    const quizResults = id ? await getAllStudentQuizResults(id as string) : [];
+    // Sort publishedQuizzes oldest first so Quiz 1 is first created, Quiz 2 is second, etc.
+    const chronologicalQuizzes = [...publishedQuizzes].reverse().map((q) => {
+      const maxScore =
+        (q.answerKey || []).reduce((sum, k) => sum + (k.points || 1), 0) || q.questions.length;
+      return { id: q.id, quizTitle: q.quizTitle, maxScore };
+    });
+
+    // Also include any graded quiz titles found in quizResults that aren't in publishedQuizzes
+    const knownTitles = new Set(chronologicalQuizzes.map((q) => q.quizTitle.toLowerCase().trim()));
+    for (const r of quizResults) {
+      const normTitle = (r.quizTitle || "").toLowerCase().trim();
+      if (normTitle && !knownTitles.has(normTitle)) {
+        knownTitles.add(normTitle);
+        chronologicalQuizzes.push({
+          id: r.quizId || r.quizTitle,
+          quizTitle: r.quizTitle,
+          maxScore: r.maxScore || 0,
+        });
+      }
+    }
+
+    const results = quizResults.map((r) => ({
+      studentId: r.studentId,
+      studentName: r.studentName,
+      quizTitle: r.quizTitle,
+      totalScore: r.totalScore,
+    }));
+
+    return { quizzes: chronologicalQuizzes, results };
+  }
+
   // ── Export Classlist (Excel / CSV) Handlers ──────────────────────────────────
   async function handleExportExcel(forceNewFolder = false) {
     if (students.length === 0) {
@@ -869,6 +1003,7 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
+      const { quizzes, results } = await getClassroomExportQuizData();
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -876,6 +1011,8 @@ export default function ClassroomScreen() {
         room: classroomRoom,
         schedule: classroomSchedule,
         students,
+        quizzes,
+        results,
       });
 
       const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
@@ -904,12 +1041,36 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
-      const header = "Item,Name,Email,Attendance (%),Average Grade (%)\n";
+      const { quizzes, results } = await getClassroomExportQuizData();
+      const quizHeaders = quizzes.map((q, idx) => {
+        const label = /^quiz\s*\d+/i.test(q.quizTitle.trim())
+          ? q.quizTitle.trim()
+          : `Quiz ${idx + 1}: ${q.quizTitle.trim()}`;
+        return `"${label.replace(/"/g, '""')}${q.maxScore ? ` (${q.maxScore} pts)` : ""}"`;
+      });
+
+      const header = ["Item", "Last Name", "First Name", "Middle Name", "Email", ...quizHeaders].join(",") + "\n";
       const rows = students
-        .map(
-          (s, idx) =>
-            `${idx + 1},"${s.full_name}","${s.email || "N/A"}",${s.attendance ?? 100},${s.average ?? 0}`
-        )
+        .map((s, idx) => {
+          const norm = normalizeStudentRecord(s);
+          const quizCells = quizzes.map((q) => {
+            const match = results.find(
+              (r) =>
+                (r.studentId === s.id ||
+                  r.studentName.toLowerCase().trim() === norm.full_name.toLowerCase().trim()) &&
+                r.quizTitle.toLowerCase().trim() === q.quizTitle.toLowerCase().trim()
+            );
+            return match !== undefined ? String(match.totalScore) : "";
+          });
+          return [
+            idx + 1,
+            `"${(norm.last_name || "").replace(/"/g, '""')}"`,
+            `"${(norm.first_name || "").replace(/"/g, '""')}"`,
+            `"${(norm.middle_name || "").replace(/"/g, '""')}"`,
+            `"${(s.email || "N/A").replace(/"/g, '""')}"`,
+            ...quizCells,
+          ].join(",");
+        })
         .join("\n");
 
       const csvContent = header + rows;
@@ -951,6 +1112,7 @@ export default function ClassroomScreen() {
       const fileName = `${cleanTitle}_classlist.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+      const { quizzes, results } = await getClassroomExportQuizData();
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -958,6 +1120,8 @@ export default function ClassroomScreen() {
         room: classroomRoom,
         schedule: classroomSchedule,
         students,
+        quizzes,
+        results,
       });
 
       const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
@@ -989,20 +1153,14 @@ export default function ClassroomScreen() {
 
     try {
       setIsExporting(true);
-      const quizResults = id ? await getAllStudentQuizResults(id as string) : [];
-      const quizzes = publishedQuizzes.map((q) => {
-        const maxScore = (q.answerKey || []).reduce((sum, k) => sum + (k.points || 1), 0) || q.questions.length;
-        return { id: q.id, quizTitle: q.quizTitle, maxScore };
-      });
-      const results = quizResults.map((r) => ({
-        studentId: r.studentId,
-        studentName: r.studentName,
-        quizTitle: r.quizTitle,
-        totalScore: r.totalScore,
-      }));
-      const base64 = generateScoreExportBase64({
+      const { quizzes, results } = await getClassroomExportQuizData();
+      const base64 = generateExcelClasslistBase64({
         classroomTitle: (title as string) || "Classroom",
-        students: students.map((s) => ({ id: s.id, full_name: s.full_name, studentId: s.id })),
+        subject: classroomSubject,
+        section: classroomSection,
+        room: classroomRoom,
+        schedule: classroomSchedule,
+        students,
         quizzes,
         results,
       });
@@ -1029,6 +1187,9 @@ export default function ClassroomScreen() {
   const filtered = students.filter(
     (s) =>
       s.full_name.toLowerCase().includes(search.toLowerCase()) ||
+      (s.last_name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (s.first_name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (s.middle_name ?? "").toLowerCase().includes(search.toLowerCase()) ||
       (s.email ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
@@ -1477,16 +1638,40 @@ export default function ClassroomScreen() {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Full Name */}
+                  {/* Last Name */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    FULL NAME <Text style={styles.required}>*</Text>
+                    LAST NAME <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Liam Smith"
+                    placeholder="e.g. Smith"
                     placeholderTextColor={textSub}
-                    value={fullName}
-                    onChangeText={setFullName}
+                    value={lastName}
+                    onChangeText={setLastName}
+                  />
+
+                  {/* First Name */}
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    FIRST NAME <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Liam"
+                    placeholderTextColor={textSub}
+                    value={firstName}
+                    onChangeText={setFirstName}
+                  />
+
+                  {/* Middle Name (Optional) */}
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    MIDDLE NAME <Text style={{ fontSize: 10, fontWeight: "500", color: textSub }}>(OPTIONAL)</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Santos"
+                    placeholderTextColor={textSub}
+                    value={middleName}
+                    onChangeText={setMiddleName}
                   />
 
                   {/* Email */}
@@ -1513,10 +1698,10 @@ export default function ClassroomScreen() {
                       style={[
                         styles.addBtn,
                         { backgroundColor: cardColor, shadowColor: cardColor },
-                        (!fullName.trim() || saving) && styles.addBtnDisabled,
+                        ((!lastName.trim() && !firstName.trim()) || saving) && styles.addBtnDisabled,
                       ]}
                       onPress={handleAddStudent}
-                      disabled={!fullName.trim() || saving}
+                      disabled={(!lastName.trim() && !firstName.trim()) || saving}
                     >
                       {saving ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1563,16 +1748,40 @@ export default function ClassroomScreen() {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Full Name */}
+                  {/* Last Name */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    FULL NAME <Text style={styles.required}>*</Text>
+                    LAST NAME <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Liam Smith or Smith, Liam"
+                    placeholder="e.g. Smith"
                     placeholderTextColor={textSub}
-                    value={editFullName}
-                    onChangeText={setEditFullName}
+                    value={editLastName}
+                    onChangeText={setEditLastName}
+                  />
+
+                  {/* First Name */}
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    FIRST NAME <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Liam"
+                    placeholderTextColor={textSub}
+                    value={editFirstName}
+                    onChangeText={setEditFirstName}
+                  />
+
+                  {/* Middle Name (Optional) */}
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    MIDDLE NAME <Text style={{ fontSize: 10, fontWeight: "500", color: textSub }}>(OPTIONAL)</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Santos"
+                    placeholderTextColor={textSub}
+                    value={editMiddleName}
+                    onChangeText={setEditMiddleName}
                   />
 
                   {/* Email */}
@@ -1605,10 +1814,10 @@ export default function ClassroomScreen() {
                       style={[
                         styles.addBtn,
                         { backgroundColor: cardColor, shadowColor: cardColor },
-                        (!editFullName.trim() || savingEdit) && styles.addBtnDisabled,
+                        ((!editLastName.trim() && !editFirstName.trim()) || savingEdit) && styles.addBtnDisabled,
                       ]}
                       onPress={handleSaveEditStudent}
-                      disabled={!editFullName.trim() || savingEdit}
+                      disabled={(!editLastName.trim() && !editFirstName.trim()) || savingEdit}
                     >
                       {savingEdit ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1642,7 +1851,7 @@ export default function ClassroomScreen() {
             const profileIsFlagged = profileAvg <= 50;
             const highestAvg = students.length > 0 ? Math.max(...students.map((s) => s.average ?? 0)) : 0;
             const profileIsTop = !profileIsFlagged && highestAvg > 50 && profileAvg === highestAvg;
-            const firstName = selectedProfile.full_name.split(" ")[0];
+            const firstName = selectedProfile.first_name || selectedProfile.full_name.replace(/,/g, " ").trim().split(/\s+/)[0];
             const profileAvatar = getStudentAvatar(selectedProfile.full_name);
 
             const quizTitleDisplay =
@@ -2219,7 +2428,7 @@ export default function ClassroomScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Student Classlist (.xlsx)</Text>
                 <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
-                  Official roster with student IDs, names, emails, and averages
+                  Official roster with Last Name, First Name, Middle Name, and Quiz 1, Quiz 2, Quiz 3... scores
                 </Text>
               </View>
               <Ionicons name="download-outline" size={20} color={textSub} />
