@@ -141,7 +141,7 @@ function Dropdown({
 
     return (
         <>
-            <Text style={[styles.fieldLabel, { color: textSub }]}>{label}</Text>
+            <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>{label}</Text>
             <TouchableOpacity
                 style={[styles.dropdownBtn, { backgroundColor: inputBg, borderColor: border }]}
                 onPress={() => setOpen(true)}
@@ -955,19 +955,18 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         >
             {/* ── Header ── */}
             <View style={styles.headerRow}>
-                <View style={[styles.headerIconBg, { backgroundColor: accentColor + "22" }]}>
-                    <Ionicons name="sparkles" size={20} color={accentColor} />
+                <View style={[styles.headerIconBg, { backgroundColor: accentColor + "18" }]}>
+                    <Ionicons name="sparkles" size={18} color={accentColor} />
                 </View>
-                <View>
+                <View style={{ flex: 1 }}>
                     <Text style={[styles.headerTitle, { color: textMain }]}>Tseki AI Assessment Suite</Text>
-                    <Text style={[styles.headerSub, { color: textSub }]}>Auto-generate quizzes for {classTitle}</Text>
                 </View>
             </View>
 
             {!showResults ? (
                 <>
                     {/* ── Attached File ── */}
-                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#374151" }]}>Attach reference file <Text style={styles.optional}>(DOC, PPT, PDF - optional)</Text></Text>
+                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155", marginTop: 4 }]}>Reference file (optional)</Text>
                     <TouchableOpacity
                         style={[
                             styles.attachBtn,
@@ -1006,20 +1005,20 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             </>
                         ) : (
                             <>
-                                <Ionicons name="document-attach-outline" size={20} color={textSub} />
-                                <Text style={[styles.attachBtnText, { color: textSub }]} numberOfLines={1}>
-                                    Tap to attach file (DOC, PPT, PDF)
+                                <Ionicons name="attach-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+                                <Text style={[styles.attachBtnText, { color: textMain, fontWeight: "500" }]}>
+                                    Upload reference file
                                 </Text>
-                                <View style={[styles.formatPill, { backgroundColor: darkMode ? "#374151" : "#E5E7EB" }]}>
-                                    <Text style={[styles.formatPillText, { color: textSub }]}>Docs · PPT · PDF</Text>
-                                </View>
+                                <Text style={{ fontSize: 12, color: "#64748B", fontWeight: "500" }}>
+                                    DOC, PPT, PDF
+                                </Text>
                             </>
                         )}
                     </TouchableOpacity>
 
                     {/* ── Paste Lesson Notes or Syllabus Text (Optional) ── */}
-                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#374151" }]}>
-                        Paste lesson notes or syllabus text <Text style={styles.optional}>(optional)</Text>
+                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>
+                        Lesson notes or syllabus (optional)
                     </Text>
                     <TextInput
                         style={[styles.textAreaInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1035,7 +1034,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     {/* ── Subject (Auto from Classroom) + Grade Level ── */}
                     <View style={styles.twoCol}>
                         <View style={styles.colHalf}>
-                            <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#374151" }]}>Subject</Text>
+                            <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Subject</Text>
                             <View style={[styles.autoSubjectBtn, { backgroundColor: inputBg, borderColor: border }]}>
                                 <Text style={[styles.autoSubjectText, { color: textMain }]} numberOfLines={1}>
                                     {subject}
@@ -1215,71 +1214,69 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </View>
                     )}
 
-                    {/* ── Bloom's Taxonomy Difficulty ── */}
+                    {/* ── Difficulty Level ── */}
                     <Dropdown
-                        label="Bloom's taxonomy difficulty"
+                        label="Difficulty level"
                         value={difficulty}
                         options={BLOOM_DIFFICULTIES}
                         onSelect={setDifficulty}
                         accentColor={accentColor}
                     />
 
-                    {/* ── Per-User Daily AI Quota Status Pill (10x/day, resets 12:00 AM Manila) ── */}
+                    {/* ── Per-User Daily AI Quota Status Bar (10x/day, resets 12:00 AM Manila) ── */}
                     {quotaState && (
                         <View
                             style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                justifyContent: "space-between",
                                 marginTop: 18,
                                 paddingHorizontal: 14,
-                                paddingVertical: 10,
+                                paddingVertical: 12,
                                 borderRadius: 12,
                                 borderWidth: 1,
                                 borderColor: quotaState.isDailyLimitReached
-                                    ? "#FCA5A5"
-                                    : accentColor + "40",
+                                    ? "#FECACA"
+                                    : (darkMode ? "#334155" : "#E2E8F0"),
                                 backgroundColor: quotaState.isDailyLimitReached
-                                    ? (darkMode ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2")
-                                    : accentColor + "12",
+                                    ? (darkMode ? "rgba(220, 38, 38, 0.12)" : "#FEF2F2")
+                                    : (darkMode ? "#1E293B" : "#F8FAFC"),
                             }}
                         >
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-                                <Ionicons
-                                    name={quotaState.isDailyLimitReached ? "lock-closed" : "flash"}
-                                    size={16}
-                                    color={quotaState.isDailyLimitReached ? "#DC2626" : accentColor}
-                                />
-                                <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                    <Ionicons
+                                        name={quotaState.isDailyLimitReached ? "lock-closed-outline" : "flash-outline"}
+                                        size={14}
+                                        color={quotaState.isDailyLimitReached ? "#DC2626" : accentColor}
+                                    />
                                     <Text
                                         style={{
                                             fontSize: 12.5,
-                                            fontWeight: "700",
+                                            fontWeight: "600",
                                             color: quotaState.isDailyLimitReached ? "#DC2626" : textMain,
                                         }}
                                     >
-                                        {quotaState.isDailyLimitReached
-                                            ? `Daily Limit Reached (${quotaState.usedToday}/${quotaState.dailyLimit} used)`
-                                            : `Daily AI Generations: ${quotaState.remainingToday} / ${quotaState.dailyLimit} left`}
-                                    </Text>
-                                    <Text style={{ fontSize: 11, color: textSub, marginTop: 1 }}>
-                                        {`${quotaState.usedToday} generated today • Resets 12:00 AM (Manila, PH)`}
+                                        Daily AI quota
                                     </Text>
                                 </View>
+                                <Text style={{ fontSize: 12, fontWeight: "500", color: "#64748B" }}>
+                                    {`${quotaState.remainingToday} of ${quotaState.dailyLimit} left today · Resets at 12:00 AM PHT`}
+                                </Text>
                             </View>
                             <View
                                 style={{
-                                    paddingHorizontal: 8,
-                                    paddingVertical: 4,
-                                    borderRadius: 8,
-                                    backgroundColor: quotaState.isDailyLimitReached
-                                        ? "#DC2626"
-                                        : accentColor,
+                                    height: 4,
+                                    borderRadius: 2,
+                                    backgroundColor: darkMode ? "#334155" : "#E2E8F0",
+                                    overflow: "hidden",
                                 }}
                             >
-                                <Text style={{ fontSize: 11, fontWeight: "800", color: "#FFFFFF" }}>
-                                    {`${quotaState.remainingToday}x`}
-                                </Text>
+                                <View
+                                    style={{
+                                        height: "100%",
+                                        width: `${Math.min(100, Math.max(0, (quotaState.remainingToday / Math.max(1, quotaState.dailyLimit)) * 100))}%`,
+                                        backgroundColor: quotaState.isDailyLimitReached ? "#DC2626" : accentColor,
+                                        borderRadius: 2,
+                                    }}
+                                />
                             </View>
                         </View>
                     )}
@@ -2385,20 +2382,20 @@ const styles = StyleSheet.create({
 
     /* Header */
     headerRow: {
-        flexDirection: "row", alignItems: "center", gap: 12,
-        marginBottom: 24,
+        flexDirection: "row", alignItems: "center", gap: 10,
+        marginBottom: 16,
     },
     headerIconBg: {
-        width: 44, height: 44, borderRadius: 12,
+        width: 34, height: 34, borderRadius: 10,
         alignItems: "center", justifyContent: "center",
     },
-    headerTitle: { fontSize: 17, fontWeight: "800", color: "#1F2937" },
-    headerSub: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+    headerTitle: { fontSize: 16, fontWeight: "700", color: "#0F172A" },
+    headerSub: { fontSize: 12, color: "#64748B", marginTop: 2 },
 
     /* Fields */
     fieldLabel: {
-        fontSize: 13, fontWeight: "500", color: "#374151",
-        letterSpacing: 0, marginBottom: 6, marginTop: 16,
+        fontSize: 13, fontWeight: "500", color: "#334155",
+        letterSpacing: 0, marginBottom: 6, marginTop: 14,
     },
     required: { color: "#EF4444" },
     optional: { color: "#9CA3AF", fontWeight: "400" },
@@ -2570,11 +2567,9 @@ const styles = StyleSheet.create({
     /* Generate button */
     generateBtn: {
         flexDirection: "row", alignItems: "center", justifyContent: "center",
-        height: 56, borderRadius: 16, marginTop: 28,
-        shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2, shadowRadius: 8, elevation: 5,
+        height: 48, borderRadius: 12, marginTop: 20,
     },
-    generateBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
+    generateBtnText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
 
     /* Info note */
     infoNote: {

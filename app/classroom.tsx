@@ -121,10 +121,24 @@ export default function ClassroomScreen() {
     openStudentName?: string;
   }>();
 
-  const classroomSubject = subject || "";
-  const classroomSection = section || "";
-  const classroomRoom = room || "";
-  const classroomSchedule = schedule || "";
+  const [classroomTitle, setClassroomTitle] = useState(title || "");
+  const [classroomSubject, setClassroomSubject] = useState(subject || "");
+  const [classroomSection, setClassroomSection] = useState(section || "");
+  const [classroomRoom, setClassroomRoom] = useState(room || "");
+  const [classroomSchedule, setClassroomSchedule] = useState(schedule || "");
+
+  // Edit Classroom Modal State
+  const [editClassModalVisible, setEditClassModalVisible] = useState(false);
+  const [draftClassTitle, setDraftClassTitle] = useState("");
+  const [draftClassSubject, setDraftClassSubject] = useState("");
+  const [draftClassSection, setDraftClassSection] = useState("");
+  const [draftClassRoom, setDraftClassRoom] = useState("");
+  const [draftClassSchedule, setDraftClassSchedule] = useState("");
+  const [savingClassEdit, setSavingClassEdit] = useState(false);
+
+  // Action Sheets State
+  const [classMenuVisible, setClassMenuVisible] = useState(false);
+  const [studentMenuTarget, setStudentMenuTarget] = useState<Student | null>(null);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>(
@@ -335,8 +349,60 @@ export default function ClassroomScreen() {
     }
   }
 
-  // ── Delete Classroom Handlers ──────────────────────────────────────────────
+  // ── Delete & Edit Classroom Handlers ──────────────────────────────────────
+  function openEditClassroomModal() {
+    setClassMenuVisible(false);
+    setDraftClassTitle(classroomTitle);
+    setDraftClassSubject(classroomSubject);
+    setDraftClassSection(classroomSection);
+    setDraftClassRoom(classroomRoom);
+    setDraftClassSchedule(classroomSchedule);
+    setEditClassModalVisible(true);
+  }
+
+  async function handleSaveClassroomEdit() {
+    if (!id || !draftClassTitle.trim() || savingClassEdit) return;
+    setSavingClassEdit(true);
+    try {
+      const cleanTitle = draftClassTitle.trim().toUpperCase();
+      const cleanSubject = draftClassSubject.trim().toUpperCase();
+      const cleanSection = draftClassSection.trim().toUpperCase();
+      const cleanRoom = draftClassRoom.trim().toUpperCase();
+      const cleanSchedule = draftClassSchedule.trim().toUpperCase();
+
+      let encodedSection = cleanSection;
+      if (cleanSchedule) {
+        encodedSection = encodedSection ? `${encodedSection} || ${cleanSchedule}` : `|| ${cleanSchedule}`;
+      }
+
+      const { error } = await supabase
+        .from("classrooms")
+        .update({
+          title: cleanTitle,
+          subject: cleanSubject || null,
+          section: encodedSection || null,
+          room: cleanRoom || null,
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setClassroomTitle(cleanTitle);
+      setClassroomSubject(cleanSubject);
+      setClassroomSection(cleanSection);
+      setClassroomRoom(cleanRoom);
+      setClassroomSchedule(cleanSchedule);
+      Keyboard.dismiss();
+      setEditClassModalVisible(false);
+    } catch (err: any) {
+      Alert.alert("Update Failed", err.message || "Could not update classroom details.");
+    } finally {
+      setSavingClassEdit(false);
+    }
+  }
+
   function promptDeleteClassroom() {
+    setClassMenuVisible(false);
     setConfirmDeleteClassModal(true);
   }
 
@@ -1238,6 +1304,29 @@ export default function ClassroomScreen() {
   const btnSecondaryBg = darkMode ? "#374151" : "#F3F4F6";
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  const subtitleParts: string[] = [];
+  if (classroomSubject && classroomSubject.toUpperCase() !== (classroomTitle || title || "").toUpperCase()) {
+    subtitleParts.push(classroomSubject);
+  }
+  if (classroomSection) {
+    subtitleParts.push(
+      /^\d+$/.test(classroomSection.trim())
+        ? `Section ${classroomSection.trim()}`
+        : classroomSection
+    );
+  }
+  if (classroomRoom) {
+    subtitleParts.push(
+      classroomRoom.toLowerCase().startsWith("room")
+        ? classroomRoom
+        : `Room ${classroomRoom}`
+    );
+  }
+  if (classroomSchedule) {
+    subtitleParts.push(classroomSchedule);
+  }
+  const bannerSubtitleLine = subtitleParts.join(" · ");
+
   return (
     <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Top App Bar ── */}
@@ -1247,32 +1336,23 @@ export default function ClassroomScreen() {
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT }]}>
-            <Ionicons name="chevron-back" size={18} color={ORANGE} />
+          <View style={[styles.backIconCircle, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}>
+            <Ionicons name="chevron-back" size={18} color={textMain} />
           </View>
           <Text style={[styles.backText, { color: textMain }]}>Classrooms</Text>
         </TouchableOpacity>
 
-        <Text style={[styles.topSubject, { color: textMain }]} numberOfLines={1}>
-          {classroomSubject || title}
-        </Text>
+        {/* Centered title omitted because the classroom banner directly below already displays it */}
+        <View style={{ flex: 1 }} />
 
         <View style={styles.topBarRight}>
           <TouchableOpacity
-            style={[styles.topBarActionBtn, { backgroundColor: darkMode ? "#374151" : "#FEE2E2" }]}
-            onPress={promptDeleteClassroom}
-            activeOpacity={0.8}
-            accessibilityLabel="Delete Classroom"
-          >
-            <Ionicons name="trash-outline" size={16} color="#EF4444" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.notifDot, { backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT }]}
+            style={[styles.notifDot, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border, borderWidth: 1 }]}
             onPress={handleOpenNotifModal}
             activeOpacity={0.8}
+            accessibilityLabel="Classroom alerts"
           >
-            <Ionicons name="notifications" size={18} color={ORANGE} />
+            <Ionicons name="notifications-outline" size={18} color={textMain} />
             {classroomUnreadCount > 0 && (
               <View
                 style={[
@@ -1286,6 +1366,15 @@ export default function ClassroomScreen() {
               </View>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.topBarActionBtn, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border, borderWidth: 1 }]}
+            onPress={() => setClassMenuVisible(true)}
+            activeOpacity={0.8}
+            accessibilityLabel="More classroom options"
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color={textMain} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1295,48 +1384,27 @@ export default function ClassroomScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ── Class Banner ── */}
-        <View style={[styles.banner, { backgroundColor: cardColor }]}>
-          {/* subtle lighter overlay stripe */}
+        {/* ── Class Banner (Full on Record, Compact on Utility Tabs) ── */}
+        <View
+          style={[
+            styles.banner,
+            activeTab !== "Record" && styles.bannerCompact,
+            { backgroundColor: cardColor },
+          ]}
+        >
           <View style={styles.bannerStripe} />
-          {classroomSubject ? (
-            <View style={styles.bannerSubjectBadge}>
-              <Text style={styles.bannerSubjectText}>{classroomSubject.toUpperCase()}</Text>
-            </View>
+          <Text style={[styles.bannerTitle, activeTab !== "Record" && styles.bannerTitleCompact]}>
+            {classroomTitle || title}
+          </Text>
+          {bannerSubtitleLine ? (
+            <Text style={styles.bannerSubtitleText}>
+              {bannerSubtitleLine}
+            </Text>
           ) : null}
-          <Text style={styles.bannerTitle}>{title}</Text>
-          <View style={styles.bannerDetailsRow}>
-            {classroomSection ? (
-              <View style={styles.bannerDetailItem}>
-                <Ionicons name="people-outline" size={13} color="rgba(255,255,255,0.9)" />
-                <Text style={styles.bannerSubText}>{classroomSection}</Text>
-              </View>
-            ) : null}
-            {(classroomSection && classroomRoom) ? (
-              <Text style={styles.bannerDetailDot}>•</Text>
-            ) : null}
-            {classroomRoom ? (
-              <View style={styles.bannerDetailItem}>
-                <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.9)" />
-                <Text style={styles.bannerSubText}>
-                  {classroomRoom.toLowerCase().startsWith("room") ? classroomRoom : `Room ${classroomRoom}`}
-                </Text>
-              </View>
-            ) : null}
-            {(classroomSchedule && (classroomSection || classroomRoom)) ? (
-              <Text style={styles.bannerDetailDot}>•</Text>
-            ) : null}
-            {classroomSchedule ? (
-              <View style={styles.bannerDetailItem}>
-                <Ionicons name="time-outline" size={13} color="rgba(255,255,255,0.95)" />
-                <Text style={styles.bannerSubText}>{classroomSchedule}</Text>
-              </View>
-            ) : null}
-          </View>
         </View>
 
-        {/* ── Tab Bar ── */}
-        <View style={[styles.tabBar, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
+        {/* ── Underline Tab Bar ── */}
+        <View style={[styles.tabBar, { backgroundColor: cardBg, borderBottomColor: darkMode ? "#334155" : "#E2E8F0" }]}>
           {tabs.map((tab) => {
             const isActive = activeTab === tab;
             return (
@@ -1344,28 +1412,18 @@ export default function ClassroomScreen() {
                 key={tab}
                 style={[
                   styles.tab,
-                  {
-                    backgroundColor: isActive
-                      ? cardColor
-                      : darkMode
-                        ? "#374151"
-                        : "#F8FAFC",
-                  },
-                  isActive && {
-                    shadowColor: cardColor,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.25,
-                    shadowRadius: 5,
-                    elevation: 3,
-                  },
+                  isActive && [
+                    styles.tabActive,
+                    { borderBottomColor: darkMode ? "#F8FAFC" : "#0F172A" },
+                  ],
                 ]}
                 onPress={() => setActiveTab(tab)}
-                activeOpacity={0.8}
+                activeOpacity={0.75}
               >
                 <Text
                   style={[
                     styles.tabText,
-                    { color: isActive ? "#FFFFFF" : textSub },
+                    { color: isActive ? (darkMode ? "#F8FAFC" : "#0F172A") : "#64748B" },
                     isActive && styles.tabTextActive,
                   ]}
                 >
@@ -1379,23 +1437,31 @@ export default function ClassroomScreen() {
         {/* ── Tab Content ── */}
         {activeTab === "Record" && (
           <>
-            {/* ── Action Row ── */}
+            {/* ── Action Toolbar ── */}
             <View style={[styles.actionRow, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
               <TouchableOpacity
-                style={[styles.importBtn, { backgroundColor: cardColor, shadowColor: cardColor }]}
-                activeOpacity={0.85}
+                style={[
+                  styles.secondaryToolbarBtn,
+                  {
+                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                    borderColor: darkMode ? "#475569" : "#CBD5E1",
+                  },
+                ]}
+                activeOpacity={0.8}
                 onPress={handleImportRecord}
               >
-                <Ionicons name="cloud-upload-outline" size={17} color="#FFFFFF" />
-                <Text style={styles.importBtnText}>Import Record</Text>
+                <Ionicons name="cloud-upload-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                  Import
+                </Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[
-                  styles.exportBtn,
+                  styles.secondaryToolbarBtn,
                   {
-                    backgroundColor: darkMode ? cardColor + "22" : cardColor + "14",
-                    borderColor: darkMode ? cardColor + "55" : cardColor + "35",
-                    borderWidth: 1.5,
+                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                    borderColor: darkMode ? "#475569" : "#CBD5E1",
                   },
                 ]}
                 activeOpacity={0.8}
@@ -1403,26 +1469,28 @@ export default function ClassroomScreen() {
                 disabled={isExporting}
               >
                 {isExporting ? (
-                  <ActivityIndicator size="small" color={cardColor} />
+                  <ActivityIndicator size="small" color={darkMode ? "#F8FAFC" : "#0F172A"} />
                 ) : (
                   <>
                     <Ionicons
                       name="download-outline"
-                      size={17}
-                      color={cardColor}
+                      size={16}
+                      color={darkMode ? "#F8FAFC" : "#0F172A"}
                     />
-                    <Text style={[styles.exportBtnText, { color: cardColor }]}>
+                    <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
                       Export Excel
                     </Text>
                   </>
                 )}
               </TouchableOpacity>
+
               <TouchableOpacity
-                style={[styles.fabSmall, { backgroundColor: cardColor, shadowColor: cardColor }]}
+                style={[styles.primaryToolbarBtn, { backgroundColor: cardColor }]}
                 onPress={openAddModal}
                 activeOpacity={0.85}
               >
-                <Ionicons name="add" size={22} color="#FFFFFF" />
+                <Ionicons name="add" size={17} color="#FFFFFF" />
+                <Text style={styles.primaryToolbarBtnText}>Add Student</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -1431,7 +1499,7 @@ export default function ClassroomScreen() {
         {activeTab === "AI Builder" && (
           <AIBuilderTab
             classroomId={id as string}
-            classTitle={title as string}
+            classTitle={(classroomTitle || title) as string}
             classSubject={classroomSubject}
             accentColor={cardColor}
             onQuizPublished={(quizTitle) => {
@@ -1444,7 +1512,7 @@ export default function ClassroomScreen() {
         {activeTab === "Grader" && (
           <GraderTab
             classroomId={id as string}
-            classTitle={title as string}
+            classTitle={(classroomTitle || title) as string}
             accentColor={cardColor}
             students={students}
             defaultSelectedQuiz={selectedGradingQuiz}
@@ -1466,27 +1534,26 @@ export default function ClassroomScreen() {
             <View style={[styles.actionRow, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
               <TouchableOpacity
                 style={[
-                  styles.exportBtn,
+                  styles.secondaryToolbarBtn,
                   {
                     flex: 1,
-                    backgroundColor: darkMode ? cardColor + "22" : cardColor + "14",
-                    borderColor: darkMode ? cardColor + "55" : cardColor + "35",
-                    borderWidth: 1.5,
+                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                    borderColor: darkMode ? "#475569" : "#CBD5E1",
                   },
                 ]}
                 activeOpacity={0.8}
                 onPress={() => handleExportQuizScores(false)}
                 disabled={isExporting}
               >
-                <Ionicons name="grid-outline" size={17} color={cardColor} />
-                <Text style={[styles.exportBtnText, { color: cardColor }]}>
+                <Ionicons name="grid-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
                   Export Quiz Scores (.xlsx)
                 </Text>
               </TouchableOpacity>
             </View>
           <TrackerTab
             classroomId={id as string}
-            classTitle={title as string}
+            classTitle={(classroomTitle || title) as string}
             classSubject={classroomSubject}
             accentColor={cardColor}
             students={students}
@@ -1507,12 +1574,12 @@ export default function ClassroomScreen() {
         {activeTab === "Record" && (
           <>
             {/* ── Search Bar ── */}
-            <View style={[styles.searchBar, { backgroundColor: cardBg, borderColor: darkMode ? border : "#E5E7EB" }]}>
-              <Ionicons name="search-outline" size={18} color={ORANGE} />
+            <View style={[styles.searchBar, { backgroundColor: cardBg, borderColor: darkMode ? border : "#E2E8F0" }]}>
+              <Ionicons name="search-outline" size={17} color="#64748B" />
               <TextInput
                 style={[styles.searchInput, { color: textMain }]}
                 placeholder="Search students by name or email..."
-                placeholderTextColor={textSub}
+                placeholderTextColor="#94A3B8"
                 value={search}
                 onChangeText={setSearch}
               />
@@ -1526,9 +1593,9 @@ export default function ClassroomScreen() {
             {/* ── Roster Header ── */}
             <View style={styles.rosterHeader}>
               <Text style={[styles.rosterTitle, { color: textMain }]}>
-                Student Rosters ({filtered.length})
+                Student Roster ({filtered.length})
               </Text>
-              <Text style={[styles.rosterHint, { color: textSub }]}>Tap name to view details</Text>
+              <Text style={[styles.rosterHint, { color: textSub }]}>Tap student to view profile</Text>
             </View>
 
             {/* ── Student List ── */}
@@ -1540,16 +1607,18 @@ export default function ClassroomScreen() {
               />
             ) : filtered.length === 0 ? (
               <View style={styles.emptyState}>
-                <Ionicons name="people-outline" size={52} color={darkMode ? "#4B5563" : "#D1D5DB"} />
+                <Ionicons name="people-outline" size={44} color={darkMode ? "#4B5563" : "#CBD5E1"} />
                 <Text style={[styles.emptyTitle, { color: textSub }]}>No students yet</Text>
                 <Text style={[styles.emptySub, { color: textSub }]}>
-                  Tap the{" "}
-                  <Text style={{ color: cardColor, fontWeight: "700" }}>+</Text>{" "}
-                  button to add your first student
+                  Tap{" "}
+                  <Text style={{ color: textMain, fontWeight: "600" }}>+ Add Student</Text>{" "}
+                  or{" "}
+                  <Text style={{ color: textMain, fontWeight: "600" }}>Import</Text>{" "}
+                  above to add your roster.
                 </Text>
               </View>
             ) : (
-              filtered.map((student, i) => {
+              filtered.map((student) => {
                 const avg = student.average ?? 0;
                 const isFlagged = avg <= 50;
                 const highestAvg = students.length > 0 ? Math.max(...students.map((s) => s.average ?? 0)) : 0;
@@ -1559,80 +1628,82 @@ export default function ClassroomScreen() {
                 return (
                   <TouchableOpacity
                     key={student.id}
-                    style={[styles.studentRow, { backgroundColor: cardBg, borderColor: subBorder }]}
+                    style={[
+                      styles.studentRow,
+                      {
+                        backgroundColor: cardBg,
+                        borderColor: darkMode ? "#334155" : "#E5E7EB",
+                      },
+                    ]}
                     onPress={() => setSelectedProfile(student)}
-                    activeOpacity={0.7}
+                    activeOpacity={0.75}
                   >
-                    {/* Avatar */}
+                    {/* 36px Neutral Avatar */}
                     {avatarUri ? (
                       <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
                     ) : (
                       <View
                         style={[
                           styles.avatar,
-                          { backgroundColor: AVATAR_COLORS[i % AVATAR_COLORS.length] },
+                          { backgroundColor: darkMode ? "#334155" : "#F1F5F9" },
                         ]}
                       >
-                        <Text style={styles.avatarText}>
+                        <Text
+                          style={[
+                            styles.avatarText,
+                            { color: darkMode ? "#E2E8F0" : "#334155" },
+                          ]}
+                        >
                           {getInitials(student.full_name)}
                         </Text>
                       </View>
                     )}
 
-                    {/* Info */}
+                    {/* Left Info: Full Student Name + Email */}
                     <View style={styles.studentInfo}>
-                      <View style={styles.nameRow}>
-                        <Text style={[styles.studentName, { color: textMain }]} numberOfLines={1}>
-                          {student.full_name}
-                        </Text>
-                        {isTop && (
-                          <View style={[styles.topBadge, { backgroundColor: darkMode ? "#1E3A8A" : "#DBEAFE" }]}>
-                            <Text style={[styles.topBadgeText, { color: darkMode ? "#93C5FD" : "#2563EB" }]}>Top</Text>
-                          </View>
-                        )}
-                        {isFlagged && (
-                          <View style={[styles.flaggedBadge, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}>
-                            <Ionicons name="warning-outline" size={12} color={darkMode ? "#FCA5A5" : "#DC2626"} />
-                            <Text style={[styles.flaggedBadgeText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>Flagged</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.studentEmail, { color: textSub }]} numberOfLines={1}>
-                        {student.email ?? "No email"}
+                      <Text style={[styles.studentName, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                        {student.full_name}
+                      </Text>
+                      <Text style={[styles.studentEmail, { color: "#64748B" }]} numberOfLines={1}>
+                        {student.email || "No email"}
                       </Text>
                     </View>
 
-                    {/* Stats */}
+                    {/* Right Stats: Score + Single Semantic Pill + Subtle More Button */}
                     <View style={styles.studentStats}>
-                      <View style={styles.statCol}>
-                        <Text style={[styles.statValue, { color: textMain }]}>{avg}%</Text>
-                        <Text style={[styles.statLabel, { color: textSub }]}>Average</Text>
+                      <View style={styles.statRightCol}>
+                        <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                          {avg}%
+                        </Text>
+                        {isFlagged ? (
+                          <View style={[styles.flaggedBadge, { backgroundColor: darkMode ? "#450A0A" : "#FEF2F2" }]}>
+                            <Text style={[styles.flaggedBadgeText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>
+                              At-Risk
+                            </Text>
+                          </View>
+                        ) : isTop ? (
+                          <View style={[styles.topBadge, { backgroundColor: darkMode ? "#1E3A8A" : "#EFF6FF" }]}>
+                            <Text style={[styles.topBadgeText, { color: darkMode ? "#93C5FD" : "#2563EB" }]}>
+                              Top
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text style={[styles.statLabel, { color: "#64748B" }]}>Avg</Text>
+                        )}
                       </View>
+
                       <TouchableOpacity
-                        style={[styles.editStudentRowBtn, { backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT }]}
+                        style={styles.studentMoreBtn}
                         onPress={(e) => {
                           e.stopPropagation?.();
-                          openEditModal(student);
+                          setStudentMenuTarget(student);
                         }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                         activeOpacity={0.7}
-                        accessibilityLabel="Edit student"
+                        accessibilityLabel="More options for student"
                       >
-                        <Ionicons name="pencil" size={13} color={cardColor} />
+                        <Ionicons name="ellipsis-vertical" size={16} color="#64748B" />
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.deleteStudentRowBtn, { backgroundColor: darkMode ? "#374151" : "#FEE2E2" }]}
-                        onPress={(e) => {
-                          e.stopPropagation?.();
-                          promptDeleteStudent(student);
-                        }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        activeOpacity={0.7}
-                        accessibilityLabel="Remove student"
-                      >
-                        <Ionicons name="trash-outline" size={15} color="#EF4444" />
-                      </TouchableOpacity>
-                      <Ionicons name="arrow-forward" size={16} color={textSub} />
                     </View>
                   </TouchableOpacity>
                 );
@@ -1670,7 +1741,7 @@ export default function ClassroomScreen() {
 
                   {/* Last Name */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    LAST NAME <Text style={styles.required}>*</Text>
+                    Last name <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1682,7 +1753,7 @@ export default function ClassroomScreen() {
 
                   {/* First Name */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    FIRST NAME <Text style={styles.required}>*</Text>
+                    First name <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1694,7 +1765,7 @@ export default function ClassroomScreen() {
 
                   {/* Middle Name (Optional) */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    MIDDLE NAME <Text style={{ fontSize: 10, fontWeight: "500", color: textSub }}>(OPTIONAL)</Text>
+                    Middle name <Text style={{ fontSize: 12, fontWeight: "400", color: textSub }}>(optional)</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1705,7 +1776,7 @@ export default function ClassroomScreen() {
                   />
 
                   {/* Email */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>EMAIL ADDRESS</Text>
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>Email address</Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
                     placeholder="e.g. liam.smith@school.edu"
@@ -1780,7 +1851,7 @@ export default function ClassroomScreen() {
 
                   {/* Last Name */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    LAST NAME <Text style={styles.required}>*</Text>
+                    Last name <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1792,7 +1863,7 @@ export default function ClassroomScreen() {
 
                   {/* First Name */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    FIRST NAME <Text style={styles.required}>*</Text>
+                    First name <Text style={styles.required}>*</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1804,7 +1875,7 @@ export default function ClassroomScreen() {
 
                   {/* Middle Name (Optional) */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    MIDDLE NAME <Text style={{ fontSize: 10, fontWeight: "500", color: textSub }}>(OPTIONAL)</Text>
+                    Middle name <Text style={{ fontSize: 12, fontWeight: "400", color: textSub }}>(optional)</Text>
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1816,7 +1887,7 @@ export default function ClassroomScreen() {
 
                   {/* Email */}
                   <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    EMAIL ADDRESS{" "}
+                    Email address{" "}
                     {!editEmail.trim() ? (
                       <Text style={{ color: ORANGE, fontSize: 11, fontWeight: "600" }}>(No email set)</Text>
                     ) : null}
@@ -2672,6 +2743,300 @@ export default function ClassroomScreen() {
           ) : null}
         </View>
       </Modal>
+
+      {/* ── Classroom More Options Action Sheet ── */}
+      <Modal
+        visible={classMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClassMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.exportModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setClassMenuVisible(false)}
+        >
+          <Pressable
+            style={[styles.exportModalSheet, { backgroundColor: cardBg }]}
+            onPress={(e) => e.stopPropagation?.()}
+          >
+            <View style={{ marginBottom: 4 }}>
+              <Text style={[styles.exportModalTitle, { color: textMain }]}>
+                {classroomTitle || title}
+              </Text>
+              <Text style={[styles.exportModalSub, { color: textSub }]}>
+                Manage classroom settings or remove this course
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border },
+              ]}
+              onPress={openEditClassroomModal}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#475569" : "#E2E8F0" }]}>
+                <Ionicons name="create-outline" size={20} color={textMain} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Edit Classroom</Text>
+                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                  Update class title, subject, section, room, or schedule
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={textSub} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#450A0A" : "#FEF2F2", borderColor: darkMode ? "#7F1D1D" : "#FECACA" },
+              ]}
+              onPress={promptDeleteClassroom}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}>
+                <Ionicons name="trash-outline" size={20} color="#DC2626" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.exportOptionCardTitle, { color: "#DC2626" }]}>Delete Classroom</Text>
+                <Text style={[styles.exportOptionCardSub, { color: darkMode ? "#FCA5A5" : "#B91C1C" }]}>
+                  Permanently remove this classroom and all enrolled students
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.exportModalCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}
+              onPress={() => setClassMenuVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.exportModalCancelText, { color: textMain }]}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Edit Classroom Modal ── */}
+      <Modal
+        visible={editClassModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditClassModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <TouchableWithoutFeedback onPress={() => setEditClassModalVisible(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
+                  <View style={styles.modalHeader}>
+                    <Text style={[styles.modalTitle, { color: textMain }]}>Edit Classroom</Text>
+                    <TouchableOpacity
+                      onPress={() => setEditClassModalVisible(false)}
+                      style={[styles.modalCloseBtn, { backgroundColor: btnSecondaryBg }]}
+                    >
+                      <Ionicons name="close" size={20} color={textSub} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>
+                    Class title <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Grade 10 - Mathematics"
+                    placeholderTextColor={textSub}
+                    value={draftClassTitle}
+                    onChangeText={setDraftClassTitle}
+                  />
+
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>Subject</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. Mathematics"
+                    placeholderTextColor={textSub}
+                    value={draftClassSubject}
+                    onChangeText={setDraftClassSubject}
+                  />
+
+                  <View style={{ flexDirection: "row", gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.fieldLabel, { color: textSub }]}>Section</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                        placeholder="e.g. Section 3"
+                        placeholderTextColor={textSub}
+                        value={draftClassSection}
+                        onChangeText={setDraftClassSection}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.fieldLabel, { color: textSub }]}>Room</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                        placeholder="e.g. CL1"
+                        placeholderTextColor={textSub}
+                        value={draftClassRoom}
+                        onChangeText={setDraftClassRoom}
+                      />
+                    </View>
+                  </View>
+
+                  <Text style={[styles.fieldLabel, { color: textSub }]}>Schedule</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                    placeholder="e.g. MWF 4:30-5:30PM"
+                    placeholderTextColor={textSub}
+                    value={draftClassSchedule}
+                    onChangeText={setDraftClassSchedule}
+                  />
+
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.cancelBtn, { borderColor: border, backgroundColor: btnSecondaryBg }]}
+                      onPress={() => setEditClassModalVisible(false)}
+                      disabled={savingClassEdit}
+                    >
+                      <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.addBtn,
+                        { backgroundColor: cardColor },
+                        (!draftClassTitle.trim() || savingClassEdit) && styles.addBtnDisabled,
+                      ]}
+                      onPress={handleSaveClassroomEdit}
+                      disabled={!draftClassTitle.trim() || savingClassEdit}
+                    >
+                      {savingClassEdit ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.addBtnText}>Save Changes</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Student More Options Action Sheet ── */}
+      <Modal
+        visible={studentMenuTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStudentMenuTarget(null)}
+      >
+        <TouchableOpacity
+          style={styles.exportModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setStudentMenuTarget(null)}
+        >
+          <Pressable
+            style={[styles.exportModalSheet, { backgroundColor: cardBg }]}
+            onPress={(e) => e.stopPropagation?.()}
+          >
+            {studentMenuTarget && (
+              <>
+                <View style={{ marginBottom: 4 }}>
+                  <Text style={[styles.exportModalTitle, { color: textMain }]}>
+                    {studentMenuTarget.full_name}
+                  </Text>
+                  <Text style={[styles.exportModalSub, { color: textSub }]}>
+                    {studentMenuTarget.email || "No email address recorded"}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.exportOptionCard,
+                    { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border },
+                  ]}
+                  onPress={() => {
+                    const target = studentMenuTarget;
+                    setStudentMenuTarget(null);
+                    setSelectedProfile(target);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#475569" : "#E2E8F0" }]}>
+                    <Ionicons name="person-outline" size={20} color={textMain} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>View Student Profile</Text>
+                    <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                      Inspect quiz breakdown and pedagogical advice
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={textSub} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.exportOptionCard,
+                    { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border },
+                  ]}
+                  onPress={() => {
+                    const target = studentMenuTarget;
+                    setStudentMenuTarget(null);
+                    openEditModal(target);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#475569" : "#E2E8F0" }]}>
+                    <Ionicons name="create-outline" size={20} color={textMain} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Edit Student Details</Text>
+                    <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                      Update name or email address
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={textSub} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.exportOptionCard,
+                    { backgroundColor: darkMode ? "#450A0A" : "#FEF2F2", borderColor: darkMode ? "#7F1D1D" : "#FECACA" },
+                  ]}
+                  onPress={() => {
+                    const target = studentMenuTarget;
+                    setStudentMenuTarget(null);
+                    promptDeleteStudent(target);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}>
+                    <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.exportOptionCardTitle, { color: "#DC2626" }]}>Remove Student</Text>
+                    <Text style={[styles.exportOptionCardSub, { color: darkMode ? "#FCA5A5" : "#B91C1C" }]}>
+                      Delete student from this classroom roster
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.exportModalCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}
+                  onPress={() => setStudentMenuTarget(null)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.exportModalCancelText, { color: textMain }]}>Cancel</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </Pressable>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -2740,9 +3105,12 @@ const styles = StyleSheet.create({
 
   /* ── Banner ── */
   banner: {
-    paddingHorizontal: 22,
-    paddingVertical: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     overflow: "hidden",
+  },
+  bannerCompact: {
+    paddingVertical: 12,
   },
   bannerStripe: {
     position: "absolute",
@@ -2753,82 +3121,50 @@ const styles = StyleSheet.create({
     borderRadius: 70,
     backgroundColor: "rgba(255,255,255,0.08)",
   },
-  bannerSubjectBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.22)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    alignSelf: "flex-start",
-    marginBottom: 6,
-  },
-  bannerSubjectText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-  },
   bannerTitle: {
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: "800",
     color: "#FFFFFF",
-    marginBottom: 6,
+    letterSpacing: -0.3,
   },
-  bannerDetailsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
+  bannerTitleCompact: {
+    fontSize: 17,
   },
-  bannerDetailItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  bannerDetailDot: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  bannerSubText: {
+  bannerSubtitleText: {
     fontSize: 13,
-    color: "rgba(255,255,255,0.95)",
-    fontWeight: "600",
-  },
-  bannerSub: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.85)",
+    color: "rgba(255, 255, 255, 0.85)",
     fontWeight: "500",
+    marginTop: 4,
+    lineHeight: 18,
   },
 
-  /* ── Tabs ── */
+  /* ── Tabs (True Underline Tab Bar) ── */
   tabBar: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    gap: 8,
+    borderBottomColor: "#E2E8F0",
   },
   tab: {
     flex: 1,
-    paddingVertical: 9,
-    borderRadius: 12,
+    paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F3F4F6",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
   },
   tabActive: {
-    backgroundColor: ORANGE,
+    borderBottomColor: "#0F172A",
   },
   tabText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6B7280",
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#64748B",
   },
   tabTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "800",
+    color: "#0F172A",
+    fontWeight: "700",
   },
 
   /* ── Action Row ── */
@@ -2836,57 +3172,43 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 10,
+    paddingVertical: 12,
+    gap: 8,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: "#F1F5F9",
   },
-  importBtn: {
+  secondaryToolbarBtn: {
     flex: 1,
+    height: 38,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: ORANGE,
-    borderRadius: 14,
-    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+    paddingHorizontal: 10,
     gap: 6,
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-    elevation: 3,
   },
-  importBtnText: {
+  secondaryToolbarBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  primaryToolbarBtn: {
+    height: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    gap: 5,
+  },
+  primaryToolbarBtnText: {
     color: "#FFFFFF",
-    fontWeight: "700",
+    fontWeight: "600",
     fontSize: 13,
-  },
-  exportBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    paddingVertical: 12,
-    gap: 6,
-  },
-  exportBtnText: {
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  fabSmall: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: ORANGE,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 4,
   },
 
   /* ── Search ── */
@@ -2897,12 +3219,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 14,
     marginBottom: 4,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
     gap: 8,
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
   searchInput: {
     flex: 1,
@@ -2916,17 +3238,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   rosterTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#1F2937",
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   rosterHint: {
-    fontSize: 11,
-    color: "#9CA3AF",
+    fontSize: 11.5,
+    color: "#64748B",
     fontWeight: "500",
   },
 
@@ -2936,102 +3258,105 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
-    marginBottom: 10,
-    borderRadius: 14,
-    padding: 14,
+    marginBottom: 8,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
     elevation: 1,
     borderWidth: 1,
-    borderColor: "#F3F4F6",
+    borderColor: "#E5E7EB",
   },
   avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   avatarText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-    fontSize: 16,
+    color: "#334155",
+    fontWeight: "700",
+    fontSize: 13,
   },
   studentInfo: {
     flex: 1,
-    gap: 3,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flexWrap: "wrap",
+    minWidth: 0,
+    gap: 2,
   },
   studentName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1F2937",
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0F172A",
+    lineHeight: 20,
   },
   avatarImage: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    flexShrink: 0,
   },
   topBadge: {
-    backgroundColor: "#DBEAFE",
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  topBadgeText: {
-    fontSize: 10.5,
-    fontWeight: "800",
-    color: "#2563EB",
-  },
-  flaggedBadge: {
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "#EFF6FF",
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
+    marginTop: 2,
+  },
+  topBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+  flaggedBadge: {
+    backgroundColor: "#FEF2F2",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 2,
   },
   flaggedBadgeText: {
     fontSize: 10.5,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#DC2626",
   },
-  statDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: "#E5E7EB",
-    marginHorizontal: 8,
-  },
   studentEmail: {
-    fontSize: 12,
-    color: "#9CA3AF",
+    fontSize: 13,
+    color: "#64748B",
   },
   studentStats: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 6,
+    flexShrink: 0,
   },
-  statCol: {
-    alignItems: "center",
+  statRightCol: {
+    alignItems: "flex-end",
   },
   statValue: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
-    color: "#1F2937",
+    color: "#0F172A",
   },
   statLabel: {
-    fontSize: 10,
-    color: "#9CA3AF",
+    fontSize: 11,
+    color: "#64748B",
     fontWeight: "500",
+    marginTop: 1,
+  },
+  studentMoreBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
   },
 
   /* ── Empty State ── */

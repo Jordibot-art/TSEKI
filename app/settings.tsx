@@ -453,37 +453,41 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Profile Card ── */}
-        <View style={[styles.profileCard, { backgroundColor: themeColor, shadowColor: themeColor }]}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{initials}</Text>
+        <View style={[styles.profileCard, { backgroundColor: card, borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+          <View style={[styles.avatarCircle, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+            <Text style={[styles.avatarText, { color: darkMode ? "#F8FAFC" : "#334155" }]}>{initials}</Text>
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={styles.profileName}>{fullName || "Teacher"}</Text>
-              <View style={styles.verifiedBadge}>
-                <Ionicons name="shield-checkmark" size={11} color="#FFFFFF" />
-              </View>
+              <Text style={[styles.profileName, { color: textMain }]} numberOfLines={1}>{fullName || "Teacher"}</Text>
+              <Ionicons name="checkmark-circle" size={15} color="#0D9488" />
             </View>
-            <Text style={styles.profileEmail}>{email}</Text>
+            <Text
+              style={[styles.profileEmail, { color: "#64748B" }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {email}
+            </Text>
           </View>
           <TouchableOpacity
-            style={styles.editProfileBtn}
+            style={[styles.editProfileBtn, { backgroundColor: darkMode ? "#334155" : "#F8FAFC", borderColor: darkMode ? "#475569" : "#E2E8F0" }]}
             onPress={() => { setDraftName(fullName); setEditVisible(true); }}
             activeOpacity={0.8}
           >
-            <Ionicons name="pencil" size={16} color="#FFFFFF" />
+            <Ionicons name="pencil-outline" size={16} color={darkMode ? "#E2E8F0" : "#475569"} />
           </TouchableOpacity>
         </View>
 
         {/* ── Account ── */}
-        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>ACCOUNT</Text>
+        <Text style={styles.sectionLabel}>ACCOUNT</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <SettingsRow
             icon="person-outline"
             label="Edit Display Name"
             textMain={textMain}
             textSub={textSub}
-            accentColor={themeColor}
+            iconColor={darkMode ? "#94A3B8" : "#475569"}
             onPress={() => { setDraftName(fullName); setEditVisible(true); }}
           />
           <View style={[styles.divider, { backgroundColor: border }]} />
@@ -492,13 +496,13 @@ export default function SettingsScreen() {
             label="Change Password"
             textMain={textMain}
             textSub={textSub}
-            accentColor={themeColor}
+            iconColor={darkMode ? "#94A3B8" : "#475569"}
             onPress={() => { setNewPw(""); setConfirmPw(""); setPwVisible(true); }}
           />
         </View>
 
         {/* ── Assessments (Drafts & Archive) ── */}
-        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>ASSESSMENTS</Text>
+        <Text style={styles.sectionLabel}>ASSESSMENTS</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           {/* Draft Assessments */}
           <TouchableOpacity
@@ -509,9 +513,7 @@ export default function SettingsScreen() {
               setAssessmentModalVisible(true);
             }}
           >
-            <View style={[styles.iconWrap, { backgroundColor: "#FEF3C7" }]}>
-              <Ionicons name="document-text-outline" size={20} color="#D97706" />
-            </View>
+            <Ionicons name="document-text-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: textMain }]}>Draft Assessments</Text>
               <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
@@ -532,9 +534,7 @@ export default function SettingsScreen() {
               setAssessmentModalVisible(true);
             }}
           >
-            <View style={[styles.iconWrap, { backgroundColor: "#DBEAFE" }]}>
-              <Ionicons name="archive-outline" size={20} color="#2563EB" />
-            </View>
+            <Ionicons name="archive-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: textMain }]}>Archive</Text>
               <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
@@ -546,32 +546,37 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Appearance ── */}
-        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>APPEARANCE</Text>
+        <Text style={styles.sectionLabel}>APPEARANCE</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           {/* Dark Mode */}
-          <View style={styles.rowBase}>
-            <View style={[styles.iconWrap, { backgroundColor: themeColor + "22" }]}>
-              <Ionicons name="moon-outline" size={20} color={themeColor} />
-            </View>
+          <TouchableOpacity
+            style={styles.rowBase}
+            activeOpacity={0.8}
+            onPress={() => setDarkMode(!darkMode)}
+          >
+            <Ionicons name="moon-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
             <Text style={[styles.rowLabel, { color: textMain }]}>Dark Mode</Text>
-            <Switch
-              value={darkMode}
-              onValueChange={setDarkMode}
-              trackColor={{ false: "#D1D5DB", true: themeColor }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
+            <View
+              style={[
+                styles.customSwitchTrack,
+                {
+                  backgroundColor: darkMode ? themeColor : "#CBD5E1",
+                  alignItems: darkMode ? "flex-end" : "flex-start",
+                },
+              ]}
+            >
+              <View style={styles.customSwitchThumb} />
+            </View>
+          </TouchableOpacity>
         </View>
 
 
 
         {/* ── Session ── */}
-        <Text style={[styles.sectionLabel, { color: darkMode ? textSub : ORANGE }]}>SESSION</Text>
+        <Text style={styles.sectionLabel}>SESSION</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <TouchableOpacity style={styles.rowBase} onPress={handleLogout}>
-            <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
-              <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-            </View>
+          <TouchableOpacity style={styles.rowBase} onPress={handleLogout} activeOpacity={0.7}>
+            <Ionicons name="log-out-outline" size={18} color="#EF4444" />
             <Text style={[styles.rowLabel, { color: "#EF4444" }]}>Log Out</Text>
             <Ionicons name="chevron-forward" size={18} color="#EF4444" />
           </TouchableOpacity>
@@ -1407,16 +1412,14 @@ export default function SettingsScreen() {
 
 // ── Reusable row ──────────────────────────────────────────────────────────────
 function SettingsRow({
-  icon, label, onPress, textMain, textSub, accentColor,
+  icon, label, onPress, textMain, textSub, iconColor,
 }: {
   icon: any; label: string; onPress: () => void;
-  textMain: string; textSub: string; accentColor: string;
+  textMain: string; textSub: string; iconColor: string;
 }) {
   return (
     <TouchableOpacity style={styles.rowBase} onPress={onPress} activeOpacity={0.7}>
-      <View style={[styles.iconWrap, { backgroundColor: accentColor + "18" }]}>
-        <Ionicons name={icon} size={20} color={accentColor} />
-      </View>
+      <Ionicons name={icon} size={18} color={iconColor} />
       <Text style={[styles.rowLabel, { color: textMain }]}>{label}</Text>
       <Ionicons name="chevron-forward" size={18} color={textSub} />
     </TouchableOpacity>
@@ -1440,50 +1443,60 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
+  headerTitle: { fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
 
-  scrollContent: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 60 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 60 },
 
   profileCard: {
-    flexDirection: "row", alignItems: "center", borderRadius: 20,
-    padding: 20, marginBottom: 28, gap: 16,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15, shadowRadius: 12, elevation: 5,
+    flexDirection: "row", alignItems: "center", borderRadius: 16,
+    padding: 16, marginBottom: 24, gap: 14, borderWidth: 1,
+    shadowColor: "#0F172A", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
   },
   avatarCircle: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: "rgba(255,255,255,0.3)",
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: "#F1F5F9",
     alignItems: "center", justifyContent: "center",
   },
-  avatarText: { fontSize: 22, fontWeight: "800", color: "#FFFFFF" },
-  profileName: { fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginBottom: 2 },
-  profileEmail: { fontSize: 12, color: "rgba(255,255,255,0.8)" },
-  verifiedBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  avatarText: { fontSize: 17, fontWeight: "700", color: "#334155" },
+  profileName: { fontSize: 16, fontWeight: "700", color: "#0F172A", marginBottom: 2 },
+  profileEmail: { fontSize: 13, color: "#64748B", flexShrink: 1 },
   editProfileBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    width: 34, height: 34, borderRadius: 10,
+    borderWidth: 1,
     alignItems: "center", justifyContent: "center",
   },
 
-  sectionLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
+  sectionLabel: { fontSize: 12, fontWeight: "600", color: "#64748B", letterSpacing: 0.4, marginBottom: 8, marginLeft: 4 },
 
   card: {
-    borderRadius: 16, marginBottom: 24, borderWidth: 1, overflow: "hidden",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    borderRadius: 14, marginBottom: 22, borderWidth: 1, overflow: "hidden",
+    shadowColor: "#0F172A", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
   },
-  divider: { height: 1, marginLeft: 64 },
+  divider: { height: 1, marginLeft: 46 },
 
-  rowBase: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 14 },
+  rowBase: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
   iconWrap: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  rowLabel: { flex: 1, fontSize: 16, fontWeight: "500" },
+  rowLabel: { flex: 1, fontSize: 15, fontWeight: "500" },
+  customSwitchTrack: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    padding: 2,
+    justifyContent: "center",
+  },
+  customSwitchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
 
   /* Badges */
   draftBadge: {

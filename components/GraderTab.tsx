@@ -1195,11 +1195,10 @@ export default function GraderTab({
                 <View style={[styles.launcherCard, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}>
                     <View style={styles.launcherHeader}>
                         <View style={[styles.launcherIconCircle, { backgroundColor: (accentColor || "#F97316") + "15" }]}>
-                            <Ionicons name="camera" size={22} color={accentColor || "#F97316"} />
+                            <Ionicons name="camera" size={18} color={accentColor || "#F97316"} />
                         </View>
-                        <View>
+                        <View style={{ flex: 1 }}>
                             <Text style={[styles.launcherTitle, { color: textMain }]}>Tseki Smart Vision Grader</Text>
-                            <Text style={[styles.launcherSub, { color: textSub }]}>Fast, AI-powered automatic quiz grading</Text>
                         </View>
                     </View>
 
@@ -1275,11 +1274,11 @@ export default function GraderTab({
 
                     {gradingMode === "single" ? (
                         <>
-                            {/* 1. GRADE AGAINST QUIZ */}
+                            {/* Select assessment */}
                             <View style={styles.fieldGroup}>
-                                <Text style={[styles.fieldLabel, { color: textSub }]}>1. GRADE AGAINST QUIZ</Text>
+                                <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Select assessment</Text>
                                 <Dropdown
-                                    label="GRADE AGAINST QUIZ"
+                                    label="Select assessment"
                                     value={currentQuizValue}
                                     placeholder="No quizzes created yet"
                                     options={quizOptions}
@@ -1288,11 +1287,11 @@ export default function GraderTab({
                                 />
                             </View>
 
-                            {/* 2. IDENTIFY STUDENT SHEET */}
+                            {/* Student identification */}
                             <View style={styles.fieldGroup}>
-                                <Text style={[styles.fieldLabel, { color: textSub }]}>2. IDENTIFY STUDENT SHEET</Text>
+                                <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Student identification</Text>
                                 <Dropdown
-                                    label="IDENTIFY STUDENT SHEET"
+                                    label="Student identification"
                                     value={currentStudentValue}
                                     options={studentOptions}
                                     onSelect={setSelectedStudent}
@@ -1321,11 +1320,11 @@ export default function GraderTab({
                         </>
                     ) : (
                         <>
-                            {/* 1. GRADE AGAINST QUIZ */}
+                            {/* Select assessment */}
                             <View style={styles.fieldGroup}>
-                                <Text style={[styles.fieldLabel, { color: textSub }]}>1. SELECT ASSESSMENT TO GRADE</Text>
+                                <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Select assessment</Text>
                                 <Dropdown
-                                    label="GRADE AGAINST QUIZ"
+                                    label="Select assessment"
                                     value={currentQuizValue}
                                     placeholder="No quizzes created yet"
                                     options={quizOptions}
@@ -1941,19 +1940,19 @@ const styles = StyleSheet.create({
     launcherHeader: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 12,
+        gap: 10,
     },
     launcherIconCircle: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
+        width: 34,
+        height: 34,
+        borderRadius: 10,
         alignItems: "center",
         justifyContent: "center",
     },
     launcherTitle: {
-        fontSize: 17,
-        fontWeight: "800",
-        color: "#1F2937",
+        fontSize: 16,
+        fontWeight: "700",
+        color: "#0F172A",
     },
     launcherSub: {
         fontSize: 12.5,
@@ -1963,36 +1962,31 @@ const styles = StyleSheet.create({
     divider: {
         height: 1,
         backgroundColor: "#F3F4F6",
-        marginVertical: 18,
+        marginVertical: 14,
     },
     fieldGroup: {
-        marginBottom: 20,
+        marginBottom: 16,
     },
     fieldLabel: {
-        fontSize: 11,
-        fontWeight: "700",
-        color: "#6B7280",
-        letterSpacing: 0.6,
-        marginBottom: 8,
+        fontSize: 13,
+        fontWeight: "500",
+        color: "#334155",
+        letterSpacing: 0,
+        marginBottom: 6,
     },
     primaryScanBtn: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
-        height: 54,
-        borderRadius: 14,
-        marginTop: 10,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 4,
+        height: 48,
+        borderRadius: 12,
+        marginTop: 6,
     },
     primaryScanBtnText: {
         color: "#FFFFFF",
         fontSize: 15,
-        fontWeight: "700",
+        fontWeight: "600",
     },
 
     /* Dropdown */
