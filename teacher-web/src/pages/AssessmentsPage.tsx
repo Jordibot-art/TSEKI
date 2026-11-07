@@ -41,6 +41,7 @@ import { validateAnswerLengths } from "../lib/answerValidator";
 import { shuffleAssessmentForVersion } from "../lib/versionShuffle";
 import { showAlert, showConfirm } from "../components/CustomAlertModal";
 import { ExportPdfModal } from "../components/ExportPdfModal";
+import { AssessmentGeneratingAnimation } from "../components/AssessmentGeneratingAnimation";
 import type { GeneratedAssessment } from "../lib/printEngine";
 import styles from "./AssessmentsPage.module.css";
 
@@ -853,7 +854,16 @@ export default function AssessmentsPage() {
               </div>
             )}
 
-            {step === "config" ? (
+            {generatorLoading ? (
+              <AssessmentGeneratingAnimation
+                statusText={generatorStatus}
+                isBusy={isAiBusy}
+                subject={subject}
+                gradeLevel={gradeLevel}
+                questionCount={questionCount}
+                difficulty={difficulty}
+              />
+            ) : step === "config" ? (
               /* Step 1: Configuration Form */
               <div className={styles.modalBody}>
                 {/* Topic / Title */}

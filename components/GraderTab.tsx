@@ -23,6 +23,7 @@ import { supabase } from "../supabase";
 import { BatchScannerModal } from "./BatchScannerModal";
 import { BatchReviewDashboard } from "./BatchReviewDashboard";
 import { BatchGradingQueue, BatchSheetItem } from "../lib/batchGradingQueue";
+import { PaperScanningAnimation } from "./PaperScanningAnimation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
@@ -1419,31 +1420,22 @@ export default function GraderTab({
                 onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: cardBg }]}>
-                        <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#F97316") + "22" }]}>
-                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#F97316" }]}>
-                                <Ionicons name="scan-outline" size={28} color="#FFFFFF" />
-                            </View>
-                        </View>
+                    <View style={[styles.loadingCard, { backgroundColor: cardBg, maxWidth: 360 }]}>
+                        <PaperScanningAnimation
+                            quizTitle={currentQuizValue}
+                            accentColor={accentColor || "#F97316"}
+                            darkMode={darkMode}
+                        />
 
-                        <Text style={[styles.loadingTitle, { color: textMain }]}>Grading Assessment...</Text>
-                        <Text style={[styles.loadingSub, { color: textSub }]}>
-                            Tseki AI Vision is reading handwritten answers from the sheet and matching against the answer key.
-                        </Text>
-
-                        <View style={styles.spinnerWrap}>
-                            <ActivityIndicator size="large" color={accentColor || "#F97316"} />
-                        </View>
-
-                        <View style={[styles.loadingMetaPill, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                        <View style={[styles.loadingMetaPill, { backgroundColor: darkMode ? "#374151" : "#F3F4F6", marginTop: 10 }]}>
                             <Text style={[styles.loadingMetaText, { color: textMain }]} numberOfLines={1}>
                                 {currentQuizValue}
                             </Text>
                         </View>
 
-                        <View style={styles.loadingNoticeRow}>
-                            <Ionicons name="hourglass-outline" size={14} color="#6B7280" />
-                            <Text style={[styles.loadingNoticeText, { color: textSub }]}>Please wait a moment while Tseki grades...</Text>
+                        <View style={[styles.loadingNoticeRow, { marginTop: 6 }]}>
+                            <Ionicons name="scan-outline" size={14} color={accentColor || "#F97316"} />
+                            <Text style={[styles.loadingNoticeText, { color: textSub }]}>Tseki AI Vision is reading handwritten student answers...</Text>
                         </View>
                     </View>
                 </View>

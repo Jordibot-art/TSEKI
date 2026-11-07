@@ -11,6 +11,7 @@ import {
     ScrollView,
     ActivityIndicator,
     Animated,
+    Easing,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -27,6 +28,8 @@ import {
 } from "../lib/liveCameraInspector";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const RETICLE_WIDTH = SCREEN_WIDTH * 0.88;
+const RETICLE_HEIGHT = Math.min(SCREEN_WIDTH * 0.88 * 1.30, SCREEN_HEIGHT * 0.54);
 
 export interface BatchScannerModalProps {
     visible: boolean;
@@ -127,6 +130,65 @@ export function BatchScannerModal({
 
     // Shutter flash animation (only fires when user taps the camera shutter button)
     const flashAnim = useRef(new Animated.Value(0)).current;
+
+    // Viewfinder Scanning Laser Beam and Corner Pulse Animations
+    const scanLaserAnim = useRef(new Animated.Value(0)).current;
+    const cornerPulseAnim = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+        let laserLoop: Animated.CompositeAnimation | null = null;
+        let cornerLoop: Animated.CompositeAnimation | null = null;
+
+        if (visible) {
+            scanLaserAnim.setValue(0);
+            cornerPulseAnim.setValue(1);
+
+            laserLoop = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(scanLaserAnim, {
+                        toValue: 1,
+                        duration: 2200,
+                        easing: Easing.inOut(Easing.quad),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(scanLaserAnim, {
+                        toValue: 0,
+                        duration: 2200,
+                        easing: Easing.inOut(Easing.quad),
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+
+            cornerLoop = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(cornerPulseAnim, {
+                        toValue: 1.05,
+                        duration: 1100,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(cornerPulseAnim, {
+                        toValue: 1.0,
+                        duration: 1100,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+
+            laserLoop.start();
+            cornerLoop.start();
+        } else {
+            scanLaserAnim.setValue(0);
+            cornerPulseAnim.setValue(1);
+        }
+
+        return () => {
+            laserLoop?.stop();
+            cornerLoop?.stop();
+        };
+    }, [visible]);
 
     const isSingle = mode === "single";
     const totalCaptured = items.length;
@@ -729,11 +791,53 @@ export function BatchScannerModal({
                                     },
                                 ]}
                             >
+                                {/* Animated Scanning Laser Beam */}
+                                <Animated.View
+                                    pointerEvents="none"
+                                    style={[
+                                        styles.scanningLaserBeam,
+                                        {
+                                            backgroundColor: liveHoverStatus?.hasWarnings
+                                                ? "#F59E0B"
+                                                : (qrDetectedLive || liveHoverStatus?.qrVisible)
+                                                ? "#10B981"
+                                                : "#3B82F6",
+                                            shadowColor: liveHoverStatus?.hasWarnings
+                                                ? "#F59E0B"
+                                                : (qrDetectedLive || liveHoverStatus?.qrVisible)
+                                                ? "#10B981"
+                                                : "#60A5FA",
+                                            transform: [
+                                                {
+                                                    translateY: scanLaserAnim.interpolate({
+                                                        inputRange: [0, 1],
+                                                        outputRange: [6, RETICLE_HEIGHT - 12],
+                                                    }),
+                                                },
+                                            ],
+                                        },
+                                    ]}
+                                >
+                                    <View
+                                        style={[
+                                            styles.laserGlowTrail,
+                                            {
+                                                backgroundColor: liveHoverStatus?.hasWarnings
+                                                    ? "rgba(245, 158, 11, 0.22)"
+                                                    : (qrDetectedLive || liveHoverStatus?.qrVisible)
+                                                    ? "rgba(16, 185, 129, 0.22)"
+                                                    : "rgba(59, 130, 246, 0.22)",
+                                            },
+                                        ]}
+                                    />
+                                </Animated.View>
+
                                 {/* Top-Left Corner Bracket & Solid Marker Target */}
-                                <View
+                                <Animated.View
                                     style={[
                                         styles.corner,
                                         styles.cornerTL,
+                                        { transform: [{ scale: cornerPulseAnim }] },
                                         liveHoverStatus && {
                                             borderColor: liveHoverStatus.cornerStatus.tl ? "#10B981" : "#F59E0B",
                                         },
@@ -745,13 +849,14 @@ export function BatchScannerModal({
                                             liveHoverStatus?.cornerStatus.tl && { borderColor: "#10B981" },
                                         ]}
                                     />
-                                </View>
+                                </Animated.View>
 
                                 {/* Top-Right Corner Bracket & Solid Marker Target */}
-                                <View
+                                <Animated.View
                                     style={[
                                         styles.corner,
                                         styles.cornerTR,
+                                        { transform: [{ scale: cornerPulseAnim }] },
                                         liveHoverStatus && {
                                             borderColor: liveHoverStatus.cornerStatus.tr ? "#10B981" : "#F59E0B",
                                         },
@@ -763,7 +868,7 @@ export function BatchScannerModal({
                                             liveHoverStatus?.cornerStatus.tr && { borderColor: "#10B981" },
                                         ]}
                                     />
-                                </View>
+                                </Animated.View>
 
                                 {/* Top-Right QR Code Zone Indicator */}
                                 <View
@@ -794,10 +899,11 @@ export function BatchScannerModal({
                                 </View>
 
                                 {/* Bottom-Left Corner Bracket & Solid Marker Target */}
-                                <View
+                                <Animated.View
                                     style={[
                                         styles.corner,
                                         styles.cornerBL,
+                                        { transform: [{ scale: cornerPulseAnim }] },
                                         liveHoverStatus && {
                                             borderColor: liveHoverStatus.cornerStatus.bl ? "#10B981" : "#F59E0B",
                                         },
@@ -809,13 +915,14 @@ export function BatchScannerModal({
                                             liveHoverStatus?.cornerStatus.bl && { borderColor: "#10B981" },
                                         ]}
                                     />
-                                </View>
+                                </Animated.View>
 
                                 {/* Bottom-Right Corner Bracket & Solid Marker Target */}
-                                <View
+                                <Animated.View
                                     style={[
                                         styles.corner,
                                         styles.cornerBR,
+                                        { transform: [{ scale: cornerPulseAnim }] },
                                         liveHoverStatus && {
                                             borderColor: liveHoverStatus.cornerStatus.br ? "#10B981" : "#F59E0B",
                                         },
@@ -827,7 +934,7 @@ export function BatchScannerModal({
                                             liveHoverStatus?.cornerStatus.br && { borderColor: "#10B981" },
                                         ]}
                                     />
-                                </View>
+                                </Animated.View>
                             </View>
                         </View>
 
@@ -1183,6 +1290,26 @@ const styles = StyleSheet.create({
         borderWidth: 1.5,
         borderColor: "#FFFFFF",
         borderRadius: 2,
+    },
+    scanningLaserBeam: {
+        position: "absolute",
+        left: 8,
+        right: 8,
+        height: 2.5,
+        borderRadius: 2,
+        zIndex: 4,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.9,
+        shadowRadius: 6,
+        elevation: 6,
+    },
+    laserGlowTrail: {
+        position: "absolute",
+        top: -14,
+        bottom: -14,
+        left: 0,
+        right: 0,
+        borderRadius: 8,
     },
     qrTargetBox: {
         position: "absolute",

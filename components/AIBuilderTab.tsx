@@ -18,6 +18,7 @@ import {
     View,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
+import { AssessmentGeneratingAnimation } from "./AssessmentGeneratingAnimation";
 import {
     detectDocType,
     getDocBadgeInfo,
@@ -1785,50 +1786,32 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={styles.loadingCard}>
-                        {/* Glowing Icon Badge */}
-                        <View style={[styles.loadingIconGlow, { backgroundColor: isAiBusy ? "#F59E0B22" : accentColor + "22" }]}>
-                            <View style={[styles.loadingIconCircle, { backgroundColor: isAiBusy ? "#F59E0B" : accentColor }]}>
-                                <Ionicons name={isAiBusy ? "hourglass-outline" : "sparkles"} size={28} color="#FFFFFF" />
-                            </View>
-                        </View>
-
+                    <View style={[styles.loadingCard, { backgroundColor: cardBg, maxWidth: 360 }]}>
                         {isAiBusy && (
-                            <View style={[styles.aiBusyBadge, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
+                            <View style={[styles.aiBusyBadge, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B", marginBottom: 12 }]}>
                                 <Ionicons name="cloud-offline-outline" size={13} color="#D97706" />
                                 <Text style={styles.aiBusyBadgeText}>AI is busy right now</Text>
                             </View>
                         )}
 
-                        <Text style={styles.loadingTitle}>
-                            {isAiBusy ? "AI is Busy — Auto-Retrying" : "Generating Assessment"}
-                        </Text>
-
-                        <Text style={[styles.loadingSub, isAiBusy && { color: "#D97706", fontWeight: "600" }]}>
-                            {generatingStatus || (attachedFile
-                                ? `Tseki AI is analyzing "${attachedFile.name}" and extracting questions...`
-                                : `Tseki AI is crafting DepEd-aligned questions for ${subject}...`)}
-                        </Text>
-
-                        {/* Spinner */}
-                        <View style={styles.spinnerWrap}>
-                            <ActivityIndicator size="large" color={isAiBusy ? "#F59E0B" : accentColor} />
-                        </View>
-
-                        {/* Parameter summary pill */}
-                        <View style={styles.loadingMetaPill}>
-                            <Text style={styles.loadingMetaText} numberOfLines={1}>
-                                {questionCount} • {difficulty} • {questionType}
-                            </Text>
-                        </View>
+                        <AssessmentGeneratingAnimation
+                            topicOrSubject={lessonTitle || subject || "Assessment"}
+                            questionCount={`${questionCount} Items`}
+                            difficulty={difficulty}
+                            questionType={questionType}
+                            isAiBusy={isAiBusy}
+                            statusMessage={generatingStatus}
+                            accentColor={accentColor}
+                            darkMode={darkMode}
+                        />
 
                         {/* Do not close notice */}
-                        <View style={[styles.loadingNoticeRow, isAiBusy && { backgroundColor: "#FFFBEB" }]}>
+                        <View style={[styles.loadingNoticeRow, isAiBusy && { backgroundColor: "#FFFBEB" }, { marginTop: 4 }]}>
                             <Ionicons name={isAiBusy ? "sync-outline" : "hourglass-outline"} size={14} color={isAiBusy ? "#D97706" : "#6B7280"} />
                             <Text style={[styles.loadingNoticeText, isAiBusy && { color: "#92400E" }]}>
                                 {isAiBusy
                                     ? "Retrying with backoff before switching to backup AI..."
-                                    : "Please wait and keep this screen open."}
+                                    : "Please wait while Tseki crafts your assessment."}
                             </Text>
                         </View>
                     </View>
