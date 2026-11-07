@@ -499,12 +499,11 @@ export function BatchScannerModal({
 
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                                 <TouchableOpacity
-                                    style={styles.tipsBtn}
+                                    style={styles.topBtn}
                                     onPress={() => setGuidanceOpen(true)}
                                     activeOpacity={0.75}
                                 >
-                                    <Ionicons name="help-circle-outline" size={16} color="#FBBF24" />
-                                    <Text style={styles.tipsBtnText}>Tips</Text>
+                                    <Ionicons name="information-circle-outline" size={20} color="#ffffff" />
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
@@ -650,34 +649,6 @@ export function BatchScannerModal({
                             </View>
                         </TouchableOpacity>
 
-                        {/* ── Real-Time Hover Status Pill (Single-line, non-intrusive, never covers paper) ── */}
-                        {liveHoverStatus && !activeQualityAlert && (
-                            <View
-                                style={[
-                                    styles.liveStatusPill,
-                                    liveHoverStatus.hasWarnings
-                                        ? styles.liveStatusPillWarn
-                                        : styles.liveStatusPillOk,
-                                ]}
-                                pointerEvents="none"
-                            >
-                                <Ionicons
-                                    name={liveHoverStatus.hasWarnings ? "alert-circle" : "checkmark-circle"}
-                                    size={13}
-                                    color={liveHoverStatus.hasWarnings ? "#FBBF24" : "#34D399"}
-                                />
-                                <Text
-                                    style={[
-                                        styles.liveStatusText,
-                                        { color: liveHoverStatus.hasWarnings ? "#FDE68A" : "#D1FAE5" },
-                                    ]}
-                                    numberOfLines={1}
-                                >
-                                    {liveHoverStatus.summaryText}
-                                </Text>
-                            </View>
-                        )}
-
                         {/* ── Post-Capture Batch Photo Quality Warning Banner (Batch Mode) ── */}
                         {activeQualityAlert && (
                             <View style={styles.qualityAlertBanner}>
@@ -726,37 +697,6 @@ export function BatchScannerModal({
                             </View>
                         )}
 
-                        {/* Floating Live Batch Counters HUD (Only in Batch Mode) */}
-                        {!isSingle && !activeQualityAlert && !liveHoverStatus?.hasWarnings && (
-                            <View style={[styles.hudCard, liveHoverStatus && { top: 172 }]}>
-                                <View style={styles.hudItem}>
-                                    <Text style={styles.hudNum}>{totalCaptured}</Text>
-                                    <Text style={styles.hudLabel}>Scanned</Text>
-                                </View>
-                                <View style={styles.hudDivider} />
-                                <View style={styles.hudItem}>
-                                    <Text style={[styles.hudNum, { color: "#10B981" }]}>{completedCount}</Text>
-                                    <Text style={styles.hudLabel}>Graded</Text>
-                                </View>
-                                <View style={styles.hudDivider} />
-                                <View style={styles.hudItem}>
-                                    <Text style={[styles.hudNum, inProgressCount > 0 && { color: "#3B82F6" }]}>
-                                        {inProgressCount}
-                                    </Text>
-                                    <Text style={styles.hudLabel}>Queue</Text>
-                                </View>
-                                {flaggedCount > 0 && (
-                                    <>
-                                        <View style={styles.hudDivider} />
-                                        <View style={styles.hudItem}>
-                                            <Text style={[styles.hudNum, { color: "#F59E0B" }]}>{flaggedCount}</Text>
-                                            <Text style={styles.hudLabel}>Review</Text>
-                                        </View>
-                                    </>
-                                )}
-                            </View>
-                        )}
-
                         {/* ── Interactive Tap-to-Focus Viewfinder Touch Layer ── */}
                         <TouchableWithoutFeedback onPress={handleTouchToFocus}>
                             <View style={StyleSheet.absoluteFillObject} />
@@ -797,6 +737,38 @@ export function BatchScannerModal({
                                     },
                                 ]}
                             >
+                                {/* Single Compact Status Pill Docked Cleanly at Top Edge of Scan Frame */}
+                                {liveHoverStatus && !activeQualityAlert && (
+                                    <View
+                                        style={[
+                                            styles.dockedStatusPill,
+                                            liveHoverStatus.hasWarnings
+                                                ? styles.liveStatusPillWarn
+                                                : styles.liveStatusPillOk,
+                                        ]}
+                                        pointerEvents="none"
+                                    >
+                                        <Ionicons
+                                            name={liveHoverStatus.hasWarnings ? "alert-circle" : "checkmark-circle"}
+                                            size={13}
+                                            color={liveHoverStatus.hasWarnings ? "#FBBF24" : "#34D399"}
+                                        />
+                                        <Text
+                                            style={[
+                                                styles.liveStatusText,
+                                                { color: liveHoverStatus.hasWarnings ? "#FDE68A" : "#D1FAE5" },
+                                            ]}
+                                            numberOfLines={1}
+                                        >
+                                            {liveHoverStatus.hasWarnings
+                                                ? liveHoverStatus.isBlurry
+                                                    ? "Hold steady to focus"
+                                                    : "Align QR code & 4 corners"
+                                                : "Ready to capture"}
+                                        </Text>
+                                    </View>
+                                )}
+
                                 {/* Animated Scanning Laser Beam */}
                                 <Animated.View
                                     pointerEvents="none"
@@ -875,34 +847,6 @@ export function BatchScannerModal({
                                         ]}
                                     />
                                 </Animated.View>
-
-                                {/* Top-Right QR Code Zone Indicator */}
-                                <View
-                                    style={[
-                                        styles.qrTargetBox,
-                                        (qrDetectedLive || liveHoverStatus?.qrVisible) && styles.qrTargetBoxActive,
-                                    ]}
-                                >
-                                    <Ionicons
-                                        name={
-                                            qrDetectedLive || liveHoverStatus?.qrVisible
-                                                ? "checkmark-circle"
-                                                : "qr-code-outline"
-                                        }
-                                        size={12}
-                                        color={
-                                            qrDetectedLive || liveHoverStatus?.qrVisible ? "#10B981" : "#FFFFFF"
-                                        }
-                                    />
-                                    <Text
-                                        style={[
-                                            styles.qrTargetText,
-                                            (qrDetectedLive || liveHoverStatus?.qrVisible) && { color: "#34D399" },
-                                        ]}
-                                    >
-                                        {qrDetectedLive || liveHoverStatus?.qrVisible ? "QR VISIBLE" : "QR"}
-                                    </Text>
-                                </View>
 
                                 {/* Bottom-Left Corner Bracket & Solid Marker Target */}
                                 <Animated.View
@@ -1010,13 +954,12 @@ export function BatchScannerModal({
                                         disabled={totalCaptured === 0}
                                         activeOpacity={0.8}
                                     >
-                                        <View style={styles.finishBtnContent}>
-                                            <Text style={styles.finishBtnText}>Review</Text>
-                                            <View style={styles.finishBadge}>
-                                                <Text style={styles.finishBadgeText}>{totalCaptured}</Text>
-                                            </View>
-                                        </View>
-                                        <Ionicons name="arrow-forward" size={16} color="#ffffff" />
+                                        {inProgressCount > 0 && (
+                                            <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 2 }} />
+                                        )}
+                                        <Text style={styles.finishBtnText}>
+                                            Review ({totalCaptured}) →
+                                        </Text>
                                     </TouchableOpacity>
                                 )}
                             </View>
@@ -1095,9 +1038,9 @@ const styles = StyleSheet.create({
         zIndex: 10,
     },
     topBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
         backgroundColor: "rgba(0,0,0,0.5)",
         alignItems: "center",
         justifyContent: "center",
@@ -1106,22 +1049,6 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(251,191,36,0.3)",
         borderWidth: 1.5,
         borderColor: "#FBBF24",
-    },
-    tipsBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        backgroundColor: "rgba(0,0,0,0.55)",
-        borderWidth: 1,
-        borderColor: "rgba(251,191,36,0.5)",
-        paddingVertical: 8,
-        paddingHorizontal: 10,
-        borderRadius: 20,
-    },
-    tipsBtnText: {
-        color: "#FFFFFF",
-        fontSize: 12,
-        fontWeight: "700",
     },
     headerInfo: {
         flex: 1,
@@ -1171,9 +1098,9 @@ const styles = StyleSheet.create({
         marginHorizontal: 8,
         fontSize: 10,
     },
-    liveStatusPill: {
+    dockedStatusPill: {
         position: "absolute",
-        top: 136,
+        top: -15,
         alignSelf: "center",
         flexDirection: "row",
         alignItems: "center",
@@ -1183,58 +1110,22 @@ const styles = StyleSheet.create({
         borderRadius: 14,
         borderWidth: 1,
         zIndex: 20,
-        maxWidth: "90%",
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
         shadowRadius: 4,
     },
     liveStatusPillWarn: {
-        backgroundColor: "rgba(17, 24, 39, 0.92)",
+        backgroundColor: "rgba(17, 24, 39, 0.94)",
         borderColor: "#F59E0B",
     },
     liveStatusPillOk: {
-        backgroundColor: "rgba(6, 78, 59, 0.90)",
+        backgroundColor: "rgba(6, 78, 59, 0.94)",
         borderColor: "#10B981",
     },
     liveStatusText: {
         fontSize: 11.5,
         fontWeight: "700",
-    },
-    hudCard: {
-        position: "absolute",
-        top: 136,
-        alignSelf: "center",
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "rgba(17,24,39,0.85)",
-        borderRadius: 14,
-        paddingVertical: 6,
-        paddingHorizontal: 16,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.15)",
-        zIndex: 10,
-    },
-    hudItem: {
-        alignItems: "center",
-        paddingHorizontal: 8,
-    },
-    hudNum: {
-        color: "#ffffff",
-        fontSize: 16,
-        fontWeight: "800",
-    },
-    hudLabel: {
-        color: "rgba(255,255,255,0.6)",
-        fontSize: 10,
-        fontWeight: "700",
-        textTransform: "uppercase",
-        marginTop: 1,
-    },
-    hudDivider: {
-        width: 1,
-        height: 22,
-        backgroundColor: "rgba(255,255,255,0.15)",
     },
     reticleContainer: {
         ...StyleSheet.absoluteFillObject,

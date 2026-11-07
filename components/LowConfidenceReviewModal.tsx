@@ -20,6 +20,7 @@ export interface LowConfidenceReviewModalProps {
     onClose: () => void;
     gradingResult: GradingResponse | null;
     scannedImageUri?: string | null;
+    studentName?: string;
     accentColor?: string;
     initialQuestionNumber?: number;
     initialFilterOnlyFlagged?: boolean;
@@ -31,6 +32,7 @@ export function LowConfidenceReviewModal({
     onClose,
     gradingResult,
     scannedImageUri,
+    studentName,
     accentColor = "#EA580C",
     initialQuestionNumber,
     initialFilterOnlyFlagged,
@@ -243,103 +245,134 @@ export function LowConfidenceReviewModal({
 
                     {/* ── HEADER ─────────────────────────────────────────────────── */}
                     <View style={[styles.header, { borderBottomColor: border }]}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={[styles.headerTitle, { color: textMain }]}>
-                                Review Flagged Answers
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={[styles.headerTitle, { color: textMain }]} numberOfLines={1}>
+                                {filterOnlyFlagged && flaggedCount > 0
+                                    ? "Review Flagged Answers"
+                                    : "Student Answer Sheet"}
                             </Text>
-                            <Text style={[styles.headerSubtitle, { color: textSub }]}>
+                            <Text style={[styles.headerSubtitle, { color: textSub }]} numberOfLines={1}>
+                                {(studentName || gradingResult.studentName)
+                                    ? `${studentName || gradingResult.studentName} · `
+                                    : ""}
                                 {flaggedCount > 0
                                     ? `${flaggedCount} flagged · ${resolvedCount} resolved`
-                                    : "All items cleanly verified"}
+                                    : `${workingResults.length} questions verified`}
                             </Text>
                         </View>
-                        <TouchableOpacity
-                            style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
-                            onPress={onClose}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                            <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
-                        </TouchableOpacity>
+
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            {scannedImageUri && (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.viewSheetHeaderBtn,
+                                        {
+                                            backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                            borderColor: border,
+                                        },
+                                    ]}
+                                    onPress={() => setImagePreviewOpen(true)}
+                                    activeOpacity={0.75}
+                                >
+                                    <Text style={[styles.viewSheetHeaderBtnText, { color: textMain }]}>
+                                        View Full Sheet ↗
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity
+                                style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                                onPress={onClose}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     {/* ── STICKY ANCHOR BAR (HORIZONTAL CHIPS) ────────────────────── */}
                     <View style={[styles.anchorBar, { borderBottomColor: border }]}>
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.anchorScroll}
-                        >
-                            {displayItems.map((item) => {
-                                const isCurrentInView = item.questionNumber === activeAnchorQNum;
-                                const isFlagged = isItemFlaggedByAi(item);
-                                const isResolved = item.isOverridden;
-
-                                let chipBg = darkMode ? "#1E293B" : "#F8FAFC";
-                                let chipBorder = darkMode ? "#334155" : "#E2E8F0";
-                                let chipColor = textSub;
-
-                                if (isResolved) {
-                                    chipBg = darkMode ? "#064E3B30" : "#F0FDF4";
-                                    chipBorder = "#10B981";
-                                    chipColor = "#16A34A";
-                                } else if (isFlagged) {
-                                    chipBg = darkMode ? "#78350F30" : "#FFFBEB";
-                                    chipBorder = "#F59E0B";
-                                    chipColor = "#D97706";
-                                }
-
-                                return (
-                                    <TouchableOpacity
-                                        key={item.questionNumber}
-                                        style={[
-                                            styles.anchorChip,
-                                            {
-                                                backgroundColor: chipBg,
-                                                borderColor: isCurrentInView ? (darkMode ? "#F8FAFC" : "#0F172A") : chipBorder,
-                                                borderWidth: isCurrentInView ? 2 : 1,
-                                            },
-                                        ]}
-                                        onPress={() => handleScrollToQuestion(item.questionNumber)}
-                                        activeOpacity={0.7}
-                                    >
-                                        <Text style={[styles.anchorChipText, { color: chipColor }]}>
-                                            Q{item.questionNumber}
-                                        </Text>
-                                        {isResolved ? (
-                                            <Ionicons name="checkmark" size={12} color="#16A34A" style={{ marginLeft: 3 }} />
-                                        ) : isFlagged ? (
-                                            <View style={styles.amberDot} />
-                                        ) : null}
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </ScrollView>
-
-                        {/* Filter Toggle */}
-                        {workingResults.length > flaggedItems.length && flaggedItems.length > 0 && (
-                            <TouchableOpacity
-                                style={[
-                                    styles.filterBtn,
-                                    {
-                                        backgroundColor: filterOnlyFlagged
-                                            ? (darkMode ? "#334155" : "#E2E8F0")
-                                            : "transparent",
-                                        borderColor: border,
-                                    },
-                                ]}
-                                onPress={() => setFilterOnlyFlagged(!filterOnlyFlagged)}
-                                activeOpacity={0.7}
+                        <View style={styles.anchorScrollWrap}>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.anchorScroll}
                             >
-                                <Ionicons
-                                    name={filterOnlyFlagged ? "filter" : "list"}
-                                    size={13}
-                                    color={textSub}
-                                    style={{ marginRight: 4 }}
-                                />
-                                <Text style={[styles.filterBtnText, { color: textSub }]}>
-                                    {filterOnlyFlagged ? "Flagged Only" : "All Items"}
-                                </Text>
-                            </TouchableOpacity>
+                                {displayItems.map((item) => {
+                                    const isCurrentInView = item.questionNumber === activeAnchorQNum;
+                                    const isFlagged = isItemFlaggedByAi(item);
+                                    const isResolved = item.isOverridden;
+
+                                    let chipBg = darkMode ? "#1E293B" : "#F8FAFC";
+                                    let chipBorder = darkMode ? "#334155" : "#E2E8F0";
+                                    let chipColor = textSub;
+
+                                    if (isResolved) {
+                                        chipBg = darkMode ? "#064E3B30" : "#F0FDF4";
+                                        chipBorder = "#10B981";
+                                        chipColor = "#16A34A";
+                                    } else if (isFlagged) {
+                                        chipBg = darkMode ? "#78350F30" : "#FFFBEB";
+                                        chipBorder = "#F59E0B";
+                                        chipColor = "#D97706";
+                                    }
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={item.questionNumber}
+                                            style={[
+                                                styles.anchorChip,
+                                                {
+                                                    backgroundColor: chipBg,
+                                                    borderColor: isCurrentInView ? (darkMode ? "#F8FAFC" : "#0F172A") : chipBorder,
+                                                    borderWidth: isCurrentInView ? 2 : 1,
+                                                },
+                                            ]}
+                                            onPress={() => handleScrollToQuestion(item.questionNumber)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.anchorChipText, { color: chipColor }]}>
+                                                Q{item.questionNumber}
+                                            </Text>
+                                            {isResolved ? (
+                                                <Ionicons name="checkmark" size={12} color="#16A34A" style={{ marginLeft: 3 }} />
+                                            ) : isFlagged ? (
+                                                <View style={styles.amberDot} />
+                                            ) : null}
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+
+                        {/* Filter Toggle with Vertical Divider */}
+                        {workingResults.length > flaggedItems.length && flaggedItems.length > 0 && (
+                            <>
+                                <View style={[styles.anchorBarDivider, { backgroundColor: border }]} />
+                                <TouchableOpacity
+                                    style={[
+                                        styles.filterBtn,
+                                        {
+                                            backgroundColor: filterOnlyFlagged
+                                                ? (darkMode ? "#334155" : "#E2E8F0")
+                                                : "transparent",
+                                            borderColor: border,
+                                        },
+                                    ]}
+                                    onPress={() => setFilterOnlyFlagged(!filterOnlyFlagged)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons
+                                        name={filterOnlyFlagged ? "filter" : "list"}
+                                        size={13}
+                                        color={textSub}
+                                        style={{ marginRight: 4 }}
+                                    />
+                                    <Text style={[styles.filterBtnText, { color: textSub }]}>
+                                        {filterOnlyFlagged ? "Flagged Only" : "All Items"}
+                                    </Text>
+                                </TouchableOpacity>
+                            </>
                         )}
                     </View>
 
@@ -388,6 +421,15 @@ export function LowConfidenceReviewModal({
 
                                 const cleanStudentAnswer = (item.studentAnswer || "").trim().toUpperCase();
                                 const cleanKey = item.correctAnswer.trim().toUpperCase();
+                                const rawAiDetected = (item.originalStudentAnswer ?? item.studentAnswer ?? "").trim();
+                                const aiMatchesKey =
+                                    rawAiDetected !== "" && isAnswerAccepted(rawAiDetected, item.correctAnswer.trim());
+                                const aiDetectedColor =
+                                    isFlagged && !item.isOverridden
+                                        ? "#D97706"
+                                        : aiMatchesKey
+                                        ? "#15803D"
+                                        : "#B91C1C";
 
                                 return (
                                     <View
@@ -428,22 +470,22 @@ export function LowConfidenceReviewModal({
                                             ) : null}
                                         </View>
 
-                                        {/* Row 2: Cropped Scan Thumbnail */}
-                                        {scannedImageUri && (
-                                            <View style={styles.thumbnailWrap}>
+                                        {/* Row 2: Cropped Scan Thumbnail (Only on Flagged Questions) */}
+                                        {scannedImageUri && isFlagged && (
+                                            <TouchableOpacity
+                                                style={styles.thumbnailWrap}
+                                                onPress={() => setImagePreviewOpen(true)}
+                                                activeOpacity={0.85}
+                                            >
                                                 <Image
                                                     source={{ uri: scannedImageUri }}
                                                     style={styles.thumbnailImg}
                                                     resizeMode="cover"
                                                 />
-                                                <TouchableOpacity
-                                                    style={styles.expandThumbBtn}
-                                                    onPress={() => setImagePreviewOpen(true)}
-                                                    activeOpacity={0.8}
-                                                >
-                                                    <Text style={styles.expandThumbText}>Expand sheet ↗</Text>
-                                                </TouchableOpacity>
-                                            </View>
+                                                <View style={styles.expandThumbBtn}>
+                                                    <Text style={styles.expandThumbText}>Inspect mark ↗</Text>
+                                                </View>
+                                            </TouchableOpacity>
                                         )}
 
                                         {/* Row 3: Inline Answer Key & AI Read (Single-line strip) */}
@@ -455,8 +497,8 @@ export function LowConfidenceReviewModal({
                                                 </Text>
                                                 {"  ·  "}
                                                 AI Detected:{" "}
-                                                <Text style={{ fontWeight: "700", color: "#B91C1C" }}>
-                                                    {item.originalStudentAnswer || item.studentAnswer || "(Blank)"}
+                                                <Text style={{ fontWeight: "700", color: aiDetectedColor }}>
+                                                    {rawAiDetected || "(Blank)"}
                                                 </Text>
                                                 {item.isOverridden ? (
                                                     <Text style={{ fontWeight: "600", color: item.isCorrect ? "#15803D" : "#B91C1C" }}>
@@ -771,6 +813,16 @@ const styles = StyleSheet.create({
         fontSize: 12,
         marginTop: 2,
     },
+    viewSheetHeaderBtn: {
+        paddingHorizontal: 9,
+        paddingVertical: 5,
+        borderRadius: 6,
+        borderWidth: 1,
+    },
+    viewSheetHeaderBtnText: {
+        fontSize: 11.5,
+        fontWeight: "600",
+    },
     closeIconBtn: {
         width: 28,
         height: 28,
@@ -786,11 +838,20 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderBottomWidth: 1,
-        gap: 8,
+    },
+    anchorScrollWrap: {
+        flex: 1,
+        overflow: "hidden",
     },
     anchorScroll: {
         gap: 6,
-        paddingRight: 6,
+        paddingRight: 8,
+        alignItems: "center",
+    },
+    anchorBarDivider: {
+        width: 1,
+        height: 20,
+        marginHorizontal: 8,
     },
     anchorChip: {
         flexDirection: "row",

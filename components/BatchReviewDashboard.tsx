@@ -9,7 +9,9 @@ import {
     Image,
     ActivityIndicator,
     Alert,
+    Pressable,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { BatchSheetItem, StudentRosterItem } from "../lib/batchGradingQueue";
@@ -46,6 +48,7 @@ export function BatchReviewDashboard({
     onCommitBatch,
 }: BatchReviewDashboardProps) {
     const { darkMode } = useTheme();
+    const insets = useSafeAreaInsets();
 
     // Filter tab: "ALL" | "REVIEW" | "READY"
     const [filterTab, setFilterTab] = useState<"ALL" | "REVIEW" | "READY">("ALL");
@@ -227,418 +230,444 @@ export function BatchReviewDashboard({
     if (!visible) return null;
 
     return (
-        <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-            <View style={[styles.container, { backgroundColor: bg }]}>
-                {/* Header */}
-                <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: border }]}>
-                    <TouchableOpacity style={styles.closeBtn} onPress={onClose} disabled={isSaving}>
-                        <Ionicons name="close" size={22} color={textMain} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitles}>
-                        <Text style={[styles.mainTitle, { color: textMain }]} numberOfLines={1}>
-                            ⚡ Batch Review: {quizTitle || "Assessment"}
-                        </Text>
-                        <Text style={[styles.subTitle, { color: textSub }]}>
-                            {classTitle} • {items.length} Papers Scanned
-                        </Text>
-                    </View>
-                    <TouchableOpacity
-                        style={[styles.scanMoreBtn, { borderColor: accentColor }]}
-                        onPress={onScanMore}
-                        disabled={isSaving}
-                    >
-                        <Ionicons name="camera-outline" size={16} color={accentColor} />
-                        <Text style={[styles.scanMoreBtnText, { color: accentColor }]}>Add</Text>
-                    </TouchableOpacity>
-                </View>
+        <Modal
+            visible={visible}
+            animationType="slide"
+            transparent={true}
+            statusBarTranslucent={true}
+            onRequestClose={onClose}
+        >
+            <View style={styles.modalRoot}>
+                {/* Full-Screen Dimmed Backdrop */}
+                <Pressable style={styles.modalBackdrop} onPress={onClose} />
 
-                {/* Class Performance Metrics HUD */}
-                <View style={styles.statsContainer}>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                        <Text style={[styles.statValue, { color: textMain }]}>{stats.total}</Text>
-                        <Text style={[styles.statLabel, { color: textSub }]}>Scanned</Text>
-                    </View>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                        <Text style={[styles.statValue, { color: accentColor }]}>
-                            {stats.gradedCount > 0 ? `${stats.average}%` : "—"}
-                        </Text>
-                        <Text style={[styles.statLabel, { color: textSub }]}>Class Avg</Text>
-                    </View>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                        <Text style={[styles.statValue, { color: "#10B981" }]}>
-                            {stats.gradedCount > 0 ? `${stats.passRate}%` : "—"}
-                        </Text>
-                        <Text style={[styles.statLabel, { color: textSub }]}>Pass Rate</Text>
-                    </View>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                        <Text
-                            style={[
-                                styles.statValue,
-                                { color: stats.needsReviewCount > 0 ? "#F59E0B" : "#10B981" },
-                            ]}
-                        >
-                            {stats.needsReviewCount}
-                        </Text>
-                        <Text style={[styles.statLabel, { color: textSub }]}>Review</Text>
-                    </View>
-                </View>
+                {/* Bottom-Anchored Sheet Container */}
+                <View style={[styles.sheetContainer, { backgroundColor: bg }]}>
+                    {/* Centered Drag Pill */}
+                    <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
 
-                {/* Filter Tabs */}
-                <View style={[styles.tabsRow, { borderBottomColor: border }]}>
-                    <TouchableOpacity
-                        style={[styles.tabItem, filterTab === "ALL" && { borderBottomColor: accentColor }]}
-                        onPress={() => setFilterTab("ALL")}
-                    >
-                        <Text style={[styles.tabText, filterTab === "ALL" ? { color: accentColor, fontWeight: "700" } : { color: textSub }]}>
-                            All Papers ({items.length})
-                        </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.tabItem, filterTab === "REVIEW" && { borderBottomColor: "#F59E0B" }]}
-                        onPress={() => setFilterTab("REVIEW")}
-                    >
-                        <View style={styles.tabBadgeWrap}>
-                            <Text style={[styles.tabText, filterTab === "REVIEW" ? { color: "#F59E0B", fontWeight: "700" } : { color: textSub }]}>
-                                Needs Review
+                    {/* Header */}
+                    <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: border }]}>
+                        <TouchableOpacity style={styles.closeBtn} onPress={onClose} disabled={isSaving}>
+                            <Ionicons name="close" size={22} color={textMain} />
+                        </TouchableOpacity>
+                        <View style={styles.headerTitles}>
+                            <Text style={[styles.mainTitle, { color: textMain }]} numberOfLines={1}>
+                                Batch Review: {quizTitle || "Assessment"}
                             </Text>
-                            {stats.needsReviewCount > 0 && (
-                                <View style={styles.reviewAlertBadge}>
-                                    <Text style={styles.reviewAlertBadgeText}>{stats.needsReviewCount}</Text>
-                                </View>
-                            )}
+                            <Text style={[styles.subTitle, { color: textSub }]}>
+                                {classTitle} · {items.length} {items.length === 1 ? "Paper" : "Papers"} Scanned
+                            </Text>
                         </View>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.tabItem, filterTab === "READY" && { borderBottomColor: "#10B981" }]}
-                        onPress={() => setFilterTab("READY")}
-                    >
-                        <Text style={[styles.tabText, filterTab === "READY" ? { color: "#10B981", fontWeight: "700" } : { color: textSub }]}>
-                            Ready ({stats.readyCount})
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Student Papers List */}
-                <ScrollView contentContainerStyle={styles.listContent}>
-                    {/* Class-Level Photo Quality Alert Banner */}
-                    {items.some((i) => i.photoQuality?.hasWarnings && i.photoQuality.warnings.length > 0 && !i.isApproved) && (
-                        <View
-                            style={{
-                                backgroundColor: darkMode ? "#7F1D1D35" : "#FEF2F2",
-                                borderWidth: 1.5,
-                                borderColor: "#EF4444",
-                                borderRadius: 12,
-                                padding: 12,
-                                marginBottom: 12,
-                            }}
+                        <TouchableOpacity
+                            style={[styles.scanMoreBtn, { borderColor: border }]}
+                            onPress={onScanMore}
+                            disabled={isSaving}
                         >
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                                <Ionicons name="warning" size={18} color="#EF4444" />
+                            <Ionicons name="camera-outline" size={15} color={textMain} />
+                            <Text style={[styles.scanMoreBtnText, { color: textMain }]}>Add</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* 4-Column KPI Strip */}
+                    <View style={styles.statsContainer}>
+                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                            <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                {stats.total}
+                            </Text>
+                            <Text style={[styles.statLabel, { color: textSub }]}>Scanned</Text>
+                        </View>
+                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                            <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                {stats.gradedCount > 0 ? `${stats.average}%` : "—"}
+                            </Text>
+                            <Text style={[styles.statLabel, { color: textSub }]}>Class Avg</Text>
+                        </View>
+                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                            <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                {stats.gradedCount > 0 ? `${stats.passRate}%` : "—"}
+                            </Text>
+                            <Text style={[styles.statLabel, { color: textSub }]}>Pass Rate</Text>
+                        </View>
+                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                            <Text
+                                style={[
+                                    styles.statValue,
+                                    {
+                                        color:
+                                            stats.needsReviewCount > 0
+                                                ? "#D97706"
+                                                : darkMode
+                                                ? "#F8FAFC"
+                                                : "#0F172A",
+                                    },
+                                ]}
+                            >
+                                {stats.needsReviewCount}
+                            </Text>
+                            <Text style={[styles.statLabel, { color: textSub }]}>Review</Text>
+                        </View>
+                    </View>
+
+                    {/* Filter Tabs */}
+                    <View style={[styles.tabsRow, { borderBottomColor: border }]}>
+                        <TouchableOpacity
+                            style={[styles.tabItem, filterTab === "ALL" && { borderBottomColor: darkMode ? "#F8FAFC" : "#0F172A" }]}
+                            onPress={() => setFilterTab("ALL")}
+                        >
+                            <Text
+                                style={[
+                                    styles.tabText,
+                                    filterTab === "ALL"
+                                        ? { color: darkMode ? "#F8FAFC" : "#0F172A", fontWeight: "700" }
+                                        : { color: textSub },
+                                ]}
+                            >
+                                All Papers ({items.length})
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.tabItem, filterTab === "REVIEW" && { borderBottomColor: "#D97706" }]}
+                            onPress={() => setFilterTab("REVIEW")}
+                        >
+                            <View style={styles.tabBadgeWrap}>
                                 <Text
-                                    style={{
-                                        color: darkMode ? "#FCA5A5" : "#991B1B",
-                                        fontSize: 13.5,
-                                        fontWeight: "800",
-                                        flex: 1,
-                                    }}
+                                    style={[
+                                        styles.tabText,
+                                        filterTab === "REVIEW"
+                                            ? { color: "#D97706", fontWeight: "700" }
+                                            : { color: textSub },
+                                    ]}
                                 >
-                                    Photo Quality Alert ({items.filter((i) => i.photoQuality?.hasWarnings && !i.isApproved).length} Paper
-                                    {items.filter((i) => i.photoQuality?.hasWarnings && !i.isApproved).length > 1 ? "s" : ""})
+                                    Needs Review
+                                </Text>
+                                {stats.needsReviewCount > 0 && (
+                                    <View style={styles.reviewAlertBadge}>
+                                        <Text style={styles.reviewAlertBadgeText}>{stats.needsReviewCount}</Text>
+                                    </View>
+                                )}
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.tabItem, filterTab === "READY" && { borderBottomColor: "#16A34A" }]}
+                            onPress={() => setFilterTab("READY")}
+                        >
+                            <Text
+                                style={[
+                                    styles.tabText,
+                                    filterTab === "READY"
+                                        ? { color: "#16A34A", fontWeight: "700" }
+                                        : { color: textSub },
+                                ]}
+                            >
+                                Ready ({stats.readyCount})
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Student Papers List */}
+                    <ScrollView contentContainerStyle={styles.listContent}>
+                        {filteredItems.length === 0 ? (
+                            <View style={styles.emptyWrap}>
+                                <Ionicons name="documents-outline" size={48} color={textSub} style={{ marginBottom: 12 }} />
+                                <Text style={[styles.emptyTitle, { color: textMain }]}>
+                                    {filterTab === "REVIEW" ? "All Flagged Papers Resolved!" : "No Papers Found"}
+                                </Text>
+                                <Text style={[styles.emptySub, { color: textSub }]}>
+                                    {filterTab === "REVIEW"
+                                        ? "Every scanned test paper is validated and ready for recording."
+                                        : "Scan papers using the camera or gallery import to start batch grading."}
                                 </Text>
                             </View>
-                            <Text
-                                style={{
-                                    color: darkMode ? "#FECACA" : "#B91C1C",
-                                    fontSize: 12,
-                                    lineHeight: 17,
-                                }}
-                            >
-                                One or more scanned papers had lighting (too dark/too light), QR code visibility, 4 corner markers, or paper flatness/edge issues. Please inspect or rescan flagged papers below.
-                            </Text>
-                        </View>
-                    )}
+                        ) : (
+                            filteredItems.map((item, index) => {
+                                const isGrading = item.status === "queued" || item.status === "optimizing" || item.status === "grading";
+                                const isError = item.status === "error";
+                                const needsReview = item.status === "needs_review" && !item.isApproved;
 
-                    {filteredItems.length === 0 ? (
-                        <View style={styles.emptyWrap}>
-                            <Ionicons name="documents-outline" size={48} color={textSub} style={{ marginBottom: 12 }} />
-                            <Text style={[styles.emptyTitle, { color: textMain }]}>
-                                {filterTab === "REVIEW" ? "All Flagged Papers Resolved!" : "No Papers Found"}
-                            </Text>
-                            <Text style={[styles.emptySub, { color: textSub }]}>
-                                {filterTab === "REVIEW"
-                                    ? "Every scanned test paper is validated and ready for recording."
-                                    : "Scan papers using the camera or gallery import to start batch grading."}
-                            </Text>
-                        </View>
-                    ) : (
-                        filteredItems.map((item, index) => {
-                            const isGrading = item.status === "queued" || item.status === "optimizing" || item.status === "grading";
-                            const isError = item.status === "error";
-                            const isReady = item.status === "ready" || item.isApproved;
-                            const needsReview = item.status === "needs_review" && !item.isApproved;
+                                const percentage = item.gradingResult
+                                    ? Math.round((item.gradingResult.totalScore / (item.gradingResult.maxScore || 1)) * 100)
+                                    : 0;
 
-                            const percentage = item.gradingResult
-                                ? Math.round((item.gradingResult.totalScore / (item.gradingResult.maxScore || 1)) * 100)
-                                : 0;
+                                const displayName = item.matchedStudentName || item.studentNameExtracted || `Paper #${index + 1}`;
+                                const isUnmatched = !item.matchedStudentId;
 
-                            const displayName = item.matchedStudentName || item.studentNameExtracted || `Paper #${index + 1}`;
-                            const isUnmatched = !item.matchedStudentId;
+                                // Build concise combined alert text (Flagged Questions + Photo Quality)
+                                const alertParts: string[] = [];
+                                if (needsReview && (item.flaggedCount || 0) > 0) {
+                                    const flaggedQList = (item.gradingResult?.results || [])
+                                        .filter(
+                                            (r) =>
+                                                (r.flaggedForReview ||
+                                                    r.flagReason === "double_mark" ||
+                                                    r.flagReason === "unclear" ||
+                                                    r.flagReason === "low_confidence" ||
+                                                    (r.confidence !== undefined && r.confidence < 0.75)) &&
+                                                !r.isOverridden
+                                        )
+                                        .map((r) => `Q${r.questionNumber}`)
+                                        .join(", ");
+                                    alertParts.push(
+                                        `${item.flaggedCount} Question${item.flaggedCount > 1 ? "s" : ""} Flagged${
+                                            flaggedQList ? ` (${flaggedQList})` : ""
+                                        }`
+                                    );
+                                }
 
-                            return (
-                                <View key={item.id} style={[styles.sheetCard, { backgroundColor: cardBg, borderColor: border }]}>
-                                    <View style={styles.cardHeaderRow}>
-                                        {/* Paper Thumbnail (Tap to view full sheet image) */}
-                                        <TouchableOpacity
-                                            style={styles.thumbTouchable}
-                                            onPress={() => setPreviewImageUri(item.imageUri)}
-                                            activeOpacity={0.8}
-                                        >
-                                            <Image source={{ uri: item.imageUri }} style={styles.cardThumb} />
-                                            <View style={styles.thumbBadge}>
-                                                <Ionicons name="scan-outline" size={11} color="#ffffff" />
-                                            </View>
-                                        </TouchableOpacity>
+                                const hasPhotoWarning = Boolean(
+                                    item.photoQuality?.hasWarnings &&
+                                    item.photoQuality.warnings.length > 0 &&
+                                    !item.isApproved
+                                );
+                                if (hasPhotoWarning) {
+                                    const rawWarn = item.photoQuality!.warnings[0] || "";
+                                    const cornerMatch = rawWarn.match(/\((\d\/4)\s*detected\)/i);
+                                    if (cornerMatch) {
+                                        alertParts.push(`${cornerMatch[1]} corner markers`);
+                                    } else {
+                                        const conciseWarn = rawWarn.split("—")[0].trim();
+                                        alertParts.push(conciseWarn || "Photo quality warning");
+                                    }
+                                }
 
-                                        {/* Name & Match Status */}
-                                        <View style={styles.cardInfo}>
-                                            <View style={styles.nameRow}>
-                                                <Text style={[styles.studentName, { color: textMain }]} numberOfLines={1}>
+                                const totalQuestions = item.gradingResult?.results?.length || item.gradingResult?.maxScore || 10;
+
+                                return (
+                                    <View key={item.id} style={[styles.sheetCard, { backgroundColor: cardBg, borderColor: border }]}>
+                                        {/* Header Row of Student Card */}
+                                        <View style={styles.cardHeaderRow}>
+                                            {/* Left: Tappable paper thumbnail (44x56px, borderRadius: 6) */}
+                                            <TouchableOpacity
+                                                style={styles.thumbTouchable}
+                                                onPress={() => setPreviewImageUri(item.imageUri)}
+                                                activeOpacity={0.8}
+                                            >
+                                                <Image source={{ uri: item.imageUri }} style={styles.cardThumb} />
+                                                <View style={styles.thumbBadge}>
+                                                    <Ionicons name="search" size={10} color="#ffffff" />
+                                                </View>
+                                            </TouchableOpacity>
+
+                                            {/* Middle (flex: 1): Full student name & score/roster status */}
+                                            <View style={styles.cardInfo}>
+                                                <Text
+                                                    style={[styles.studentName, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}
+                                                    numberOfLines={1}
+                                                >
                                                     {displayName}
                                                 </Text>
-                                                {item.isAutoMatched && (
-                                                    <View style={styles.autoMatchBadge}>
-                                                        <Ionicons name="checkmark-done" size={12} color="#10B981" />
-                                                        <Text style={styles.autoMatchText}>Roster</Text>
-                                                    </View>
+
+                                                {isUnmatched && !isGrading && !isError ? (
+                                                    <TouchableOpacity
+                                                        style={styles.unmatchedPrompt}
+                                                        onPress={() => setAssignPickerItemId(item.id)}
+                                                    >
+                                                        <Ionicons name="person-add-outline" size={12} color="#D97706" />
+                                                        <Text style={styles.unmatchedPromptText} numberOfLines={1}>
+                                                            Link "{item.studentNameExtracted || "Unknown"}" to Roster ›
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ) : (
+                                                    <Text style={[styles.scoreSummary, { color: darkMode ? "#94A3B8" : "#475569" }]} numberOfLines={1}>
+                                                        {item.gradingResult ? (
+                                                            <>
+                                                                <Text style={{ fontWeight: "700", color: darkMode ? "#F8FAFC" : "#0F172A" }}>
+                                                                    {item.gradingResult.totalScore}
+                                                                </Text>
+                                                                {` / ${item.gradingResult.maxScore} pts`}
+                                                            </>
+                                                        ) : (
+                                                            "Processing..."
+                                                        )}
+                                                        {item.matchedStudentId && (
+                                                            <Text style={styles.matchedRosterInline}>
+                                                                {"  ·  Matched to Roster"}
+                                                            </Text>
+                                                        )}
+                                                    </Text>
                                                 )}
                                             </View>
 
-                                            {isUnmatched && !isGrading && !isError && (
-                                                <TouchableOpacity
-                                                    style={styles.unmatchedPrompt}
-                                                    onPress={() => setAssignPickerItemId(item.id)}
-                                                >
-                                                    <Ionicons name="person-add-outline" size={13} color="#F59E0B" />
-                                                    <Text style={styles.unmatchedPromptText}>
-                                                        Detected: "{item.studentNameExtracted || "Unknown"}" • Tap to link student
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            )}
-
-                                            {item.gradingResult && (
-                                                <Text style={[styles.scoreSummary, { color: textSub }]}>
-                                                    Score: <Text style={{ fontWeight: "700", color: textMain }}>{item.gradingResult.totalScore}</Text> / {item.gradingResult.maxScore} pts
-                                                </Text>
-                                            )}
-                                        </View>
-
-                                        {/* Score / Status Pill */}
-                                        <View style={styles.cardRightCol}>
-                                            {isGrading ? (
-                                                <View style={styles.statusPillGrading}>
-                                                    <ActivityIndicator size="small" color="#3B82F6" />
-                                                    <Text style={styles.statusPillGradingText}>Grading</Text>
-                                                </View>
-                                            ) : isError ? (
-                                                <View style={styles.statusPillError}>
-                                                    <Ionicons name="alert-circle" size={14} color="#EF4444" />
-                                                    <Text style={styles.statusPillErrorText}>Error</Text>
-                                                </View>
-                                            ) : (
-                                                <View
-                                                    style={[
-                                                        styles.scoreBadge,
-                                                        percentage >= 75 ? styles.scoreBadgePass : styles.scoreBadgeFail,
-                                                    ]}
-                                                >
-                                                    <Text
+                                            {/* Right: Score percentage badge & subtle Trash icon */}
+                                            <View style={styles.cardRightCol}>
+                                                {isGrading ? (
+                                                    <View style={styles.statusPillGrading}>
+                                                        <ActivityIndicator size="small" color="#3B82F6" />
+                                                        <Text style={styles.statusPillGradingText}>Grading</Text>
+                                                    </View>
+                                                ) : isError ? (
+                                                    <View style={styles.statusPillError}>
+                                                        <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                                                        <Text style={styles.statusPillErrorText}>Error</Text>
+                                                    </View>
+                                                ) : (
+                                                    <View
                                                         style={[
-                                                            styles.scoreBadgeText,
-                                                            percentage >= 75 ? styles.scoreTextPass : styles.scoreTextFail,
+                                                            styles.scoreBadge,
+                                                            percentage >= 75 ? styles.scoreBadgePass : styles.scoreBadgeFail,
                                                         ]}
                                                     >
-                                                        {percentage}%
-                                                    </Text>
-                                                </View>
-                                            )}
-
-                                            <TouchableOpacity
-                                                style={styles.removeBtn}
-                                                onPress={() => onRemoveItem(item.id)}
-                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                            >
-                                                <Ionicons name="trash-outline" size={15} color={textSub} />
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-
-                                    {/* Photo Quality Warning Box (Lighting, QR, 4 Corner Markers, Flatness/Edges) */}
-                                    {item.photoQuality?.hasWarnings &&
-                                        item.photoQuality.warnings.length > 0 &&
-                                        !item.isApproved && (
-                                            <View
-                                                style={{
-                                                    marginTop: 10,
-                                                    padding: 10,
-                                                    borderRadius: 10,
-                                                    backgroundColor: darkMode ? "#7F1D1D30" : "#FEF2F2",
-                                                    borderWidth: 1,
-                                                    borderColor: "#EF4444",
-                                                }}
-                                            >
-                                                <View
-                                                    style={{
-                                                        flexDirection: "row",
-                                                        alignItems: "center",
-                                                        justifyContent: "space-between",
-                                                        marginBottom: 4,
-                                                    }}
-                                                >
-                                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
-                                                        <Ionicons name="warning" size={15} color="#EF4444" />
                                                         <Text
-                                                            style={{
-                                                                color: darkMode ? "#FCA5A5" : "#991B1B",
-                                                                fontSize: 12,
-                                                                fontWeight: "800",
-                                                            }}
+                                                            style={[
+                                                                styles.scoreBadgeText,
+                                                                percentage >= 75 ? styles.scoreTextPass : styles.scoreTextFail,
+                                                            ]}
                                                         >
-                                                            Photo Scan Quality Alert
+                                                            {percentage}%
                                                         </Text>
                                                     </View>
-                                                    {item.flaggedCount === 0 && Boolean(item.matchedStudentId) && (
-                                                        <TouchableOpacity
-                                                            style={{
-                                                                backgroundColor: "#10B981",
-                                                                paddingHorizontal: 9,
-                                                                paddingVertical: 4,
-                                                                borderRadius: 6,
-                                                            }}
-                                                            onPress={() =>
-                                                                onUpdateItem(item.id, {
-                                                                    status: "ready",
-                                                                    isApproved: true,
-                                                                })
-                                                            }
-                                                            activeOpacity={0.8}
-                                                        >
-                                                            <Text style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}>
-                                                                Approve Anyway
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    )}
-                                                </View>
-                                                {item.photoQuality.warnings.map((w, wIdx) => (
-                                                    <Text
-                                                        key={wIdx}
-                                                        style={{
-                                                            color: darkMode ? "#FECACA" : "#B91C1C",
-                                                            fontSize: 11.5,
-                                                            lineHeight: 16,
-                                                            marginTop: 2,
-                                                        }}
+                                                )}
+
+                                                <TouchableOpacity
+                                                    style={styles.removeBtn}
+                                                    onPress={() => onRemoveItem(item.id)}
+                                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                                >
+                                                    <Ionicons name="trash-outline" size={15} color={textSub} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+
+                                        {/* Combined Compact Alert Banner Inside Student Card */}
+                                        {alertParts.length > 0 && (
+                                            <View
+                                                style={[
+                                                    styles.compactCardBanner,
+                                                    {
+                                                        backgroundColor: darkMode ? "#78350F25" : "#FFFBEB",
+                                                        borderColor: darkMode ? "#92400E" : "#FDE68A",
+                                                    },
+                                                ]}
+                                            >
+                                                <Ionicons name="alert-circle" size={15} color="#D97706" />
+                                                <Text
+                                                    style={[
+                                                        styles.compactCardBannerText,
+                                                        { color: darkMode ? "#FDE68A" : "#B45309" },
+                                                    ]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {alertParts.join(" · ")}
+                                                </Text>
+                                                {item.flaggedCount === 0 && hasPhotoWarning && Boolean(item.matchedStudentId) && (
+                                                    <TouchableOpacity
+                                                        style={styles.approveAnywayBtn}
+                                                        onPress={() =>
+                                                            onUpdateItem(item.id, {
+                                                                status: "ready",
+                                                                isApproved: true,
+                                                            })
+                                                        }
+                                                        activeOpacity={0.8}
                                                     >
-                                                        • {w}
-                                                    </Text>
-                                                ))}
+                                                        <Text style={styles.approveAnywayBtnText}>Approve</Text>
+                                                    </TouchableOpacity>
+                                                )}
                                             </View>
                                         )}
 
-                                    {/* Flag Alert & Resolve Button for Unclear or Double-Shaded Questions */}
-                                    {needsReview && item.flaggedCount > 0 && (
-                                        <View style={styles.flagNotice}>
-                                            <View style={styles.flagNoticeLeft}>
-                                                <Ionicons name="alert-circle" size={16} color="#F59E0B" />
-                                                <Text style={styles.flagNoticeText}>
-                                                    {item.flaggedCount} Question{item.flaggedCount > 1 ? "s" : ""} Flagged (
-                                                    {(item.gradingResult?.results || [])
-                                                        .filter(
-                                                            (r) =>
-                                                                (r.flaggedForReview ||
-                                                                    r.flagReason === "double_mark" ||
-                                                                    r.flagReason === "unclear" ||
-                                                                    r.flagReason === "low_confidence" ||
-                                                                    (r.confidence !== undefined && r.confidence < 0.75)) &&
-                                                                !r.isOverridden
-                                                        )
-                                                        .map((r) => `Q${r.questionNumber}`)
-                                                        .join(", ") || "unclear / double-mark"}
-                                                    )
-                                                </Text>
+                                        {/* Single Action Row */}
+                                        {item.gradingResult && (
+                                            <View style={styles.actionBtnsRow}>
+                                                {needsReview && (item.flaggedCount || 0) > 0 ? (
+                                                    <>
+                                                        <TouchableOpacity
+                                                            style={[styles.primaryReviewBtn, { backgroundColor: "#D97706" }]}
+                                                            onPress={() => handleOpenReview(item, true)}
+                                                            activeOpacity={0.8}
+                                                        >
+                                                            <Text style={styles.primaryReviewBtnText}>
+                                                                Review {item.flaggedCount} Flagged
+                                                            </Text>
+                                                        </TouchableOpacity>
+
+                                                        <TouchableOpacity
+                                                            style={[
+                                                                styles.secondaryOutlineBtn,
+                                                                {
+                                                                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                                                                    borderColor: border,
+                                                                },
+                                                            ]}
+                                                            onPress={() => handleOpenReview(item, false)}
+                                                            activeOpacity={0.7}
+                                                        >
+                                                            <Text style={[styles.secondaryOutlineBtnText, { color: textMain }]}>
+                                                                All Answers ({totalQuestions})
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    </>
+                                                ) : (
+                                                    <TouchableOpacity
+                                                        style={[
+                                                            styles.secondaryOutlineBtn,
+                                                            {
+                                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                                                borderColor: border,
+                                                            },
+                                                        ]}
+                                                        onPress={() => handleOpenReview(item, false)}
+                                                        activeOpacity={0.7}
+                                                    >
+                                                        <Ionicons name="list-outline" size={14} color={textSub} />
+                                                        <Text style={[styles.secondaryOutlineBtnText, { color: textMain }]}>
+                                                            View All Answers
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                )}
                                             </View>
-                                            <TouchableOpacity
-                                                style={styles.resolveBtn}
-                                                onPress={() => handleOpenReview(item, true)}
-                                            >
-                                                <Text style={styles.resolveBtnText}>Resolve</Text>
-                                                <Ionicons name="chevron-forward" size={14} color="#ffffff" />
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-
-                                    {/* Actions Row: View Answers & View Captured Test Paper Photo (Available on all graded papers) */}
-                                    {item.gradingResult && (
-                                        <View style={styles.actionBtnsRow}>
-                                            <TouchableOpacity
-                                                style={[styles.answerActionBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9", borderColor: border }]}
-                                                onPress={() => handleOpenReview(item, false)}
-                                                activeOpacity={0.7}
-                                            >
-                                                <Ionicons name="list-outline" size={14} color={accentColor} />
-                                                <Text style={[styles.answerActionBtnText, { color: textMain }]}>View Answers</Text>
-                                            </TouchableOpacity>
-
-                                            <TouchableOpacity
-                                                style={[styles.answerActionBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9", borderColor: border }]}
-                                                onPress={() => setPreviewImageUri(item.imageUri)}
-                                                activeOpacity={0.7}
-                                            >
-                                                <Ionicons name="image-outline" size={14} color={textSub} />
-                                                <Text style={[styles.answerActionBtnText, { color: textSub }]}>View Paper Photo</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                </View>
-                            );
-                        })
-                    )}
-                </ScrollView>
-
-                {/* Bottom Commit Action Bar */}
-                <View style={[styles.bottomBar, { backgroundColor: cardBg, borderTopColor: border }]}>
-                    <View style={styles.bottomStatsCol}>
-                        <Text style={[styles.bottomStatsTitle, { color: textMain }]}>
-                            {stats.readyCount} of {items.length} Ready
-                        </Text>
-                        <Text style={[styles.bottomStatsSub, { color: textSub }]}>
-                            {stats.needsReviewCount > 0
-                                ? `${stats.needsReviewCount} flagged papers remaining`
-                                : "All papers verified for gradebook"}
-                        </Text>
-                    </View>
-
-                    <TouchableOpacity
-                        style={[
-                            styles.commitBtn,
-                            { backgroundColor: "#10B981" },
-                            (stats.readyCount === 0 || isSaving) && styles.commitBtnDisabled,
-                        ]}
-                        onPress={handleCommit}
-                        disabled={stats.readyCount === 0 || isSaving}
-                    >
-                        {isSaving ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                        ) : (
-                            <>
-                                <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
-                                <Text style={styles.commitBtnText}>
-                                    Approve & Record ({stats.readyCount})
-                                </Text>
-                            </>
+                                        )}
+                                    </View>
+                                );
+                            })
                         )}
-                    </TouchableOpacity>
+                    </ScrollView>
+
+                    {/* Bottom Commit Action Bar */}
+                    <View
+                        style={[
+                            styles.bottomBar,
+                            {
+                                backgroundColor: cardBg,
+                                borderTopColor: border,
+                                paddingBottom: Math.max(insets.bottom, 14),
+                            },
+                        ]}
+                    >
+                        <View style={styles.bottomStatsCol}>
+                            <Text style={[styles.bottomStatsTitle, { color: textMain }]}>
+                                {stats.readyCount} of {items.length} Ready
+                            </Text>
+                            <Text style={[styles.bottomStatsSub, { color: textSub }]}>
+                                {stats.needsReviewCount > 0
+                                    ? `${stats.needsReviewCount} flagged ${stats.needsReviewCount === 1 ? "paper" : "papers"} remaining`
+                                    : "All papers verified for gradebook"}
+                            </Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.commitBtn,
+                                { backgroundColor: "#16A34A" },
+                                (stats.readyCount === 0 || isSaving) && styles.commitBtnDisabled,
+                            ]}
+                            onPress={handleCommit}
+                            disabled={stats.readyCount === 0 || isSaving}
+                        >
+                            {isSaving ? (
+                                <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                                <>
+                                    <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
+                                    <Text style={styles.commitBtnText}>
+                                        Approve & Record ({stats.readyCount})
+                                    </Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Manual Question Review Modal (reusing LowConfidenceReviewModal) */}
@@ -651,6 +680,11 @@ export function BatchReviewDashboard({
                         }}
                         gradingResult={activeReviewItem.gradingResult || null}
                         scannedImageUri={activeReviewItem.imageUri}
+                        studentName={
+                            activeReviewItem.matchedStudentName ||
+                            activeReviewItem.studentNameExtracted ||
+                            undefined
+                        }
                         accentColor={accentColor}
                         initialFilterOnlyFlagged={reviewOnlyFlagged}
                         initialQuestionNumber={
@@ -714,28 +748,54 @@ export function BatchReviewDashboard({
 }
 
 const styles = StyleSheet.create({
-    container: {
+    modalRoot: {
         flex: 1,
+        justifyContent: "flex-end",
+    },
+    modalBackdrop: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: "rgba(15, 23, 42, 0.45)",
+    },
+    sheetContainer: {
+        height: "94%",
+        width: "100%",
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        overflow: "hidden",
+    },
+    dragPill: {
+        width: 36,
+        height: 4,
+        borderRadius: 999,
+        alignSelf: "center",
+        marginTop: 10,
+        marginBottom: 6,
     },
     header: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: 16,
-        paddingTop: 48,
-        paddingBottom: 14,
+        paddingTop: 6,
+        paddingBottom: 12,
         borderBottomWidth: 1,
     },
     closeBtn: {
-        padding: 6,
+        padding: 4,
     },
     headerTitles: {
         flex: 1,
-        marginHorizontal: 12,
+        marginHorizontal: 10,
     },
     mainTitle: {
         fontSize: 16,
-        fontWeight: "800",
+        fontWeight: "700",
     },
     subTitle: {
         fontSize: 12,
@@ -746,35 +806,35 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        paddingHorizontal: 12,
+        paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 8,
-        borderWidth: 1.5,
+        borderWidth: 1,
     },
     scanMoreBtnText: {
         fontSize: 12.5,
-        fontWeight: "700",
+        fontWeight: "600",
     },
     statsContainer: {
         flexDirection: "row",
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingVertical: 10,
         gap: 8,
     },
     statBox: {
         flex: 1,
         alignItems: "center",
-        paddingVertical: 10,
-        borderRadius: 12,
+        paddingVertical: 9,
+        borderRadius: 10,
         borderWidth: 1,
     },
     statValue: {
         fontSize: 18,
-        fontWeight: "800",
+        fontWeight: "700",
     },
     statLabel: {
         fontSize: 10,
-        fontWeight: "700",
+        fontWeight: "600",
         textTransform: "uppercase",
         marginTop: 2,
     },
@@ -784,9 +844,9 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
     },
     tabItem: {
-        paddingVertical: 12,
+        paddingVertical: 10,
         paddingHorizontal: 12,
-        borderBottomWidth: 2.5,
+        borderBottomWidth: 2,
         borderBottomColor: "transparent",
     },
     tabText: {
@@ -799,7 +859,7 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     reviewAlertBadge: {
-        backgroundColor: "#F59E0B",
+        backgroundColor: "#D97706",
         paddingHorizontal: 6,
         paddingVertical: 1,
         borderRadius: 10,
@@ -807,11 +867,11 @@ const styles = StyleSheet.create({
     reviewAlertBadgeText: {
         color: "#ffffff",
         fontSize: 10.5,
-        fontWeight: "800",
+        fontWeight: "700",
     },
     listContent: {
         padding: 16,
-        paddingBottom: 100,
+        paddingBottom: 110,
         gap: 12,
     },
     emptyWrap: {
@@ -821,7 +881,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
     },
     emptyTitle: {
-        fontSize: 17,
+        fontSize: 16,
         fontWeight: "700",
         textAlign: "center",
     },
@@ -832,9 +892,9 @@ const styles = StyleSheet.create({
         lineHeight: 18,
     },
     sheetCard: {
-        borderRadius: 14,
+        borderRadius: 12,
         borderWidth: 1,
-        padding: 14,
+        padding: 12,
         gap: 10,
     },
     cardHeaderRow: {
@@ -842,39 +902,40 @@ const styles = StyleSheet.create({
         alignItems: "center",
         gap: 12,
     },
+    thumbTouchable: {
+        position: "relative",
+    },
     cardThumb: {
-        width: 48,
-        height: 60,
+        width: 44,
+        height: 56,
         borderRadius: 6,
         backgroundColor: "#374151",
+    },
+    thumbBadge: {
+        position: "absolute",
+        bottom: 3,
+        right: 3,
+        backgroundColor: "rgba(15, 23, 42, 0.7)",
+        borderRadius: 4,
+        padding: 2,
     },
     cardInfo: {
         flex: 1,
         justifyContent: "center",
-    },
-    nameRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
+        minWidth: 0,
     },
     studentName: {
-        fontSize: 14.5,
-        fontWeight: "700",
-        flexShrink: 1,
+        fontSize: 15,
+        fontWeight: "600",
     },
-    autoMatchBadge: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 3,
-        backgroundColor: "rgba(16,185,129,0.12)",
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 6,
+    scoreSummary: {
+        fontSize: 13,
+        marginTop: 3,
     },
-    autoMatchText: {
-        color: "#10B981",
-        fontSize: 10,
-        fontWeight: "700",
+    matchedRosterInline: {
+        color: "#16A34A",
+        fontSize: 12,
+        fontWeight: "600",
     },
     unmatchedPrompt: {
         flexDirection: "row",
@@ -883,13 +944,9 @@ const styles = StyleSheet.create({
         marginTop: 3,
     },
     unmatchedPromptText: {
-        color: "#F59E0B",
-        fontSize: 11.5,
-        fontWeight: "600",
-    },
-    scoreSummary: {
+        color: "#D97706",
         fontSize: 12,
-        marginTop: 3,
+        fontWeight: "600",
     },
     cardRightCol: {
         alignItems: "flex-end",
@@ -902,7 +959,7 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(59,130,246,0.12)",
         paddingHorizontal: 8,
         paddingVertical: 4,
-        borderRadius: 12,
+        borderRadius: 8,
     },
     statusPillGradingText: {
         color: "#3B82F6",
@@ -916,7 +973,7 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(239,68,68,0.12)",
         paddingHorizontal: 8,
         paddingVertical: 4,
-        borderRadius: 12,
+        borderRadius: 8,
     },
     statusPillErrorText: {
         color: "#EF4444",
@@ -924,110 +981,87 @@ const styles = StyleSheet.create({
         fontWeight: "700",
     },
     scoreBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
+        paddingHorizontal: 9,
+        paddingVertical: 3,
+        borderRadius: 6,
     },
     scoreBadgePass: {
-        backgroundColor: "rgba(16,185,129,0.12)",
+        backgroundColor: "rgba(22, 163, 74, 0.12)",
     },
     scoreBadgeFail: {
-        backgroundColor: "rgba(239,68,68,0.12)",
+        backgroundColor: "rgba(220, 38, 38, 0.12)",
     },
     scoreBadgeText: {
-        fontSize: 14,
-        fontWeight: "800",
+        fontSize: 13.5,
+        fontWeight: "700",
     },
     scoreTextPass: {
-        color: "#10B981",
-        fontSize: 14,
-        fontWeight: "800",
+        color: "#16A34A",
     },
     scoreTextFail: {
-        color: "#EF4444",
-        fontSize: 14,
-        fontWeight: "800",
+        color: "#DC2626",
     },
     removeBtn: {
         padding: 4,
     },
-    flagNotice: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        backgroundColor: "rgba(245,158,11,0.12)",
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "rgba(245,158,11,0.25)",
-    },
-    flagNoticeLeft: {
+    compactCardBanner: {
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        flex: 1,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        borderRadius: 8,
+        borderWidth: 1,
     },
-    flagNoticeText: {
-        color: "#D97706",
+    compactCardBannerText: {
+        flex: 1,
         fontSize: 12,
         fontWeight: "600",
     },
-    resolveBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        backgroundColor: "#D97706",
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 6,
+    approveAnywayBtn: {
+        backgroundColor: "#16A34A",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 5,
     },
-    resolveBtnText: {
-        color: "#ffffff",
-        fontSize: 12,
+    approveAnywayBtnText: {
+        color: "#FFFFFF",
+        fontSize: 11,
         fontWeight: "700",
-    },
-    thumbTouchable: {
-        position: "relative",
-    },
-    thumbBadge: {
-        position: "absolute",
-        bottom: 3,
-        right: 3,
-        backgroundColor: "rgba(0,0,0,0.65)",
-        borderRadius: 4,
-        padding: 2,
     },
     actionBtnsRow: {
         flexDirection: "row",
         alignItems: "center",
         gap: 8,
-        marginTop: 2,
     },
-    answerActionBtn: {
+    primaryReviewBtn: {
         flex: 1,
+        height: 36,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 8,
+        paddingHorizontal: 12,
+    },
+    primaryReviewBtnText: {
+        color: "#FFFFFF",
+        fontSize: 12.5,
+        fontWeight: "700",
+    },
+    secondaryOutlineBtn: {
+        flex: 1,
+        height: 36,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 5,
-        paddingVertical: 7,
         borderRadius: 8,
         borderWidth: 1,
+        paddingHorizontal: 12,
     },
-    answerActionBtnText: {
-        fontSize: 12,
+    secondaryOutlineBtnText: {
+        fontSize: 12.5,
         fontWeight: "600",
-    },
-    inspectBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        alignSelf: "flex-start",
-        paddingVertical: 2,
-    },
-    inspectBtnText: {
-        fontSize: 12,
-        fontWeight: "500",
     },
     fullImageOverlay: {
         flex: 1,
@@ -1056,8 +1090,8 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingHorizontal: 20,
-        paddingVertical: 14,
+        paddingHorizontal: 16,
+        paddingTop: 12,
         borderTopWidth: 1,
     },
     bottomStatsCol: {
@@ -1065,7 +1099,7 @@ const styles = StyleSheet.create({
     },
     bottomStatsTitle: {
         fontSize: 14,
-        fontWeight: "800",
+        fontWeight: "700",
     },
     bottomStatsSub: {
         fontSize: 11.5,
@@ -1075,9 +1109,9 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        paddingHorizontal: 18,
-        paddingVertical: 12,
-        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 11,
+        borderRadius: 10,
     },
     commitBtnDisabled: {
         opacity: 0.5,
@@ -1085,7 +1119,7 @@ const styles = StyleSheet.create({
     commitBtnText: {
         color: "#ffffff",
         fontSize: 13.5,
-        fontWeight: "800",
+        fontWeight: "700",
     },
     assignOverlay: {
         flex: 1,
@@ -1102,7 +1136,7 @@ const styles = StyleSheet.create({
     },
     assignTitle: {
         fontSize: 16,
-        fontWeight: "800",
+        fontWeight: "700",
         marginBottom: 14,
     },
     assignItem: {
