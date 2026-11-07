@@ -2440,55 +2440,7 @@ export default function ClassroomScreen() {
               <Ionicons name="download-outline" size={20} color={cardColor} />
             </TouchableOpacity>
 
-            {/* Option 2: Student Classlist Roster */}
-            <TouchableOpacity
-              style={[
-                styles.exportOptionCard,
-                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
-              ]}
-              onPress={() => {
-                setExportModalVisible(false);
-                handleExportExcel(false);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.exportOptionIconBox, { backgroundColor: cardColor + "14" }]}>
-                <Ionicons name="document-text" size={22} color={cardColor} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Student Classlist (.xlsx)</Text>
-                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
-                  Official roster with Last Name, First Name, Middle Name, and Quiz 1, Quiz 2, Quiz 3... scores
-                </Text>
-              </View>
-              <Ionicons name="download-outline" size={20} color={textSub} />
-            </TouchableOpacity>
-
-            {/* Option 3: Student Classlist CSV */}
-            <TouchableOpacity
-              style={[
-                styles.exportOptionCard,
-                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
-              ]}
-              onPress={() => {
-                setExportModalVisible(false);
-                handleExportCSV(false);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#1F2937" : "#E5E7EB" }]}>
-                <Ionicons name="document-outline" size={22} color={textSub} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Student Classlist (.csv)</Text>
-                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
-                  Lightweight plain CSV file for importing to spreadsheets
-                </Text>
-              </View>
-              <Ionicons name="download-outline" size={20} color={textSub} />
-            </TouchableOpacity>
-
-            {/* Option 4: Download Blank BSIT-4 Template */}
+            {/* Option 2: Download Blank BSIT-4 Template */}
             <TouchableOpacity
               style={[
                 styles.exportOptionCard,
@@ -2510,30 +2462,6 @@ export default function ClassroomScreen() {
                 </Text>
               </View>
               <Ionicons name="download-outline" size={20} color="#10B981" />
-            </TouchableOpacity>
-
-            {/* Option 5: Share to other App */}
-            <TouchableOpacity
-              style={[
-                styles.exportOptionCard,
-                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
-              ]}
-              onPress={() => {
-                setExportModalVisible(false);
-                handleShareFile();
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.exportOptionIconBox, { backgroundColor: darkMode ? "#1F2937" : "#E5E7EB" }]}>
-                <Ionicons name="share-social-outline" size={22} color={textSub} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Share File to App...</Text>
-                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
-                  Send directly to Gmail, Google Drive, WhatsApp, etc.
-                </Text>
-              </View>
-              <Ionicons name="share-outline" size={20} color={textSub} />
             </TouchableOpacity>
 
             {/* Cancel Button */}
