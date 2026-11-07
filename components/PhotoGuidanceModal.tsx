@@ -93,16 +93,16 @@ export function PhotoGuidanceModal({
                             </View>
                         </View>
 
-                        {/* Rule 2: Edges & Angle */}
+                        {/* Rule 2: Sharp Focus & Steady Camera */}
                         <View style={[styles.ruleCard, { backgroundColor: cardBg, borderColor: border }]}>
                             <View style={styles.ruleHeader}>
                                 <View style={[styles.ruleBadge, { backgroundColor: "#3B82F625" }]}>
-                                    <Ionicons name="scan-outline" size={18} color="#2563EB" />
+                                    <Ionicons name="sparkles" size={18} color="#2563EB" />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.ruleTitle, { color: textMain }]}>2. Full Edges & Flat Paper</Text>
+                                    <Text style={[styles.ruleTitle, { color: textMain }]}>2. Sharp Focus & Clear Answers</Text>
                                     <Text style={[styles.ruleDesc, { color: textSub }]}>
-                                        Keep all 4 edges of the bond paper inside the viewfinder frame.
+                                        Keep handwritten answers and letters clear and in sharp focus.
                                     </Text>
                                 </View>
                             </View>
@@ -111,19 +111,19 @@ export function PhotoGuidanceModal({
                                 <View style={styles.tipRow}>
                                     <Ionicons name="checkmark-circle" size={16} color="#10B981" />
                                     <Text style={[styles.tipText, { color: textMain }]}>
-                                        Hold your phone parallel directly above the paper (not tilted).
+                                        Hold the phone steady directly above the sheet — avoid moving while shooting.
+                                    </Text>
+                                </View>
+                                <View style={styles.tipRow}>
+                                    <Ionicons name="finger-print" size={16} color="#3B82F6" />
+                                    <Text style={[styles.tipText, { color: textMain }]}>
+                                        Tap anywhere on the answer boxes to instantly lock sharp focus.
                                     </Text>
                                 </View>
                                 <View style={styles.tipRow}>
                                     <Ionicons name="close-circle" size={16} color="#EF4444" />
                                     <Text style={[styles.tipText, { color: textMain }]}>
-                                        Do not cut off the page top, bottom, or sides.
-                                    </Text>
-                                </View>
-                                <View style={styles.tipRow}>
-                                    <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                                    <Text style={[styles.tipText, { color: textMain }]}>
-                                        Smooth out any folded, creased, or curled paper corners.
+                                        Wait for "Focus OK" on the top bar before pressing the capture button.
                                     </Text>
                                 </View>
                             </View>

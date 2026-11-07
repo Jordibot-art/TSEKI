@@ -624,7 +624,7 @@ export default function GraderTab({
             }
             Alert.alert(
                 "⚠️ Batch Scan Photo Quality Alert",
-                `${itemsWithWarnings.length} scanned paper${itemsWithWarnings.length > 1 ? "s have" : " has"} lighting, QR code, 4 corner markers, or paper edge/flatness warnings:\n\n` +
+                `${itemsWithWarnings.length} scanned paper${itemsWithWarnings.length > 1 ? "s have" : " has"} lighting, QR code, or 4 corner marker warnings:\n\n` +
                     summaryLines.join("\n\n") +
                     "\n\nPlease inspect flagged sheets in the Batch Review Dashboard.",
                 [{ text: "Review Sheets" }]

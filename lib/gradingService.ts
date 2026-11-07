@@ -14,6 +14,7 @@ export interface PhotoQualityDiagnostics {
     visibleCornerCount: number;
     paperFlat: boolean;
     fullEdgesVisible: boolean;
+    isBlurry: boolean;
     hasWarnings: boolean;
     warnings: string[];
 }
@@ -62,6 +63,7 @@ export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
             visibleCornerCount: 4,
             paperFlat: true,
             fullEdgesVisible: true,
+            isBlurry: false,
             hasWarnings: false,
             warnings: [],
         };
@@ -85,6 +87,7 @@ export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
     const cornerMarkersVisible = raw.cornerMarkersVisible !== false && visibleCornerCount >= 4;
     const paperFlat = raw.paperFlat !== false;
     const fullEdgesVisible = raw.fullEdgesVisible !== false;
+    const isBlurry = Boolean(raw.isBlurry || raw.blurred || raw.blur);
 
     const warnings: string[] = [];
 
@@ -102,6 +105,10 @@ export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
         warnings.push(`4 corner markers not visible (${visibleCornerCount}/4 detected) — keep corner squares inside frame.`);
     }
 
+    if (isBlurry) {
+        warnings.push("Test paper answers are blurred — retake with camera held steady.");
+    }
+
     return {
         lighting,
         qrVisible,
@@ -109,6 +116,7 @@ export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
         visibleCornerCount,
         paperFlat: true,
         fullEdgesVisible: true,
+        isBlurry,
         hasWarnings: warnings.length > 0,
         warnings,
     };
@@ -271,6 +279,7 @@ INSTRUCTIONS:
    - "cornerMarkersVisible": set to true ONLY if all 4 black corner registration squares are clearly visible (visibleCornerCount === 4); otherwise false.
    - "paperFlat": set to true if the paper is lying reasonably flat without severe folding, curling, crumpling, or extreme perspective tilt; otherwise false.
    - "fullEdgesVisible": set to true if the full answer sheet borders/edges are inside the photo frame without cutting off any corner markers or answer boxes; otherwise false.
+   - "isBlurry": set to true if student handwritten answers, letters, bubbles, or lines are blurred, smeared, out of focus, or degraded by motion blur; otherwise false.
 
 You MUST return the final result as a strict, valid JSON object with this exact structure (note how clean vs. scribbled/overwritten items are formatted):
 {
@@ -286,7 +295,8 @@ You MUST return the final result as a strict, valid JSON object with this exact 
     "cornerMarkersVisible": true,
     "visibleCornerCount": 4,
     "paperFlat": true,
-    "fullEdgesVisible": true
+    "fullEdgesVisible": true,
+    "isBlurry": false
   },
   "results": [
     {

@@ -5,6 +5,7 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     Dimensions,
     Image,
     ScrollView,
@@ -76,6 +77,46 @@ export function BatchScannerModal({
     const [cameraReady, setCameraReady] = useState<boolean>(false);
     const [liveHoverStatus, setLiveHoverStatus] = useState<LiveHoverDiagnostics | null>(null);
 
+    // Motion blur detection & Tap-to-Focus
+    const lastQrDataRef = useRef<string | null>(null);
+    const lastCenterRef = useRef<{ x: number; y: number; time: number } | null>(null);
+    const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
+    const focusAnim = useRef(new Animated.Value(0)).current;
+
+    const handleTouchToFocus = (e: any) => {
+        const { pageX, pageY } = e.nativeEvent;
+        setFocusPoint({ x: pageX, y: pageY });
+        focusAnim.setValue(0);
+        Animated.sequence([
+            Animated.timing(focusAnim, {
+                toValue: 1,
+                duration: 250,
+                useNativeDriver: true,
+            }),
+            Animated.delay(450),
+            Animated.timing(focusAnim, {
+                toValue: 0,
+                duration: 250,
+                useNativeDriver: true,
+            }),
+        ]).start(() => setFocusPoint(null));
+
+        try {
+            Haptics.selectionAsync();
+        } catch {}
+
+        if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+        blurTimerRef.current = setTimeout(() => {
+            qrObsRef.current = {
+                ...qrObsRef.current,
+                isBlurry: false,
+            };
+            const settled = evaluateLiveHoverQuality(null, qrObsRef.current, Date.now());
+            setLiveHoverStatus(settled);
+        }, 320);
+    };
+
     // Active Photo Quality Alert inside camera (for Batch Mode background grading)
     const [activeQualityAlert, setActiveQualityAlert] = useState<{
         itemId?: string;
@@ -112,6 +153,12 @@ export function BatchScannerModal({
                 clearTimeout(qrTimerRef.current);
                 qrTimerRef.current = null;
             }
+            if (blurTimerRef.current) {
+                clearTimeout(blurTimerRef.current);
+                blurTimerRef.current = null;
+            }
+            lastCenterRef.current = null;
+            setFocusPoint(null);
         }
     }, [visible, permission]);
 
@@ -148,6 +195,8 @@ export function BatchScannerModal({
         if (result?.data) {
             const now = Date.now();
             let boundsNorm: QrLiveObservation["boundsNorm"] = undefined;
+            let isBlurry = false;
+
             if (result.bounds?.origin && result.bounds?.size && SCREEN_WIDTH > 0 && SCREEN_HEIGHT > 0) {
                 boundsNorm = {
                     x: result.bounds.origin.x / SCREEN_WIDTH,
@@ -155,30 +204,71 @@ export function BatchScannerModal({
                     width: result.bounds.size.width / SCREEN_WIDTH,
                     height: result.bounds.size.height / SCREEN_HEIGHT,
                 };
+
+                const cx = boundsNorm.x + boundsNorm.width / 2;
+                const cy = boundsNorm.y + boundsNorm.height / 2;
+
+                if (lastCenterRef.current) {
+                    const dt = Math.max(16, now - lastCenterRef.current.time);
+                    const dist = Math.hypot(cx - lastCenterRef.current.x, cy - lastCenterRef.current.y);
+                    // Velocity across screen: if moving faster than 0.35 screen units per second, motion blur degrades text
+                    const velocity = dist / (dt / 1000);
+                    if (velocity > 0.35 && dt < 450) {
+                        isBlurry = true;
+                    }
+                }
+                lastCenterRef.current = { x: cx, y: cy, time: now };
             }
+
             qrObsRef.current = {
                 detected: true,
                 lastSeenMs: now,
                 boundsNorm,
                 cornerPoints: Array.isArray(result.cornerPoints) ? result.cornerPoints : undefined,
+                isBlurry,
             };
+
+            if (lastQrDataRef.current && lastQrDataRef.current !== result.data) {
+                // Instantly reset position & blur tracking when switching between different papers
+                lastCenterRef.current = null;
+            }
+            lastQrDataRef.current = result.data;
 
             setQrDetectedLive(true);
             const diag = evaluateLiveHoverQuality(null, qrObsRef.current, now);
             setLiveHoverStatus(diag);
 
+            if (blurTimerRef.current) {
+                clearTimeout(blurTimerRef.current);
+            }
+            if (isBlurry) {
+                // Settle focus after user holds camera steady for 320ms
+                blurTimerRef.current = setTimeout(() => {
+                    qrObsRef.current = {
+                        ...qrObsRef.current,
+                        isBlurry: false,
+                    };
+                    const settled = evaluateLiveHoverQuality(null, qrObsRef.current, Date.now());
+                    setLiveHoverStatus(settled);
+                }, 320);
+            }
+
             if (qrTimerRef.current) {
                 clearTimeout(qrTimerRef.current);
             }
+            // Fast 400ms reset when moving away from a paper so markers & QR don't linger for 3 seconds
             qrTimerRef.current = setTimeout(() => {
+                lastQrDataRef.current = null;
+                lastCenterRef.current = null;
                 qrObsRef.current = {
-                    ...qrObsRef.current,
                     detected: false,
+                    lastSeenMs: 0,
+                    isBlurry: false,
                 };
                 setQrDetectedLive(false);
                 const expiredDiag = evaluateLiveHoverQuality(null, qrObsRef.current, Date.now());
                 setLiveHoverStatus(expiredDiag);
-            }, 2500);
+            }, 400);
         }
     };
 
@@ -231,6 +321,19 @@ export function BatchScannerModal({
                     onClose();
                 } else {
                     onCaptureSheet(finalUri);
+                    // Instantly reset live hover diagnostics for the next sheet!
+                    lastQrDataRef.current = null;
+                    lastCenterRef.current = null;
+                    qrObsRef.current = {
+                        detected: false,
+                        lastSeenMs: 0,
+                        isBlurry: false,
+                    };
+                    setQrDetectedLive(false);
+                    if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
+                    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+                    const resetDiag = evaluateLiveHoverQuality(null, qrObsRef.current, Date.now());
+                    setLiveHoverStatus(resetDiag);
                 }
             }
         } catch (err) {
@@ -394,35 +497,34 @@ export function BatchScannerModal({
                             <View style={styles.guidanceItem}>
                                 <Ionicons
                                     name={
-                                        liveHoverStatus?.paperFlat && liveHoverStatus?.fullEdgesVisible
-                                            ? "checkmark-circle"
-                                            : "scan-outline"
+                                        !liveHoverStatus
+                                            ? "sparkles"
+                                            : liveHoverStatus.isBlurry
+                                            ? "alert-circle"
+                                            : "checkmark-circle"
                                     }
                                     size={13}
                                     color={
                                         !liveHoverStatus
                                             ? "#60A5FA"
-                                            : liveHoverStatus.paperFlat && liveHoverStatus.fullEdgesVisible
-                                            ? "#10B981"
-                                            : "#F59E0B"
+                                            : liveHoverStatus.isBlurry
+                                            ? "#F59E0B"
+                                            : "#10B981"
                                     }
                                 />
                                 <Text
                                     style={[
                                         styles.guidanceText,
                                         liveHoverStatus && {
-                                            color:
-                                                liveHoverStatus.paperFlat && liveHoverStatus.fullEdgesVisible
-                                                    ? "#34D399"
-                                                    : "#FCD34D",
+                                            color: liveHoverStatus.isBlurry ? "#FCD34D" : "#34D399",
                                         },
                                     ]}
                                 >
                                     {!liveHoverStatus
-                                        ? "Flat & Edges"
-                                        : liveHoverStatus.paperFlat && liveHoverStatus.fullEdgesVisible
-                                        ? "Flat & Edges OK"
-                                        : "Edges/Flat!"}
+                                        ? "Focus"
+                                        : liveHoverStatus.isBlurry
+                                        ? "Blurry!"
+                                        : "Focus OK"}
                                 </Text>
                             </View>
                             <Text style={styles.guidanceDivider}>•</Text>
@@ -480,39 +582,31 @@ export function BatchScannerModal({
                             </View>
                         </TouchableOpacity>
 
-                        {/* ── Real-Time Hover Alert Banner (Fires While Hovering Camera BEFORE Capture!) ── */}
+                        {/* ── Real-Time Hover Status Pill (Single-line, non-intrusive, never covers paper) ── */}
                         {liveHoverStatus && !activeQualityAlert && (
                             <View
                                 style={[
-                                    styles.liveHoverBanner,
+                                    styles.liveStatusPill,
                                     liveHoverStatus.hasWarnings
-                                        ? styles.liveHoverBannerWarn
-                                        : styles.liveHoverBannerOk,
+                                        ? styles.liveStatusPillWarn
+                                        : styles.liveStatusPillOk,
                                 ]}
-                                pointerEvents="box-none"
+                                pointerEvents="none"
                             >
-                                {liveHoverStatus.hasWarnings ? (
-                                    <>
-                                        <View style={styles.liveHoverHeader}>
-                                            <Ionicons name="alert-circle" size={16} color="#FBBF24" />
-                                            <Text style={styles.liveHoverTitle}>
-                                                Live Camera Check — Adjust Before Capturing:
-                                            </Text>
-                                        </View>
-                                        {liveHoverStatus.warnings.map((w, idx) => (
-                                            <Text key={idx} style={styles.liveHoverWarningText}>
-                                                • {w}
-                                            </Text>
-                                        ))}
-                                    </>
-                                ) : (
-                                    <View style={styles.liveHoverHeader}>
-                                        <Ionicons name="checkmark-circle" size={16} color="#34D399" />
-                                        <Text style={styles.liveHoverOkText}>
-                                            Paper Aligned, 4/4 Markers, QR & Lighting Ready — Tap Shutter!
-                                        </Text>
-                                    </View>
-                                )}
+                                <Ionicons
+                                    name={liveHoverStatus.hasWarnings ? "alert-circle" : "checkmark-circle"}
+                                    size={13}
+                                    color={liveHoverStatus.hasWarnings ? "#FBBF24" : "#34D399"}
+                                />
+                                <Text
+                                    style={[
+                                        styles.liveStatusText,
+                                        { color: liveHoverStatus.hasWarnings ? "#FDE68A" : "#D1FAE5" },
+                                    ]}
+                                    numberOfLines={1}
+                                >
+                                    {liveHoverStatus.summaryText}
+                                </Text>
                             </View>
                         )}
 
@@ -566,7 +660,7 @@ export function BatchScannerModal({
 
                         {/* Floating Live Batch Counters HUD (Only in Batch Mode) */}
                         {!isSingle && !activeQualityAlert && !liveHoverStatus?.hasWarnings && (
-                            <View style={[styles.hudCard, liveHoverStatus && { top: 180 }]}>
+                            <View style={[styles.hudCard, liveHoverStatus && { top: 172 }]}>
                                 <View style={styles.hudItem}>
                                     <Text style={styles.hudNum}>{totalCaptured}</Text>
                                     <Text style={styles.hudLabel}>Scanned</Text>
@@ -593,6 +687,34 @@ export function BatchScannerModal({
                                     </>
                                 )}
                             </View>
+                        )}
+
+                        {/* ── Interactive Tap-to-Focus Viewfinder Touch Layer ── */}
+                        <TouchableWithoutFeedback onPress={handleTouchToFocus}>
+                            <View style={StyleSheet.absoluteFillObject} />
+                        </TouchableWithoutFeedback>
+
+                        {/* ── Tap-to-Focus Pulsing Ring Indicator ── */}
+                        {focusPoint && (
+                            <Animated.View
+                                style={[
+                                    styles.focusRing,
+                                    {
+                                        left: focusPoint.x - 30,
+                                        top: focusPoint.y - 30,
+                                        opacity: focusAnim,
+                                        transform: [
+                                            {
+                                                scale: focusAnim.interpolate({
+                                                    inputRange: [0, 1],
+                                                    outputRange: [1.35, 1],
+                                                }),
+                                            },
+                                        ],
+                                    },
+                                ]}
+                                pointerEvents="none"
+                            />
                         )}
 
                         {/* ── Physical Paper Registration Reticle Guide with 4 Corner Markers ── */}
@@ -706,18 +828,6 @@ export function BatchScannerModal({
                                         ]}
                                     />
                                 </View>
-
-                                {/* Bottom Hint & Tips Trigger */}
-                                <TouchableOpacity
-                                    style={styles.reticleHint}
-                                    onPress={() => setGuidanceOpen(true)}
-                                    activeOpacity={0.8}
-                                >
-                                    <Ionicons name="shield-checkmark" size={14} color="#10B981" />
-                                    <Text style={styles.reticleHintText}>
-                                        Align paper edges & 4 black corner squares
-                                    </Text>
-                                </TouchableOpacity>
                             </View>
                         </View>
 
@@ -948,51 +1058,35 @@ const styles = StyleSheet.create({
         marginHorizontal: 8,
         fontSize: 10,
     },
-    liveHoverBanner: {
+    liveStatusPill: {
         position: "absolute",
-        top: 134,
-        left: 16,
-        right: 16,
-        borderRadius: 12,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderWidth: 1.5,
-        zIndex: 20,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.35,
-        shadowRadius: 6,
-    },
-    liveHoverBannerWarn: {
-        backgroundColor: "rgba(17, 24, 39, 0.92)",
-        borderColor: "#F59E0B",
-    },
-    liveHoverBannerOk: {
-        backgroundColor: "rgba(6, 78, 59, 0.90)",
-        borderColor: "#10B981",
-    },
-    liveHoverHeader: {
+        top: 136,
+        alignSelf: "center",
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 14,
+        borderWidth: 1,
+        zIndex: 20,
+        maxWidth: "90%",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
     },
-    liveHoverTitle: {
-        color: "#FBBF24",
-        fontSize: 12,
-        fontWeight: "800",
-        flex: 1,
+    liveStatusPillWarn: {
+        backgroundColor: "rgba(17, 24, 39, 0.92)",
+        borderColor: "#F59E0B",
     },
-    liveHoverWarningText: {
-        color: "#F9FAFB",
-        fontSize: 11.2,
-        lineHeight: 15.5,
-        marginTop: 2,
+    liveStatusPillOk: {
+        backgroundColor: "rgba(6, 78, 59, 0.90)",
+        borderColor: "#10B981",
     },
-    liveHoverOkText: {
-        color: "#D1FAE5",
+    liveStatusText: {
         fontSize: 11.5,
         fontWeight: "700",
-        flex: 1,
     },
     hudCard: {
         position: "absolute",
@@ -1040,9 +1134,6 @@ const styles = StyleSheet.create({
         height: Math.min(SCREEN_WIDTH * 0.88 * 1.30, SCREEN_HEIGHT * 0.54),
         marginBottom: 20,
         position: "relative",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        paddingBottom: 14,
         borderWidth: 1.5,
         borderColor: "rgba(255, 255, 255, 0.4)",
         borderStyle: "dashed",
@@ -1189,21 +1280,15 @@ const styles = StyleSheet.create({
         fontSize: 11.5,
         fontWeight: "600",
     },
-    reticleHint: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        backgroundColor: "rgba(0,0,0,0.7)",
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.2)",
-    },
-    reticleHintText: {
-        color: "rgba(255,255,255,0.9)",
-        fontSize: 11,
-        fontWeight: "600",
+    focusRing: {
+        position: "absolute",
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        borderWidth: 2,
+        borderColor: "#FBBF24",
+        backgroundColor: "rgba(251, 191, 36, 0.15)",
+        zIndex: 99,
     },
     bottomArea: {
         position: "absolute",

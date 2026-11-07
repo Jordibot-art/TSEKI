@@ -17,7 +17,7 @@ function assert(cond: boolean, msg: string) {
     }
 }
 
-console.log("=== Testing PhotoQualityDiagnostics & Flash-Free Live Hover Inspector ===");
+console.log("=== Testing PhotoQualityDiagnostics & Live Hover Summary (Edge/Flat Removed) ===");
 
 // 1. Clean photo (post-capture validation)
 const clean = normalizePhotoQuality({
@@ -31,7 +31,7 @@ const clean = normalizePhotoQuality({
 assert(clean.hasWarnings === false, "Clean photo has no warnings");
 assert(clean.warnings.length === 0, "Clean photo warnings array is empty");
 
-// 2. Flash-Free Live Hover — QR not visible in preview
+// 2. Live Hover — QR not visible in preview (summarized, no bullet list)
 const hoverNoQr = evaluateLiveHoverQuality(
     null,
     { detected: false, lastSeenMs: 0 },
@@ -39,10 +39,10 @@ const hoverNoQr = evaluateLiveHoverQuality(
 );
 assert(hoverNoQr.qrVisible === false, "Live hover detects QR is not visible");
 assert(hoverNoQr.hasWarnings === true, "Live hover warns when QR not visible");
-assert(hoverNoQr.warnings.some((w) => w.includes("QR code is not visible")), "Warning mentions QR code is not visible");
-assert(hoverNoQr.warnings.some((w) => w.includes("4 corner markers not visible (0/4 detected)")), "Warning mentions 0/4 markers detected");
+assert(hoverNoQr.summaryText === "Align QR code in frame", "summaryText is short and punchy: 'Align QR code in frame'");
+assert(hoverNoQr.warnings.length === 1, "Single concise warning, not a giant bullet list");
 
-// 3. Flash-Free Live Hover — Perfect QR lock & paper alignment
+// 3. Live Hover — Perfect QR lock & 4/4 markers
 const hoverAligned = evaluateLiveHoverQuality(
     null,
     {
@@ -55,11 +55,10 @@ const hoverAligned = evaluateLiveHoverQuality(
 assert(hoverAligned.qrVisible === true, "Live hover detects QR visible");
 assert(hoverAligned.visibleCornerCount === 4, "Live hover detects all 4 corner markers in frame");
 assert(hoverAligned.cornerMarkersVisible === true, "cornerMarkersVisible is true");
-assert(hoverAligned.paperFlat === true, "paperFlat is true");
-assert(hoverAligned.fullEdgesVisible === true, "fullEdgesVisible is true");
-assert(hoverAligned.hasWarnings === false, "Zero warnings when paper is well aligned");
+assert(hoverAligned.hasWarnings === false, "Zero warnings when paper is aligned");
+assert(hoverAligned.summaryText === "Ready to capture", "summaryText is 'Ready to capture'");
 
-// 4. Flash-Free Live Hover — Camera too close (QR > 24% of screen)
+// 4. Live Hover — Camera too close (QR > 24% of screen)
 const hoverTooClose = evaluateLiveHoverQuality(
     null,
     {
@@ -70,22 +69,20 @@ const hoverTooClose = evaluateLiveHoverQuality(
     10000
 );
 assert(hoverTooClose.hasWarnings === true, "Camera too close triggers warning");
-assert(hoverTooClose.warnings.some((w) => w.toLowerCase().includes("too close")), "Warning tells teacher camera is too close");
-assert(hoverTooClose.fullEdgesVisible === false, "fullEdgesVisible is false when too close");
+assert(hoverTooClose.summaryText === "Move camera back", "summaryText summarizes to 'Move camera back'");
 
-// 5. Flash-Free Live Hover — Paper tilted / folded (aspect skew)
-const hoverTilted = evaluateLiveHoverQuality(
-    null,
+// 5. Live Hover — Low lighting
+const hoverDark = evaluateLiveHoverQuality(
+    { width: 10, height: 10, luma: new Uint8Array(100).fill(40) },
     {
         detected: true,
         lastSeenMs: 9800,
-        boundsNorm: { x: 0.70, y: 0.20, width: 0.08, height: 0.16 }, // aspect ratio 0.5
+        boundsNorm: { x: 0.70, y: 0.20, width: 0.14, height: 0.14 },
     },
     10000
 );
-assert(hoverTilted.hasWarnings === true, "Tilted paper triggers warning");
-assert(hoverTilted.paperFlat === false, "paperFlat is false when tilted");
-assert(hoverTilted.warnings.some((w) => w.toLowerCase().includes("tilted")), "Warning tells teacher paper is tilted or folded");
+assert(hoverDark.hasWarnings === true, "Dark room triggers warning");
+assert(hoverDark.summaryText.includes("Too dark"), "summaryText advises 'Too dark — tap Torch (⚡)'");
 
 // 6. Reticle Auto-Crop to Prevent Zoomed-Out Capture (Trimming Laptop, Desk, Legs)
 const crop1 = computeReticleCropRect(3024, 4032, 1080, 2400, 0.08);

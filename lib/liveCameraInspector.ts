@@ -10,6 +10,7 @@ export interface LiveCornerVisibility {
 export interface LiveHoverDiagnostics extends PhotoQualityDiagnostics {
     cornerStatus: LiveCornerVisibility;
     meanLuminance: number;
+    summaryText: string;
 }
 
 export interface QrLiveObservation {
@@ -24,6 +25,8 @@ export interface QrLiveObservation {
     };
     /** Corner points in screen space if available */
     cornerPoints?: { x: number; y: number }[];
+    /** Whether real-time camera motion or defocus indicates blurry answers */
+    isBlurry?: boolean;
 }
 
 /**
@@ -59,23 +62,24 @@ export function evaluateLiveHoverQuality(
         }
     }
 
-    const qrRecentlySeen = qrObs.detected && nowMs - qrObs.lastSeenMs <= 2200;
+    const qrRecentlySeen = qrObs.detected && nowMs - qrObs.lastSeenMs <= 450;
+    const isBlurry = Boolean(qrObs.isBlurry);
 
     // Case 1: QR code is NOT visible in camera preview
     if (!qrRecentlySeen) {
-        const warnings: string[] = [];
-        warnings.push("QR code is not visible — align the top-right QR code inside the frame.");
-        warnings.push("4 corner markers not visible (0/4 detected) — fit all 4 black corner squares inside the brackets.");
-        warnings.push("Full paper edges not detected — position the entire answer sheet inside the reticle.");
-        warnings.push("Check lighting — if room is dark or sheet is in shadow, tap Torch (⚡).");
+        const summaryText = isBlurry
+            ? "Answers blurred — hold steady"
+            : "Align QR code in frame";
+        const warnings = [summaryText];
 
         return {
             lighting: lightingOverride || "ok",
             qrVisible: false,
             cornerMarkersVisible: false,
             visibleCornerCount: 0,
-            paperFlat: false,
-            fullEdgesVisible: false,
+            paperFlat: true,
+            fullEdgesVisible: true,
+            isBlurry,
             hasWarnings: true,
             warnings,
             cornerStatus: {
@@ -85,62 +89,21 @@ export function evaluateLiveHoverQuality(
                 br: false,
             },
             meanLuminance,
+            summaryText,
         };
     }
 
     // Case 2: QR code is detected in real time!
-    // Evaluate geometry, distance, perspective skew, and paper boundaries
-    const warnings: string[] = [];
-
+    // Evaluate geometry, distance, and 4 corner markers (edges/flat removed per user request)
     const bounds = qrObs.boundsNorm || { x: 0.70, y: 0.22, width: 0.14, height: 0.14 };
     const { x, y, width: qw, height: qh } = bounds;
 
-    // 1. Perspective Skew & Flatness Analysis
-    let paperFlat = true;
-    let skewDetected = false;
-
-    // If QR aspect ratio is severely distorted (normal is 1:1 square)
-    if (qw > 0 && qh > 0) {
-        const aspect = qw / qh;
-        if (aspect < 0.65 || aspect > 1.50) {
-            paperFlat = false;
-            skewDetected = true;
-        }
-    }
-
-    // If cornerPoints (quadrilateral) are available, check opposite side ratios
-    if (Array.isArray(qrObs.cornerPoints) && qrObs.cornerPoints.length === 4) {
-        const pts = qrObs.cornerPoints;
-        const dist = (p1: { x: number; y: number }, p2: { x: number; y: number }) =>
-            Math.hypot(p1.x - p2.x, p1.y - p2.y);
-        const side0 = dist(pts[0], pts[1]);
-        const side1 = dist(pts[1], pts[2]);
-        const side2 = dist(pts[2], pts[3]);
-        const side3 = dist(pts[3], pts[0]);
-
-        if (side0 > 0 && side2 > 0) {
-            const ratio02 = side0 / side2;
-            if (ratio02 < 0.65 || ratio02 > 1.50) {
-                paperFlat = false;
-                skewDetected = true;
-            }
-        }
-        if (side1 > 0 && side3 > 0) {
-            const ratio13 = side1 / side3;
-            if (ratio13 < 0.65 || ratio13 > 1.50) {
-                paperFlat = false;
-                skewDetected = true;
-            }
-        }
-    }
-
-    // 2. Paper Distance & Envelope Analysis
+    // Paper Distance Analysis
     // Standard TSEKI sheet: QR code is ~ 54pt on a 612pt wide page (~ 0.088 width ratio)
     // If QR code width in screen space > 0.24, the paper is wider than the screen!
     const isTooClose = qw > 0.24 || qh > 0.24;
-    const isTooFar = qw > 0 && qw < 0.045;
 
-    // 3. Corner visibility based on projected paper boundary
+    // Corner visibility based on projected paper boundary
     // Top-right corner marker is adjacent to the QR code
     let tr = x + qw <= 0.98 && y >= 0.04;
     // Top-left corner is ~ 9x QR width to the left of TR
@@ -150,7 +113,7 @@ export function evaluateLiveHoverQuality(
     // Bottom-left corner
     let bl = !isTooClose && tl && br;
 
-    // If too close, bottom and left corners/edges are cut off
+    // If too close, bottom and left corners are cut off
     if (isTooClose) {
         tl = false;
         bl = false;
@@ -160,42 +123,27 @@ export function evaluateLiveHoverQuality(
     const visibleCornerCount = (tl ? 1 : 0) + (tr ? 1 : 0) + (bl ? 1 : 0) + (br ? 1 : 0);
     const cornerMarkersVisible = visibleCornerCount === 4;
 
-    const fullEdgesVisible =
-        !isTooClose &&
-        !isTooFar &&
-        x + qw <= 0.98 &&
-        x >= 0.15 &&
-        y >= 0.04 &&
-        y + qh <= 0.88 &&
-        visibleCornerCount >= 4;
-
-    // 4. Lighting evaluation
+    // Lighting evaluation
     const lighting: LightingCondition = lightingOverride || "ok";
 
-    if (lighting === "too_dark") {
-        warnings.push("Room is too dark — move to brighter light or tap Torch (⚡).");
+    let summaryText = "Ready to capture";
+    const warnings: string[] = [];
+
+    if (isBlurry) {
+        summaryText = "Answers blurred — hold steady";
+        warnings.push(summaryText);
+    } else if (lighting === "too_dark") {
+        summaryText = "Too dark — tap Torch (⚡)";
+        warnings.push(summaryText);
     } else if (lighting === "too_bright") {
-        warnings.push("Room is too light / harsh glare — tilt slightly to avoid reflection.");
-    }
-
-    if (isTooClose) {
-        warnings.push("Camera is too close — pull back slightly so all 4 edges of the paper fit inside.");
-    } else if (isTooFar) {
-        warnings.push("Camera is too far — bring the phone slightly closer to the test paper.");
-    }
-
-    if (!cornerMarkersVisible) {
-        warnings.push(
-            `4 corner markers not visible (${visibleCornerCount}/4 detected) — fit all 4 black corner squares inside the brackets.`
-        );
-    }
-
-    if (!paperFlat && !fullEdgesVisible) {
-        warnings.push("Paper is not flat and full edges are not visible — lay sheet flat and fit all 4 edges inside the frame.");
-    } else if (!paperFlat || skewDetected) {
-        warnings.push("Paper is tilted or folded — smooth out folds and hold the camera parallel directly above the paper.");
-    } else if (!fullEdgesVisible) {
-        warnings.push("Full paper edges are cut off — center the test sheet inside the dashed reticle.");
+        summaryText = "Harsh glare — tilt slightly";
+        warnings.push(summaryText);
+    } else if (isTooClose) {
+        summaryText = "Move camera back";
+        warnings.push(summaryText);
+    } else if (!cornerMarkersVisible) {
+        summaryText = `Align all 4 corner markers (${visibleCornerCount}/4)`;
+        warnings.push(summaryText);
     }
 
     return {
@@ -203,12 +151,14 @@ export function evaluateLiveHoverQuality(
         qrVisible: true,
         cornerMarkersVisible,
         visibleCornerCount,
-        paperFlat,
-        fullEdgesVisible,
+        paperFlat: true,
+        fullEdgesVisible: true,
+        isBlurry,
         hasWarnings: warnings.length > 0,
         warnings,
         cornerStatus: { tl, tr, bl, br },
         meanLuminance,
+        summaryText,
     };
 }
 
