@@ -700,3 +700,256 @@ Return ONLY strict valid JSON matching this exact structure:
     };
 }
 
+export interface GenerateAdditionalQuestionsParams {
+    existingQuestions: ScannableQuestion[];
+    countToAdd: number;
+    questionType: string;
+    quizTitle?: string;
+    subject?: string;
+    gradeLevel?: string;
+    difficulty?: string;
+    lessonNotes?: string;
+    attachedPdfBase64?: string;
+    attachedPdfName?: string;
+    attachedFileName?: string;
+    attachedFileType?: "pdf" | "docx" | "doc" | "pptx" | "ppt" | "txt";
+    attachedFileText?: string;
+    onProviderUsed?: (provider: string, model: string) => void;
+    onStatusUpdate?: (status: string, isBusy?: boolean) => void;
+}
+
+export interface GenerateAdditionalQuestionsResult {
+    questions: ScannableQuestion[];
+    answerKey: AnswerKeyItem[];
+    generatedBy?: string;
+}
+
+/**
+ * Generates additional questions to expand an existing assessment without recreating the quiz.
+ * Begins numbering from existingQuestions.length + 1 and avoids duplicating any existing questions.
+ */
+export async function generateAdditionalQuestions(
+    params: GenerateAdditionalQuestionsParams
+): Promise<GenerateAdditionalQuestionsResult> {
+    const apiKey = getGeminiApiKey();
+
+    const startNum = params.existingQuestions.length + 1;
+    const count = Math.max(1, params.countToAdd);
+    const rawDiff = params.difficulty || "Medium (Application & Analysis)";
+    const diffCategory: "Easy" | "Medium" | "Hard" =
+        rawDiff.toLowerCase().includes("easy") ? "Easy" :
+            rawDiff.toLowerCase().includes("hard") ? "Hard" :
+                "Medium";
+
+    const subj = params.subject || "General Education";
+    const grade = params.gradeLevel || "Grade 10";
+    const qType = params.questionType || "multiple_choice";
+
+    const difficultyGuide = {
+        Easy: `Focus on direct definitions, basic facts, core terminology, and straightforward identification. Simple sentence structure, no trick wording.`,
+        Medium: `Test cause-and-effect relationships, practical applications, standard scenarios. Distractors must represent plausible student misconceptions.`,
+        Hard: `Multi-step critical deduction, evaluating contrasting scenarios, subtle edge cases. Demands deep mastery.`,
+    }[diffCategory];
+
+    const docName = params.attachedFileName || params.attachedPdfName;
+    const isPdf = params.attachedFileType === "pdf" || Boolean(params.attachedPdfBase64);
+
+    let documentSourceInstruction = "";
+    if (docName) {
+        if (params.attachedFileText) {
+            documentSourceInstruction = `
+- Attached Reference Document: "${docName}"
+Content snippet:
+--- BEGIN ATTACHED CONTENT ---
+${params.attachedFileText.slice(0, 4000)}
+--- END ATTACHED CONTENT ---
+`;
+        } else if (isPdf) {
+            documentSourceInstruction = `- Attached Reference Document: Strictly derive these additional questions from the attached PDF ("${docName}").`;
+        }
+    }
+
+    let lessonNotesInstruction = "";
+    if (params.lessonNotes && params.lessonNotes.trim().length > 0) {
+        lessonNotesInstruction = `
+- Teacher's Lesson Notes:
+${params.lessonNotes.trim().slice(0, 2500)}
+`;
+    }
+
+    const existingList = params.existingQuestions
+        .map((q) => `- [Q${q.questionNumber}] ${q.questionText}`)
+        .slice(0, 30)
+        .join("\n");
+
+    const promptText = `
+You are an expert curriculum designer and psychometrician.
+The teacher is reviewing an assessment titled "${params.quizTitle || "Assessment"}" (${grade}, ${subj}, Difficulty: ${rawDiff}) and requests to GENERATE ${count} ADDITIONAL QUESTIONS to expand the quiz.
+
+TASK:
+Generate exactly ${count} NEW additional questions starting at Question #${startNum} up to Question #${startNum + count - 1}.
+- Question Type Preference: "${qType}"
+- STRICT CONSTRAINT: DO NOT duplicate or closely rephrase any of the existing questions already in the quiz:
+${existingList}
+
+${documentSourceInstruction}
+${lessonNotesInstruction}
+
+COGNITIVE DIFFICULTY (${diffCategory}):
+${difficultyGuide}
+
+QUESTION TYPE RULES FOR "${qType}":
+- If Multiple Choice: type: "multiple_choice", options: 4 choices ["A) ...", "B) ...", "C) ...", "D) ..."], answerBoxesRequired: 1, correctAnswer: "A", "B", "C", or "D".
+- If True / False: type: "true_false", options: ["A) True", "B) False"], answerBoxesRequired: 1, correctAnswer: "T" or "F".
+- If Identification: type: "identification", options: [], answerBoxesRequired: 1, correctAnswer: 1-3 words (max 25 chars).
+- If Fill in Blank: type: "fill_blank", options: [], answerBoxesRequired: 1, correctAnswer: 1-3 words (max 25 chars).
+- If Enumeration: type: "enumeration", question states how many to list, options: [], answerBoxesRequired: 2 to 4, correctAnswer: comma-separated items.
+- If Word Box: type: "word_box", options: 4-6 words without letters, answerBoxesRequired: 1, correctAnswer: word from options.
+
+Return ONLY strict valid JSON matching this exact structure:
+{
+  "questions": [
+    {
+      "questionNumber": ${startNum},
+      "type": "multiple_choice",
+      "questionText": "Question text here?",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "answerBoxesRequired": 1
+    }
+  ],
+  "answerKey": [
+    {
+      "questionNumber": ${startNum},
+      "correctAnswer": "A",
+      "points": 1
+    }
+  ]
+}
+`;
+
+    const parts: any[] = [];
+    if (isPdf && params.attachedPdfBase64) {
+        parts.push({
+            inlineData: {
+                data: params.attachedPdfBase64,
+                mimeType: "application/pdf",
+            },
+        });
+    }
+    parts.push({ text: promptText });
+
+    let lastError: any = null;
+
+    if (apiKey) {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"];
+
+        for (const modelName of candidateModels) {
+            try {
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        temperature: 0.25,
+                    },
+                });
+
+                const result = await model.generateContent(parts);
+                if (result) {
+                    const rawText = result.response.text().trim();
+                    const cleanJson = rawText
+                        .replace(/^```(?:json)?\s*/i, "")
+                        .replace(/\s*```$/i, "")
+                        .trim();
+                    const parsed = JSON.parse(cleanJson);
+                    const qList: ScannableQuestion[] = parsed.questions || [];
+                    const aList: AnswerKeyItem[] = parsed.answerKey || [];
+
+                    if (Array.isArray(qList) && qList.length > 0) {
+                        const sanitizedQ: ScannableQuestion[] = qList.map((q, idx) => ({
+                            questionNumber: startNum + idx,
+                            type: q.type || (qType as QuestionType),
+                            questionText: q.questionText,
+                            options: Array.isArray(q.options) ? q.options : [],
+                            answerBoxesRequired: q.answerBoxesRequired || (q.type === "enumeration" ? 3 : 1),
+                        }));
+
+                        const sanitizedA: AnswerKeyItem[] = aList.map((a, idx) => ({
+                            questionNumber: startNum + idx,
+                            correctAnswer: a.correctAnswer !== undefined ? String(a.correctAnswer) : "",
+                            points: a.points || (sanitizedQ[idx]?.type === "enumeration" ? sanitizedQ[idx].answerBoxesRequired : 1),
+                        }));
+
+                        params.onProviderUsed?.("gemini", modelName);
+                        return {
+                            questions: sanitizedQ,
+                            answerKey: sanitizedA,
+                            generatedBy: `Google Gemini (${modelName})`,
+                        };
+                    }
+                }
+            } catch (err: any) {
+                lastError = err;
+                console.warn(`[QuizGen Additional] Model ${modelName} error:`, err?.message);
+            }
+        }
+    }
+
+    // Failover to backup provider
+    const { runBackupChain } = await import("./ai/backupRunner");
+    const backupMessages = [
+        {
+            role: "system" as const,
+            content: "You are an expert curriculum designer. Return only valid JSON for additional questions matching the requested schema.",
+        },
+        {
+            role: "user" as const,
+            content: promptText,
+        },
+    ];
+
+    const backupResult = await runBackupChain<GenerateAdditionalQuestionsResult>({
+        kind: "text",
+        messages: backupMessages,
+        logTag: "[QuizGen Additional Backup]",
+        timeoutMs: 30000,
+        totalBudgetMs: 50000,
+        maxTokens: 1500,
+        temperature: 0.25,
+        onStatusUpdate: (status) => {
+            params.onStatusUpdate?.(status, true);
+        },
+        validate: (json: any) => {
+            const qList: ScannableQuestion[] = json?.questions || [];
+            const aList: AnswerKeyItem[] = json?.answerKey || [];
+            if (Array.isArray(qList) && qList.length > 0) {
+                const sanitizedQ: ScannableQuestion[] = qList.map((q, idx) => ({
+                    questionNumber: startNum + idx,
+                    type: q.type || (qType as QuestionType),
+                    questionText: q.questionText,
+                    options: Array.isArray(q.options) ? q.options : [],
+                    answerBoxesRequired: q.answerBoxesRequired || (q.type === "enumeration" ? 3 : 1),
+                }));
+
+                const sanitizedA: AnswerKeyItem[] = aList.map((a, idx) => ({
+                    questionNumber: startNum + idx,
+                    correctAnswer: a.correctAnswer !== undefined ? String(a.correctAnswer) : "",
+                    points: a.points || (sanitizedQ[idx]?.type === "enumeration" ? sanitizedQ[idx].answerBoxesRequired : 1),
+                }));
+
+                return {
+                    questions: sanitizedQ,
+                    answerKey: sanitizedA,
+                };
+            }
+            return null;
+        },
+    });
+
+    return {
+        questions: backupResult.value.questions,
+        answerKey: backupResult.value.answerKey,
+        generatedBy: `${backupResult.provider.toUpperCase()} (${backupResult.model})`,
+    };
+}
+

@@ -36,6 +36,7 @@ import {
 import {
     AnswerKeyItem,
     GeneratedAssessment,
+    generateAdditionalQuestions,
     generateScannableQuiz,
     QuestionType,
     regenerateSingleQuestion,
@@ -326,6 +327,19 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [manualPoints, setManualPoints] = useState("1");
     const [manualEnumCount, setManualEnumCount] = useState("3");
     const addQScrollRef = useRef<ScrollView>(null);
+
+    // ── Adjust Assessment Setup State (In Preview) ───────────────────────────
+    const [adjustSetupModalOpen, setAdjustSetupModalOpen] = useState(false);
+    const [adjustTargetCount, setAdjustTargetCount] = useState<number>(10);
+    const [adjustTargetType, setAdjustTargetType] = useState<string>("Multiple Choice");
+    const [adjustTargetDifficulty, setAdjustTargetDifficulty] = useState<string>(difficulty);
+    const [adjustTargetGradeLevel, setAdjustTargetGradeLevel] = useState<string>(gradeLevel);
+    const [generatingMore, setGeneratingMore] = useState(false);
+
+    // ── Change Individual Question Type State ────────────────────────────────
+    const [changeTypeModalOpen, setChangeTypeModalOpen] = useState(false);
+    const [selectedQForTypeChange, setSelectedQForTypeChange] = useState<ScannableQuestion | null>(null);
+    const [selectedNewType, setSelectedNewType] = useState<QuestionType>("multiple_choice");
 
     // ── File handler ───────────────────────────────────────────────────────────
     async function handleAttachFile() {
@@ -632,16 +646,194 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setEditingAnswerText("");
     }
 
-    function handleRegenerateQuestion(questionNumber: number) {
+    function formatTypeLabel(type: QuestionType | string): string {
+        switch (type) {
+            case "multiple_choice":
+                return "Multiple Choice";
+            case "true_false":
+                return "True / False";
+            case "identification":
+                return "Identification";
+            case "fill_blank":
+                return "Fill in Blank";
+            case "enumeration":
+                return "Enumeration";
+            case "word_box":
+                return "Word Box";
+            default:
+                return type.replace(/_/g, " ");
+        }
+    }
+
+    function handleApplyTrim(targetCount: number) {
+        if (!generatedAssessment) return;
+        if (targetCount >= generatedAssessment.questions.length) return;
+
+        Alert.alert(
+            "Trim Assessment Questions",
+            `Keep questions #1 to #${targetCount} and remove questions #${targetCount + 1} to #${generatedAssessment.questions.length}?\n\n(This action is instant and does not consume your daily AI quota.)`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Trim Questions",
+                    style: "destructive",
+                    onPress: () => {
+                        const trimmedQuestions = generatedAssessment.questions.slice(0, targetCount);
+                        const trimmedAnswerKey = generatedAssessment.answerKey.slice(0, targetCount);
+                        setGeneratedAssessment({
+                            ...generatedAssessment,
+                            questions: trimmedQuestions,
+                            answerKey: trimmedAnswerKey,
+                        });
+                        setQuestionCount(`${targetCount} Questions`);
+                        setAdjustSetupModalOpen(false);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function handleGenerateMoreQuestions(countToAdd: number) {
+        if (!generatedAssessment || generatingMore) return;
+        setGeneratingMore(true);
+        try {
+            let attachedPdfBase64: string | undefined;
+            let attachedFileText: string | undefined;
+            let attachedFileType: SupportedDocType | undefined;
+
+            if (attachedFile) {
+                const parsed = await parseDocumentFile({
+                    uri: attachedFile.uri,
+                    name: attachedFile.name,
+                    mimeType: attachedFile.mimeType,
+                });
+                attachedFileType = parsed.type;
+                if (parsed.type === "pdf") {
+                    attachedPdfBase64 = parsed.base64;
+                } else if (parsed.text) {
+                    attachedFileText = parsed.text;
+                }
+            }
+
+            const result = await generateAdditionalQuestions({
+                existingQuestions: generatedAssessment.questions,
+                countToAdd,
+                questionType: adjustTargetType || questionType,
+                quizTitle: generatedAssessment.quizTitle,
+                subject,
+                gradeLevel: adjustTargetGradeLevel || gradeLevel,
+                difficulty: adjustTargetDifficulty || difficulty,
+                lessonNotes: lessonNotes.trim() || undefined,
+                attachedPdfBase64,
+                attachedPdfName: attachedFile ? attachedFile.name : undefined,
+                attachedFileName: attachedFile ? attachedFile.name : undefined,
+                attachedFileType,
+                attachedFileText,
+            });
+
+            const updatedQuestions = [...generatedAssessment.questions, ...result.questions];
+            const updatedAnswerKey = [...generatedAssessment.answerKey, ...result.answerKey];
+
+            setGeneratedAssessment({
+                ...generatedAssessment,
+                questions: updatedQuestions,
+                answerKey: updatedAnswerKey,
+            });
+            setQuestionCount(`${updatedQuestions.length} Questions`);
+            setAdjustSetupModalOpen(false);
+
+            Alert.alert(
+                "Questions Added!",
+                `Successfully added ${result.questions.length} new question(s) to "${generatedAssessment.quizTitle}". Total questions: ${updatedQuestions.length}.\n\n(Generated without consuming a full daily quiz quota session.)`
+            );
+        } catch (err: any) {
+            console.error("Error generating additional questions:", err);
+            Alert.alert("Addition Failed", err?.message || "Could not generate additional questions.");
+        } finally {
+            setGeneratingMore(false);
+        }
+    }
+
+    function handleManualConvertType(questionNumber: number, newType: QuestionType) {
+        if (!generatedAssessment) return;
+        const updatedQ = generatedAssessment.questions.map((q) => {
+            if (q.questionNumber !== questionNumber) return q;
+            let newOptions: string[] = [];
+            let newBoxes = 1;
+            if (newType === "multiple_choice") {
+                newOptions = ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"];
+            } else if (newType === "true_false") {
+                newOptions = ["A) True", "B) False"];
+            } else if (newType === "word_box") {
+                newOptions = ["Word1", "Word2", "Word3", "Word4"];
+            } else if (newType === "enumeration") {
+                newBoxes = 3;
+            }
+            return {
+                ...q,
+                type: newType,
+                options: newOptions,
+                answerBoxesRequired: newBoxes,
+            };
+        });
+
+        const updatedA = generatedAssessment.answerKey.map((ak) => {
+            if (ak.questionNumber !== questionNumber) return ak;
+            let defaultAns = "A";
+            if (newType === "true_false") defaultAns = "T";
+            else if (newType === "identification" || newType === "fill_blank") defaultAns = "Answer";
+            else if (newType === "enumeration") defaultAns = "Item 1, Item 2, Item 3";
+            else if (newType === "word_box") defaultAns = "Word1";
+            return {
+                ...ak,
+                correctAnswer: defaultAns,
+                points: newType === "enumeration" ? 3 : 1,
+            };
+        });
+
+        setGeneratedAssessment({
+            ...generatedAssessment,
+            questions: updatedQ,
+            answerKey: updatedA,
+        });
+        setChangeTypeModalOpen(false);
+        setSelectedQForTypeChange(null);
+
+        // Open inline editing for question text
+        const targetQ = updatedQ.find((q) => q.questionNumber === questionNumber);
+        if (targetQ) {
+            setEditingQuestionQNum(questionNumber);
+            setEditingQuestionText(targetQ.questionText);
+        }
+    }
+
+    function handleSaveSetupSettings() {
+        if (!generatedAssessment) return;
+        setQuestionType(adjustTargetType);
+        setDifficulty(adjustTargetDifficulty);
+        setGradeLevel(adjustTargetGradeLevel);
+        setAdjustSetupModalOpen(false);
+    }
+
+    function handleRegenerateQuestion(questionNumber: number, overrideType?: QuestionType) {
         if (!generatedAssessment || regeneratingQNum !== null) return;
         const targetQ = generatedAssessment.questions.find((q) => q.questionNumber === questionNumber);
         if (!targetQ) return;
 
-        const typeLabel = targetQ.type.replace(/_/g, " ").toUpperCase();
+        const effectiveType = overrideType || targetQ.type;
+        const typeLabel = effectiveType.replace(/_/g, " ").toUpperCase();
+
+        const confirmTitle = overrideType && overrideType !== targetQ.type
+            ? `Convert Q#${questionNumber} to ${formatTypeLabel(effectiveType)}?`
+            : `Regenerate Question #${questionNumber}?`;
+
+        const confirmMsg = overrideType && overrideType !== targetQ.type
+            ? `This will replace Question #${questionNumber} with a new AI-generated ${formatTypeLabel(effectiveType)} question, keeping all other questions untouched.\n\n(Single-question regeneration does not consume your daily quiz quota.)`
+            : `This will replace Question #${questionNumber} with a new AI-generated ${typeLabel} question, keeping all other questions untouched.\n\n(Single-question regeneration does not consume your daily quiz quota.)`;
 
         Alert.alert(
-            `Regenerate Question #${questionNumber}?`,
-            `This will replace Question #${questionNumber} with a new AI-generated ${typeLabel} question, keeping all other questions untouched.\n\n(Single-question regeneration does not consume your daily quiz quota.)`,
+            confirmTitle,
+            confirmMsg,
             [
                 { text: "Cancel", style: "cancel" },
                 {
@@ -669,13 +861,13 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
                             const result = await regenerateSingleQuestion({
                                 questionNumber,
-                                questionType: targetQ.type,
+                                questionType: effectiveType,
                                 currentQuestionText: targetQ.questionText,
                                 otherQuestions: generatedAssessment.questions,
                                 quizTitle: generatedAssessment.quizTitle,
                                 subject,
-                                gradeLevel,
-                                difficulty,
+                                gradeLevel: adjustTargetGradeLevel || gradeLevel,
+                                difficulty: adjustTargetDifficulty || difficulty,
                                 lessonNotes: lessonNotes.trim() || undefined,
                                 attachedPdfBase64,
                                 attachedPdfName: attachedFile ? attachedFile.name : undefined,
@@ -701,7 +893,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
                             Alert.alert(
                                 "Question Regenerated!",
-                                `Question #${questionNumber} has been replaced with a fresh ${targetQ.type.replace(/_/g, " ")} question.`
+                                `Question #${questionNumber} has been replaced with a fresh ${formatTypeLabel(effectiveType)} question.`
                             );
                         } catch (err: any) {
                             console.error("Single question regeneration error:", err);
@@ -1322,14 +1514,30 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             <View style={[styles.previewModeBadge, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
                                 <Text style={[styles.previewModeBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>Draft Preview</Text>
                             </View>
-                            <TouchableOpacity
-                                onPress={handleReset}
-                                style={[styles.previewResetBtn, { backgroundColor: inputBg, borderColor: border }]}
-                                activeOpacity={0.7}
-                            >
-                                <Ionicons name="refresh" size={13} color={textSub} style={{ marginRight: 4 }} />
-                                <Text style={[styles.previewResetBtnText, { color: textSub }]}>New Quiz</Text>
-                            </TouchableOpacity>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setAdjustTargetCount(generatedAssessment?.questions.length || 10);
+                                        setAdjustTargetType(questionType);
+                                        setAdjustTargetDifficulty(difficulty);
+                                        setAdjustTargetGradeLevel(gradeLevel);
+                                        setAdjustSetupModalOpen(true);
+                                    }}
+                                    style={[styles.previewAdjustBtn, { backgroundColor: inputBg, borderColor: border }]}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="options-outline" size={13} color={darkMode ? "#CBD5E1" : "#0F172A"} style={{ marginRight: 4 }} />
+                                    <Text style={[styles.previewAdjustBtnText, { color: darkMode ? "#CBD5E1" : "#0F172A" }]}>Adjust Setup</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={handleReset}
+                                    style={[styles.previewResetBtn, { backgroundColor: inputBg, borderColor: border }]}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="refresh" size={13} color={textSub} style={{ marginRight: 4 }} />
+                                    <Text style={[styles.previewResetBtnText, { color: textSub }]}>New Quiz</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         <Text style={[styles.previewTitle, { color: darkMode ? textMain : "#0F172A" }]}>
@@ -1341,12 +1549,25 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </Text>
 
                         <View style={[styles.previewStatsRow, { backgroundColor: inputBg, borderColor: border }]}>
-                            <View style={styles.previewStatItem}>
+                            <TouchableOpacity
+                                style={styles.previewStatItem}
+                                onPress={() => {
+                                    setAdjustTargetCount(generatedAssessment?.questions.length || 10);
+                                    setAdjustTargetType(questionType);
+                                    setAdjustTargetDifficulty(difficulty);
+                                    setAdjustTargetGradeLevel(gradeLevel);
+                                    setAdjustSetupModalOpen(true);
+                                }}
+                                activeOpacity={0.7}
+                            >
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {generatedAssessment?.questions.length || questionCount}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Questions</Text>
-                            </View>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                                    <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Questions</Text>
+                                    <Ionicons name="pencil" size={9} color={darkMode ? textSub : "#94A3B8"} />
+                                </View>
+                            </TouchableOpacity>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <View style={styles.previewStatItem}>
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
@@ -1355,19 +1576,45 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Points</Text>
                             </View>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
-                            <View style={styles.previewStatItem}>
+                            <TouchableOpacity
+                                style={styles.previewStatItem}
+                                onPress={() => {
+                                    setAdjustTargetCount(generatedAssessment?.questions.length || 10);
+                                    setAdjustTargetType(questionType);
+                                    setAdjustTargetDifficulty(difficulty);
+                                    setAdjustTargetGradeLevel(gradeLevel);
+                                    setAdjustSetupModalOpen(true);
+                                }}
+                                activeOpacity={0.7}
+                            >
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {difficulty.split(" ")[0]}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Difficulty</Text>
-                            </View>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                                    <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Difficulty</Text>
+                                    <Ionicons name="pencil" size={9} color={darkMode ? textSub : "#94A3B8"} />
+                                </View>
+                            </TouchableOpacity>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
-                            <View style={styles.previewStatItem}>
+                            <TouchableOpacity
+                                style={styles.previewStatItem}
+                                onPress={() => {
+                                    setAdjustTargetCount(generatedAssessment?.questions.length || 10);
+                                    setAdjustTargetType(questionType);
+                                    setAdjustTargetDifficulty(difficulty);
+                                    setAdjustTargetGradeLevel(gradeLevel);
+                                    setAdjustSetupModalOpen(true);
+                                }}
+                                activeOpacity={0.7}
+                            >
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {gradeLevel.replace(/\s*\(.*?\)/g, "").replace(/Grade\s*/i, "Gr ")}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Grade</Text>
-                            </View>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                                    <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Grade</Text>
+                                    <Ionicons name="pencil" size={9} color={darkMode ? textSub : "#94A3B8"} />
+                                </View>
+                            </TouchableOpacity>
                         </View>
                     </View>
 
@@ -1388,6 +1635,27 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                 Q{q.questionNumber}
                                             </Text>
                                         </View>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.typeSelectorChip,
+                                                {
+                                                    backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                                },
+                                            ]}
+                                            onPress={() => {
+                                                setSelectedQForTypeChange(q);
+                                                setSelectedNewType(q.type);
+                                                setChangeTypeModalOpen(true);
+                                            }}
+                                            activeOpacity={0.7}
+                                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                        >
+                                            <Text style={[styles.typeSelectorChipText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>
+                                                {formatTypeLabel(q.type)}
+                                            </Text>
+                                            <Ionicons name="chevron-down" size={11} color={darkMode ? "#94A3B8" : "#64748B"} />
+                                        </TouchableOpacity>
                                         <Text style={[styles.questionPointsLabel, { color: darkMode ? textSub : "#64748B" }]}>
                                             {points} {points === 1 ? "pt" : "pts"}
                                         </Text>
@@ -2377,6 +2645,364 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     </TouchableOpacity>
                 </KeyboardAvoidingView>
             </Modal>
+
+            {/* ── Adjust Assessment Setup Modal Sheet (In Preview) ── */}
+            <Modal
+                visible={adjustSetupModalOpen}
+                transparent
+                animationType="slide"
+                onRequestClose={() => {
+                    if (!generatingMore) setAdjustSetupModalOpen(false);
+                }}
+            >
+                <TouchableOpacity
+                    style={styles.adjustOverlay}
+                    activeOpacity={1}
+                    onPress={() => {
+                        if (!generatingMore) setAdjustSetupModalOpen(false);
+                    }}
+                >
+                    <Pressable
+                        style={[styles.adjustSheet, { backgroundColor: cardBg }]}
+                        onPress={(e) => e.stopPropagation?.()}
+                    >
+                        <View style={styles.dragPill} />
+                        <View style={styles.adjustHeader}>
+                            <View style={[styles.adjustHeaderIcon, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                                <Ionicons name="options-outline" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.adjustTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                                    Adjust Assessment Setup
+                                </Text>
+                                <Text style={[styles.adjustSub, { color: darkMode ? textSub : "#64748B" }]}>
+                                    Change question count or types without starting over or wasting daily AI quota.
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (!generatingMore) setAdjustSetupModalOpen(false);
+                                }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={22} color={darkMode ? textSub : "#64748B"} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }} contentContainerStyle={{ paddingBottom: 16 }}>
+                            {/* Question Count Section */}
+                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569" }]}>
+                                QUESTION COUNT
+                            </Text>
+                            <View style={styles.countChipsRow}>
+                                {[5, 10, 15, 20, 25, 30, 40, 50].map((num) => {
+                                    const isSelected = adjustTargetCount === num;
+                                    return (
+                                        <TouchableOpacity
+                                            key={num}
+                                            style={[
+                                                styles.countChip,
+                                                {
+                                                    backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                                },
+                                                isSelected && {
+                                                    backgroundColor: "#0F172A",
+                                                    borderColor: "#0F172A",
+                                                },
+                                            ]}
+                                            onPress={() => setAdjustTargetCount(num)}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.countChipText,
+                                                    { color: darkMode ? textMain : "#334155" },
+                                                    isSelected && { color: "#FFFFFF", fontWeight: "700" },
+                                                ]}
+                                            >
+                                                {num}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+
+                            {/* Status and Action for Question Count */}
+                            {(() => {
+                                const currentCount = generatedAssessment?.questions.length || 0;
+                                const diff = adjustTargetCount - currentCount;
+
+                                if (diff < 0) {
+                                    const trimCount = Math.abs(diff);
+                                    return (
+                                        <View style={[styles.adjustNoticeBox, { backgroundColor: "#FEF3C7", borderColor: "#FDE68A" }]}>
+                                            <Ionicons name="cut-outline" size={18} color="#D97706" style={{ marginTop: 2 }} />
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontSize: 13, fontWeight: "700", color: "#B45309" }}>
+                                                    Reduce to {adjustTargetCount} Questions
+                                                </Text>
+                                                <Text style={{ fontSize: 12, color: "#92400E", marginTop: 2, lineHeight: 16 }}>
+                                                    Trimming {trimCount} questions. Questions #{adjustTargetCount + 1} to #{currentCount} will be removed, keeping #{1} to #{adjustTargetCount}.
+                                                </Text>
+                                                <TouchableOpacity
+                                                    style={styles.adjustTrimBtn}
+                                                    onPress={() => handleApplyTrim(adjustTargetCount)}
+                                                >
+                                                    <Text style={{ fontSize: 12.5, fontWeight: "700", color: "#FFFFFF" }}>
+                                                        Trim to {adjustTargetCount} Questions (Instant - Zero Quota)
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    );
+                                }
+
+                                if (diff > 0) {
+                                    return (
+                                        <View style={[styles.adjustNoticeBox, { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }]}>
+                                            <Ionicons name="sparkles" size={18} color="#2563EB" style={{ marginTop: 2 }} />
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontSize: 13, fontWeight: "700", color: "#1D4ED8" }}>
+                                                    Expand by +{diff} Questions
+                                                </Text>
+                                                <Text style={{ fontSize: 12, color: "#1E40AF", marginTop: 2, lineHeight: 16 }}>
+                                                    Generate {diff} additional questions based on your reference materials without repeating existing questions.
+                                                </Text>
+                                                <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                                                    <TouchableOpacity
+                                                        style={[styles.adjustAddAiBtn, { opacity: generatingMore ? 0.7 : 1 }]}
+                                                        onPress={() => handleGenerateMoreQuestions(diff)}
+                                                        disabled={generatingMore}
+                                                    >
+                                                        {generatingMore ? (
+                                                            <ActivityIndicator size="small" color="#FFFFFF" />
+                                                        ) : (
+                                                            <>
+                                                                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                                                                <Text style={{ fontSize: 12.5, fontWeight: "700", color: "#FFFFFF" }}>
+                                                                    Generate +{diff} with AI
+                                                                </Text>
+                                                            </>
+                                                        )}
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        style={styles.adjustAddManualBtn}
+                                                        onPress={() => {
+                                                            setAdjustSetupModalOpen(false);
+                                                            openAddQuestionModal();
+                                                        }}
+                                                    >
+                                                        <Text style={{ fontSize: 12, fontWeight: "600", color: "#334155" }}>
+                                                            Add Manually
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    );
+                                }
+
+                                return (
+                                    <View style={[styles.adjustNoticeBox, { backgroundColor: "#F0FDF4", borderColor: "#BBF7D0" }]}>
+                                        <Ionicons name="checkmark-circle-outline" size={18} color="#16A34A" />
+                                        <Text style={{ fontSize: 12.5, color: "#15803D", fontWeight: "600", flex: 1 }}>
+                                            Current quiz has {currentCount} questions.
+                                        </Text>
+                                    </View>
+                                );
+                            })()}
+
+                            {/* Question Type Selection */}
+                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 16 }]}>
+                                DEFAULT QUESTION TYPE
+                            </Text>
+                            <Dropdown
+                                label="Question type"
+                                value={adjustTargetType}
+                                options={QUESTION_TYPES}
+                                onSelect={setAdjustTargetType}
+                                accentColor={accentColor}
+                            />
+                            <Text style={{ fontSize: 11.5, color: textSub, marginTop: 4, lineHeight: 16 }}>
+                                Individual question types can also be changed directly on each question card below.
+                            </Text>
+
+                            {/* Difficulty Level */}
+                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 14 }]}>
+                                DIFFICULTY LEVEL
+                            </Text>
+                            <Dropdown
+                                label="Difficulty level"
+                                value={adjustTargetDifficulty}
+                                options={BLOOM_DIFFICULTIES}
+                                onSelect={setAdjustTargetDifficulty}
+                                accentColor={accentColor}
+                            />
+
+                            {/* Grade Level */}
+                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 14 }]}>
+                                GRADE LEVEL
+                            </Text>
+                            <Dropdown
+                                label="Grade level"
+                                value={adjustTargetGradeLevel}
+                                options={GRADE_LEVELS}
+                                onSelect={setAdjustTargetGradeLevel}
+                                accentColor={accentColor}
+                            />
+
+                            {/* Save Settings Button */}
+                            <TouchableOpacity
+                                style={styles.adjustSaveBtn}
+                                onPress={handleSaveSetupSettings}
+                                activeOpacity={0.85}
+                            >
+                                <Ionicons name="checkmark-outline" size={18} color="#FFFFFF" />
+                                <Text style={styles.adjustSaveBtnText}>Save Setup Changes</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </Pressable>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* ── Change Question Type Modal Sheet (In Preview) ── */}
+            <Modal
+                visible={changeTypeModalOpen && selectedQForTypeChange !== null}
+                transparent
+                animationType="slide"
+                onRequestClose={() => {
+                    if (regeneratingQNum === null) {
+                        setChangeTypeModalOpen(false);
+                        setSelectedQForTypeChange(null);
+                    }
+                }}
+            >
+                <TouchableOpacity
+                    style={styles.adjustOverlay}
+                    activeOpacity={1}
+                    onPress={() => {
+                        if (regeneratingQNum === null) {
+                            setChangeTypeModalOpen(false);
+                            setSelectedQForTypeChange(null);
+                        }
+                    }}
+                >
+                    <Pressable
+                        style={[styles.adjustSheet, { backgroundColor: cardBg }]}
+                        onPress={(e) => e.stopPropagation?.()}
+                    >
+                        <View style={styles.dragPill} />
+                        <View style={styles.adjustHeader}>
+                            <View style={[styles.adjustHeaderIcon, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                                <Ionicons name="swap-horizontal" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.adjustTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                                    Change Question #{selectedQForTypeChange?.questionNumber} Type
+                                </Text>
+                                <Text style={[styles.adjustSub, { color: darkMode ? textSub : "#64748B" }]}>
+                                    Current: {selectedQForTypeChange ? formatTypeLabel(selectedQForTypeChange.type) : ""}
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setChangeTypeModalOpen(false);
+                                    setSelectedQForTypeChange(null);
+                                }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={22} color={darkMode ? textSub : "#64748B"} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569" }]}>
+                            SELECT NEW QUESTION TYPE
+                        </Text>
+
+                        <View style={styles.typeOptionsList}>
+                            {([
+                                { key: "multiple_choice" as QuestionType, label: "Multiple Choice", desc: "4 options (A, B, C, D) with 1 answer box", icon: "list" as const },
+                                { key: "true_false" as QuestionType, label: "True / False", desc: "Binary choices (A) True, B) False)", icon: "checkmark-done" as const },
+                                { key: "identification" as QuestionType, label: "Identification", desc: "Short concept/term (1–3 words, max 25 chars)", icon: "text" as const },
+                                { key: "fill_blank" as QuestionType, label: "Fill in the Blank", desc: "Sentence with blank to fill in (1–3 words)", icon: "pencil" as const },
+                                { key: "enumeration" as QuestionType, label: "Enumeration", desc: "List 2–4 sequential items across boxes", icon: "reorder-three" as const },
+                                { key: "word_box" as QuestionType, label: "Word Box", desc: "Fill in blank using a randomized word bank", icon: "grid" as const },
+                            ]).map((opt) => {
+                                const isSelected = selectedNewType === opt.key;
+                                return (
+                                    <TouchableOpacity
+                                        key={opt.key}
+                                        style={[
+                                            styles.typeOptionRow,
+                                            {
+                                                backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                                                borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                            },
+                                            isSelected && {
+                                                borderColor: "#0F172A",
+                                                backgroundColor: darkMode ? "#334155" : "#F8FAFC",
+                                            },
+                                        ]}
+                                        onPress={() => setSelectedNewType(opt.key)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <View style={[styles.typeOptionIcon, isSelected && { backgroundColor: "#0F172A" }]}>
+                                            <Ionicons name={opt.icon} size={16} color={isSelected ? "#FFFFFF" : textSub} />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.typeOptionTitle, { color: darkMode ? textMain : "#0F172A" }, isSelected && { fontWeight: "700" }]}>
+                                                {opt.label}
+                                            </Text>
+                                            <Text style={[styles.typeOptionDesc, { color: darkMode ? textSub : "#64748B" }]}>
+                                                {opt.desc}
+                                            </Text>
+                                        </View>
+                                        <Ionicons
+                                            name={isSelected ? "radio-button-on" : "radio-button-off"}
+                                            size={18}
+                                            color={isSelected ? "#0F172A" : textSub}
+                                        />
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        {/* Actions */}
+                        <View style={{ marginTop: 14, gap: 8 }}>
+                            <TouchableOpacity
+                                style={styles.typeRegenAiBtn}
+                                onPress={() => {
+                                    if (!selectedQForTypeChange) return;
+                                    const qNum = selectedQForTypeChange.questionNumber;
+                                    setChangeTypeModalOpen(false);
+                                    setSelectedQForTypeChange(null);
+                                    handleRegenerateQuestion(qNum, selectedNewType);
+                                }}
+                                activeOpacity={0.85}
+                            >
+                                <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+                                <Text style={styles.typeRegenAiBtnText}>
+                                    Regenerate as {formatTypeLabel(selectedNewType)} with AI
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[styles.typeConvertManualBtn, { borderColor: darkMode ? "#334155" : "#CBD5E1", backgroundColor: darkMode ? cardBg : "#FFFFFF" }]}
+                                onPress={() => {
+                                    if (!selectedQForTypeChange) return;
+                                    handleManualConvertType(selectedQForTypeChange.questionNumber, selectedNewType);
+                                }}
+                                activeOpacity={0.75}
+                            >
+                                <Ionicons name="pencil-outline" size={15} color={darkMode ? textMain : "#0F172A"} />
+                                <Text style={[styles.typeConvertManualBtnText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                    Convert Manually (Edit Text Yourself)
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </TouchableOpacity>
+            </Modal>
         </ScrollView>
     );
 }
@@ -2608,6 +3234,18 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: "500",
     },
+    previewAdjustBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 1,
+    },
+    previewAdjustBtnText: {
+        fontSize: 12,
+        fontWeight: "600",
+    },
     previewResetBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -2724,6 +3362,19 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 8,
+    },
+    typeSelectorChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        borderWidth: 1,
+    },
+    typeSelectorChipText: {
+        fontSize: 11,
+        fontWeight: "600",
     },
     questionHeaderToolbar: {
         flexDirection: "row",
@@ -3358,6 +4009,184 @@ const styles = StyleSheet.create({
         borderWidth: 1.5,
     },
     wordBankAnswerChipText: {
+        fontSize: 13,
+        fontWeight: "600",
+    },
+
+    /* Adjust Setup Modal & Change Type Modal */
+    adjustOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(15, 23, 42, 0.55)",
+        justifyContent: "flex-end",
+    },
+    adjustSheet: {
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 32,
+        maxHeight: "88%",
+    },
+    dragPill: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "#CBD5E1",
+        alignSelf: "center",
+        marginBottom: 12,
+    },
+    adjustHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        marginBottom: 16,
+    },
+    adjustHeaderIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    adjustTitle: {
+        fontSize: 16,
+        fontWeight: "700",
+    },
+    adjustSub: {
+        fontSize: 12,
+        lineHeight: 16,
+        marginTop: 2,
+    },
+    adjustSectionLabel: {
+        fontSize: 11,
+        fontWeight: "700",
+        letterSpacing: 0.5,
+        marginBottom: 8,
+    },
+    countChipsRow: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 12,
+    },
+    countChip: {
+        minWidth: 44,
+        height: 36,
+        borderRadius: 8,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 10,
+    },
+    countChipText: {
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    adjustNoticeBox: {
+        flexDirection: "row",
+        gap: 10,
+        padding: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        marginBottom: 8,
+    },
+    adjustTrimBtn: {
+        marginTop: 8,
+        backgroundColor: "#D97706",
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        alignItems: "center",
+    },
+    adjustAddAiBtn: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        backgroundColor: "#2563EB",
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+    },
+    adjustAddManualBtn: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#CBD5E1",
+        backgroundColor: "#FFFFFF",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    adjustSaveBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        height: 46,
+        borderRadius: 10,
+        backgroundColor: "#0F172A",
+        marginTop: 20,
+    },
+    adjustSaveBtnText: {
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "600",
+    },
+    typeOptionsList: {
+        gap: 8,
+        marginTop: 4,
+    },
+    typeOptionRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        padding: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+    },
+    typeOptionIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F1F5F9",
+    },
+    typeOptionTitle: {
+        fontSize: 13.5,
+        fontWeight: "600",
+    },
+    typeOptionDesc: {
+        fontSize: 11.5,
+        lineHeight: 15,
+        marginTop: 1,
+    },
+    typeRegenAiBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        height: 44,
+        borderRadius: 10,
+        backgroundColor: "#EA580C",
+    },
+    typeRegenAiBtnText: {
+        color: "#FFFFFF",
+        fontSize: 13.5,
+        fontWeight: "600",
+    },
+    typeConvertManualBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        height: 42,
+        borderRadius: 10,
+        borderWidth: 1,
+    },
+    typeConvertManualBtnText: {
         fontSize: 13,
         fontWeight: "600",
     },
