@@ -549,7 +549,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
     function handleConfirmNewQuiz() {
         Alert.alert(
-            "Start a New Quiz?",
+            "Start a new quiz?",
             "Discard this generated assessment and return to the AI builder setup? Any unsaved edits will be lost.",
             [
                 { text: "Cancel", style: "cancel" },
@@ -762,8 +762,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         if (targetCount >= generatedAssessment.questions.length) return;
 
         Alert.alert(
-            "Trim Assessment Questions",
-            `Keep questions #1 to #${targetCount} and remove questions #${targetCount + 1} to #${generatedAssessment.questions.length}?\n\n(This action is instant and does not consume your daily AI quota.)`,
+            "Trim assessment questions?",
+            `Keep questions #1 to #${targetCount} and remove questions #${targetCount + 1} to #${generatedAssessment.questions.length}.\n\n(Instant action · Zero AI quota consumed.)`,
             [
                 { text: "Cancel", style: "cancel" },
                 {
@@ -1018,15 +1018,15 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         if (!targetQ) return;
 
         const effectiveType = overrideType || targetQ.type;
-        const typeLabel = effectiveType.replace(/_/g, " ").toUpperCase();
+        const typeLabel = formatTypeLabel(effectiveType).toLowerCase();
 
         const confirmTitle = overrideType && overrideType !== targetQ.type
-            ? `Convert Q#${questionNumber} to ${formatTypeLabel(effectiveType)}?`
-            : `Regenerate Question #${questionNumber}?`;
+            ? `Convert question #${questionNumber} to ${typeLabel}?`
+            : `Regenerate question #${questionNumber}?`;
 
         const confirmMsg = overrideType && overrideType !== targetQ.type
-            ? `This will replace Question #${questionNumber} with a new AI-generated ${formatTypeLabel(effectiveType)} question, keeping all other questions untouched.\n\n(Single-question regeneration does not consume your daily quiz quota.)`
-            : `This will replace Question #${questionNumber} with a new AI-generated ${typeLabel} question, keeping all other questions untouched.\n\n(Single-question regeneration does not consume your daily quiz quota.)`;
+            ? `This will replace question #${questionNumber} with a new AI-generated ${typeLabel} question, keeping all other questions untouched.\n\n(Does not use your daily AI generation quota.)`
+            : `This will replace question #${questionNumber} with a new AI-generated ${typeLabel} question, keeping all other questions untouched.\n\n(Does not use your daily AI generation quota.)`;
 
         Alert.alert(
             confirmTitle,
@@ -1034,7 +1034,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             [
                 { text: "Cancel", style: "cancel" },
                 {
-                    text: "Regenerate",
+                    text: overrideType && overrideType !== targetQ.type ? "Convert" : "Regenerate",
                     onPress: async () => {
                         setRegeneratingQNum(questionNumber);
                         try {
@@ -1827,17 +1827,18 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {generatedAssessment?.questions.length || questionCount}
                                 </Text>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                                    <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Questions</Text>
-                                    <Ionicons name="pencil" size={9} color={darkMode ? textSub : "#94A3B8"} />
-                                </View>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>
+                                    Questions
+                                </Text>
                             </TouchableOpacity>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <View style={styles.previewStatItem}>
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {generatedAssessment?.questions.reduce((sum, q) => sum + (q.type === "enumeration" ? (q.answerBoxesRequired || 3) : 1), 0) || questionCount}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Points</Text>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>
+                                    Points
+                                </Text>
                             </View>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <TouchableOpacity
@@ -1848,10 +1849,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {difficulty.split(" ")[0]}
                                 </Text>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                                    <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Difficulty</Text>
-                                    <Ionicons name="pencil" size={9} color={darkMode ? textSub : "#94A3B8"} />
-                                </View>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>
+                                    Difficulty
+                                </Text>
                             </TouchableOpacity>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <TouchableOpacity
@@ -1862,10 +1862,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {gradeLevel.replace(/\s*\(.*?\)/g, "").replace(/Grade\s*/i, "Gr ")}
                                 </Text>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                                    <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Grade</Text>
-                                    <Ionicons name="pencil" size={9} color={darkMode ? textSub : "#94A3B8"} />
-                                </View>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>
+                                    Grade
+                                </Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -3567,7 +3566,7 @@ const styles = StyleSheet.create({
         marginBottom: 3,
     },
     previewStatLabel: {
-        fontSize: 11,
+        fontSize: 10.5,
         fontWeight: "600",
         textTransform: "uppercase",
         letterSpacing: 0.3,

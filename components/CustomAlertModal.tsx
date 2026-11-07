@@ -21,6 +21,7 @@ export type AlertType =
     | "cooldown"
     | "error"
     | "destructive"
+    | "warning"
     | "info"
     | "confirm"
     | "success";
@@ -39,84 +40,63 @@ export interface CustomAlertModalProps {
     onDismiss?: () => void;
 }
 
-const RED_PRIMARY = "#D93829";
-const RED_HALO_LIGHT = "#FCE8E6";
-const RED_HALO_DARK = "rgba(217, 56, 41, 0.22)";
+const RED_DESTRUCTIVE = "#DC2626";
+const AMBER_WARNING = "#D97706";
+const SLATE_PRIMARY = "#0F172A";
 
-const BLUE_PRIMARY = "#2563EB";
-const BLUE_HALO_LIGHT = "#E8EDFB";
-const BLUE_HALO_DARK = "rgba(37, 99, 235, 0.22)";
-
-/**
- * Automatically determines whether an alert should use the Red Diamond ("!")
- * destructive/warning/error theme or the Blue Circle ("?" / "✓") confirm/info theme.
- */
-function resolveAlertVisualVariant(
+function resolveVariant(
     title: string,
     type?: AlertType,
     buttons?: AlertButton[]
 ): {
-    isRedVariant: boolean;
-    isQuestion: boolean;
+    isDestructive: boolean;
+    isWarning: boolean;
 } {
-    if (
-        type === "error" ||
-        type === "destructive" ||
-        type === "network" ||
-        type === "busy"
-    ) {
-        return { isRedVariant: true, isQuestion: false };
+    if (type === "destructive" || type === "error" || type === "network" || type === "busy") {
+        return { isDestructive: true, isWarning: false };
     }
-    if (type === "success" || type === "confirm" || type === "info") {
-        return {
-            isRedVariant: false,
-            isQuestion: (buttons && buttons.length >= 2) || title.trim().endsWith("?"),
-        };
+    if (type === "warning" || type === "limit" || type === "cooldown") {
+        return { isDestructive: false, isWarning: true };
     }
 
     const hasDestructiveBtn = (buttons || []).some((b) => b.style === "destructive");
     if (hasDestructiveBtn) {
-        return { isRedVariant: true, isQuestion: true };
+        return { isDestructive: true, isWarning: false };
     }
 
     const lowerTitle = (title || "").toLowerCase();
-    const redKeywords = [
+    const destructiveKeywords = [
         "delete",
         "remove",
-        "error",
+        "discard",
         "failed",
         "fail",
         "missing",
-        "mismatch",
-        "weak",
-        "too short",
-        "invalid",
-        "busy",
-        "permission",
-        "no data",
-        "no students",
-        "no quiz",
-        "minimum",
-        "long answers",
-        "conflict",
         "log out",
         "logout",
-        "warning",
-        "expired",
-        "limit",
+        "conflict",
+        "trim",
     ];
 
-    if (redKeywords.some((kw) => lowerTitle.includes(kw))) {
-        return { isRedVariant: true, isQuestion: false };
+    if (destructiveKeywords.some((kw) => lowerTitle.includes(kw))) {
+        return { isDestructive: true, isWarning: false };
     }
 
-    const isQuestion =
-        (buttons !== undefined && buttons.length >= 2) ||
-        lowerTitle.endsWith("?") ||
-        lowerTitle.includes("confirm") ||
-        lowerTitle.includes("publish");
+    const warningKeywords = [
+        "warning",
+        "caution",
+        "limit",
+        "at-risk",
+        "busy",
+        "permission",
+        "long answers",
+    ];
 
-    return { isRedVariant: false, isQuestion };
+    if (warningKeywords.some((kw) => lowerTitle.includes(kw))) {
+        return { isDestructive: false, isWarning: true };
+    }
+
+    return { isDestructive: false, isWarning: false };
 }
 
 export default function CustomAlertModal({
@@ -126,6 +106,7 @@ export default function CustomAlertModal({
     message,
     type,
     buttonText = "OK",
+    accentColor,
     onConfirm,
     buttons,
     cancelable = true,
@@ -133,13 +114,14 @@ export default function CustomAlertModal({
 }: CustomAlertModalProps) {
     const { darkMode } = useTheme();
 
-    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-    const textMain = darkMode ? "#F9FAFB" : "#111827";
-    const textSub = darkMode ? "#9CA3AF" : "#4B5563";
-    const outlineBorder = darkMode ? "#4B5563" : "#D1D5DB";
-    const outlineBg = darkMode ? "#1F2937" : "#FFFFFF";
-    const frameBg = darkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.45)";
-    const frameBorder = darkMode ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.8)";
+    const cardBg = darkMode ? "#1E293B" : "#FFFFFF";
+    const textMain = darkMode ? "#F8FAFC" : "#0F172A";
+    const textSub = darkMode ? "#94A3B8" : "#475569";
+    const border = darkMode ? "#334155" : "#E2E8F0";
+    const cancelBorder = darkMode ? "#4B5563" : "#CBD5E1";
+    const cancelBg = darkMode ? "#1E293B" : "#FFFFFF";
+    const cancelText = darkMode ? "#F1F5F9" : "#334155";
+    const calloutBg = darkMode ? "#0F172A" : "#F8FAFC";
 
     const effectiveButtons: AlertButton[] =
         buttons && buttons.length > 0
@@ -152,13 +134,9 @@ export default function CustomAlertModal({
                   },
               ];
 
-    const { isRedVariant, isQuestion } = resolveAlertVisualVariant(
-        title,
-        type,
-        effectiveButtons
-    );
+    const { isDestructive, isWarning } = resolveVariant(title, type, effectiveButtons);
 
-    const handleCloseCross = () => {
+    const handleClose = () => {
         const cancelBtn = effectiveButtons.find((b) => b.style === "cancel");
         onClose();
         setTimeout(() => {
@@ -172,7 +150,7 @@ export default function CustomAlertModal({
 
     const handleBackdropPress = () => {
         if (!cancelable) return;
-        handleCloseCross();
+        handleClose();
     };
 
     const handleButtonPress = (btn: AlertButton) => {
@@ -184,166 +162,159 @@ export default function CustomAlertModal({
         }
     };
 
-    // For 2-button layouts, match the reference design ordering:
-    // - Red / Destructive variant: [Destructive/Primary (Red), Cancel (Outlined)]
-    // - Blue / Confirm variant:    [Cancel (Outlined), Confirm/Primary (Blue)]
+    // Standard 2-button ordering: [Cancel (left), Primary/Action (right)]
     let orderedButtons = [...effectiveButtons];
     if (orderedButtons.length === 2) {
         const cancelIdx = orderedButtons.findIndex((b) => b.style === "cancel");
-        const otherIdx = cancelIdx === 0 ? 1 : 0;
         if (cancelIdx !== -1) {
             const cancelBtn = orderedButtons[cancelIdx];
-            const actionBtn = orderedButtons[otherIdx];
-            const isActionDestructive =
-                actionBtn.style === "destructive" || isRedVariant;
-            if (isActionDestructive) {
-                // Destructive action on the left, Cancel on the right
-                orderedButtons = [actionBtn, cancelBtn];
-            } else {
-                // Cancel on the left, Confirm on the right
-                orderedButtons = [cancelBtn, actionBtn];
-            }
+            const actionBtn = orderedButtons[cancelIdx === 0 ? 1 : 0];
+            orderedButtons = [cancelBtn, actionBtn];
         }
     }
 
     const isTwoColumn = orderedButtons.length === 2;
+
+    // Parse message into body text and optional helper note
+    let bodyText = (message || "").trim();
+    let noteText: string | null = null;
+
+    const trailingParen = bodyText.match(/\n*\(([^)]+)\)\s*$/);
+    if (trailingParen) {
+        noteText = trailingParen[1].trim();
+        bodyText = bodyText.replace(trailingParen[0], "").trim();
+    } else {
+        const noteLine = bodyText.match(/\n+(?:Note:\s*|\*Note:\*\s*)(.+)$/i);
+        if (noteLine) {
+            noteText = noteLine[1].trim();
+            bodyText = bodyText.replace(noteLine[0], "").trim();
+        }
+    }
+
+    if (noteText) {
+        if (
+            noteText.toLowerCase().includes("single-question regeneration does not consume") ||
+            noteText.toLowerCase().includes("does not consume your daily quiz quota")
+        ) {
+            noteText = "Does not use your daily AI generation quota.";
+        }
+    }
+
+    function getActionBtnBg(btn: AlertButton): string {
+        if (btn.style === "destructive" || isDestructive) {
+            return RED_DESTRUCTIVE;
+        }
+        if (isWarning) {
+            return AMBER_WARNING;
+        }
+        if (accentColor && accentColor !== "#2563EB") {
+            return accentColor;
+        }
+        return SLATE_PRIMARY;
+    }
 
     return (
         <Modal
             visible={visible}
             transparent
             animationType="fade"
-            onRequestClose={handleCloseCross}
+            onRequestClose={handleClose}
             statusBarTranslucent
         >
             <Pressable style={styles.overlay} onPress={handleBackdropPress}>
                 <Pressable
                     style={[
-                        styles.outerGlassFrame,
+                        styles.card,
                         {
-                            backgroundColor: frameBg,
-                            borderColor: frameBorder,
+                            backgroundColor: cardBg,
+                            borderColor: border,
                         },
                     ]}
                     onPress={(e) => e.stopPropagation()}
                 >
-                    <View style={[styles.card, { backgroundColor: cardBg }]}>
-                        {/* Top-right Close (×) button */}
-                        <TouchableOpacity
-                            style={styles.closeBtn}
-                            onPress={handleCloseCross}
-                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                            activeOpacity={0.7}
+                    {/* Title — Left-aligned, 17px semibold */}
+                    <Text style={[styles.title, { color: textMain }]}>{title}</Text>
+
+                    {/* Body — Left-aligned, 14px regular */}
+                    {Boolean(bodyText && bodyText.length > 0) && (
+                        <ScrollView
+                            style={styles.messageScroll}
+                            contentContainerStyle={styles.messageScrollContent}
+                            bounces={false}
+                            showsVerticalScrollIndicator={false}
                         >
-                            <Ionicons name="close" size={20} color={textMain} />
-                        </TouchableOpacity>
+                            <Text style={[styles.body, { color: textSub }]}>{bodyText}</Text>
+                        </ScrollView>
+                    )}
 
-                        {/* Top-Center Layered Icon Badge */}
-                        {isRedVariant ? (
-                            <View
-                                style={[
-                                    styles.badgeHalo,
-                                    {
-                                        backgroundColor: darkMode
-                                            ? RED_HALO_DARK
-                                            : RED_HALO_LIGHT,
-                                    },
-                                ]}
-                            >
-                                <View style={styles.redDiamondBadge}>
-                                    <Text style={styles.redDiamondExclamation}>!</Text>
-                                </View>
-                            </View>
-                        ) : (
-                            <View
-                                style={[
-                                    styles.badgeHalo,
-                                    {
-                                        backgroundColor: darkMode
-                                            ? BLUE_HALO_DARK
-                                            : BLUE_HALO_LIGHT,
-                                    },
-                                ]}
-                            >
-                                <View style={styles.blueCircleBadge}>
-                                    <Text style={styles.blueCircleSymbol}>
-                                        {isQuestion ? "?" : "?"}
-                                    </Text>
-                                </View>
-                            </View>
-                        )}
-
-                        {/* Title */}
-                        <Text style={[styles.title, { color: textMain }]}>{title}</Text>
-
-                        {/* Message */}
-                        {Boolean(message && message.trim().length > 0) && (
-                            <ScrollView
-                                style={styles.messageScroll}
-                                contentContainerStyle={styles.messageScrollContent}
-                                bounces={false}
-                                showsVerticalScrollIndicator={false}
-                            >
-                                <Text style={[styles.message, { color: textSub }]}>
-                                    {message}
-                                </Text>
-                            </ScrollView>
-                        )}
-
-                        {/* Buttons */}
+                    {/* Optional Note Callout — Compact subtle info strip */}
+                    {Boolean(noteText && noteText.length > 0) && (
                         <View
                             style={[
-                                styles.buttonsContainer,
-                                isTwoColumn ? styles.buttonsRow : styles.buttonsColumn,
+                                styles.infoCallout,
+                                {
+                                    backgroundColor: calloutBg,
+                                    borderColor: border,
+                                },
                             ]}
                         >
-                            {orderedButtons.map((btn, idx) => {
-                                const isCancel =
-                                    btn.style === "cancel" && orderedButtons.length > 1;
-                                const isDestructiveBtn =
-                                    btn.style === "destructive" ||
-                                    (!isCancel && isRedVariant);
-
-                                const fillBg = isDestructiveBtn
-                                    ? RED_PRIMARY
-                                    : BLUE_PRIMARY;
-
-                                return (
-                                    <TouchableOpacity
-                                        key={`${btn.text || "btn"}_${idx}`}
-                                        style={[
-                                            styles.btnBase,
-                                            isTwoColumn && styles.btnFlex,
-                                            isCancel
-                                                ? {
-                                                      backgroundColor: outlineBg,
-                                                      borderWidth: 1,
-                                                      borderColor: outlineBorder,
-                                                  }
-                                                : {
-                                                      backgroundColor: fillBg,
-                                                  },
-                                        ]}
-                                        onPress={() => handleButtonPress(btn)}
-                                        activeOpacity={0.85}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.btnText,
-                                                {
-                                                    color: isCancel
-                                                        ? textMain
-                                                        : "#FFFFFF",
-                                                },
-                                            ]}
-                                            numberOfLines={1}
-                                        >
-                                            {btn.text || "OK"}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
+                            <Ionicons
+                                name="information-circle-outline"
+                                size={14}
+                                color={textSub}
+                                style={{ marginRight: 6, marginTop: 1 }}
+                            />
+                            <Text style={[styles.infoCalloutText, { color: textSub }]}>
+                                {noteText}
+                            </Text>
                         </View>
+                    )}
+
+                    {/* Footer Buttons — Cancel on Left, Action on Right */}
+                    <View
+                        style={[
+                            styles.buttonsContainer,
+                            isTwoColumn ? styles.buttonsRow : styles.buttonsColumn,
+                        ]}
+                    >
+                        {orderedButtons.map((btn, idx) => {
+                            const isCancel = btn.style === "cancel" && orderedButtons.length > 1;
+                            const btnBg = isCancel ? cancelBg : getActionBtnBg(btn);
+                            const btnTextColor = isCancel ? cancelText : "#FFFFFF";
+
+                            return (
+                                <TouchableOpacity
+                                    key={`${btn.text || "btn"}_${idx}`}
+                                    style={[
+                                        styles.btnBase,
+                                        isTwoColumn && styles.btnFlex,
+                                        isCancel
+                                            ? {
+                                                  backgroundColor: btnBg,
+                                                  borderWidth: 1,
+                                                  borderColor: cancelBorder,
+                                              }
+                                            : {
+                                                  backgroundColor: btnBg,
+                                              },
+                                    ]}
+                                    onPress={() => handleButtonPress(btn)}
+                                    activeOpacity={0.85}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.btnText,
+                                            {
+                                                color: btnTextColor,
+                                            },
+                                        ]}
+                                        numberOfLines={1}
+                                    >
+                                        {btn.text || "OK"}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </View>
                 </Pressable>
             </Pressable>
@@ -473,115 +444,68 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(15, 23, 42, 0.45)",
         justifyContent: "center",
         alignItems: "center",
-        paddingHorizontal: 22,
-    },
-    outerGlassFrame: {
-        width: "100%",
-        maxWidth: 380,
-        borderRadius: 28,
-        padding: 7,
-        borderWidth: 1.5,
-        shadowColor: "#0F172A",
-        shadowOffset: { width: 0, height: 14 },
-        shadowOpacity: 0.16,
-        shadowRadius: 28,
-        elevation: 16,
+        paddingHorizontal: 20,
     },
     card: {
-        width: "100%",
-        borderRadius: 22,
-        paddingTop: 28,
-        paddingBottom: 22,
-        paddingHorizontal: 22,
-        alignItems: "center",
-    },
-    closeBtn: {
-        position: "absolute",
-        top: 14,
-        right: 14,
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 10,
-    },
-    badgeHalo: {
-        width: 54,
-        height: 54,
-        borderRadius: 27,
-        alignItems: "center",
-        justifyContent: "center",
-        marginBottom: 14,
-    },
-    redDiamondBadge: {
-        width: 24,
-        height: 24,
-        borderRadius: 6,
-        backgroundColor: RED_PRIMARY,
-        transform: [{ rotate: "45deg" }],
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    redDiamondExclamation: {
-        color: "#FFFFFF",
-        fontSize: 14,
-        fontWeight: "900",
-        transform: [{ rotate: "-45deg" }],
-        textAlign: "center",
-        includeFontPadding: false,
-    },
-    blueCircleBadge: {
-        width: 26,
-        height: 26,
-        borderRadius: 13,
-        backgroundColor: BLUE_PRIMARY,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    blueCircleSymbol: {
-        color: "#FFFFFF",
-        fontSize: 15,
-        fontWeight: "800",
-        textAlign: "center",
-        includeFontPadding: false,
+        width: "88%",
+        maxWidth: 360,
+        borderRadius: 16,
+        padding: 20,
+        borderWidth: 1,
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.12,
+        shadowRadius: 25,
+        elevation: 12,
     },
     title: {
-        fontSize: 20,
-        fontWeight: "800",
-        textAlign: "center",
-        marginBottom: 8,
-        letterSpacing: -0.3,
-        paddingHorizontal: 12,
+        fontSize: 17,
+        fontWeight: "600",
+        textAlign: "left",
+        marginBottom: 6,
+        letterSpacing: -0.2,
     },
     messageScroll: {
         maxHeight: 220,
         width: "100%",
-        marginBottom: 22,
     },
     messageScrollContent: {
-        alignItems: "center",
+        alignItems: "stretch",
     },
-    message: {
-        fontSize: 13.5,
+    body: {
+        fontSize: 14,
         lineHeight: 20,
-        textAlign: "center",
-        paddingHorizontal: 6,
+        textAlign: "left",
+    },
+    infoCallout: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        borderRadius: 8,
+        borderWidth: 1,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        marginTop: 12,
+    },
+    infoCalloutText: {
+        fontSize: 12,
+        lineHeight: 17,
+        flex: 1,
+        textAlign: "left",
     },
     buttonsContainer: {
         width: "100%",
-        marginTop: 2,
+        marginTop: 18,
     },
     buttonsRow: {
         flexDirection: "row",
-        gap: 12,
+        gap: 10,
     },
     buttonsColumn: {
         flexDirection: "column",
-        gap: 10,
+        gap: 8,
     },
     btnBase: {
-        height: 44,
+        height: 42,
         borderRadius: 10,
         alignItems: "center",
         justifyContent: "center",
@@ -592,7 +516,6 @@ const styles = StyleSheet.create({
     },
     btnText: {
         fontSize: 14,
-        fontWeight: "700",
-        letterSpacing: 0.1,
+        fontWeight: "600",
     },
 });
