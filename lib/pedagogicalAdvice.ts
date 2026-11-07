@@ -15,7 +15,17 @@ function formatQuestionType(type: string): string {
 }
 
 function getFirstName(fullName: string): string {
-  return fullName.split(" ")[0] || fullName;
+  if (!fullName) return "";
+  const cleaned = fullName.trim();
+  if (cleaned.includes(",")) {
+    const parts = cleaned.split(",").map((p) => p.trim());
+    if (parts[1]) {
+      const first = parts[1].split(" ")[0];
+      if (first) return first.replace(/[,.]/g, "");
+    }
+    return parts[0].replace(/[,.]/g, "");
+  }
+  return cleaned.split(" ")[0].replace(/[,.]/g, "") || cleaned;
 }
 
 // ── Student-Level Advice ──────────────────────────────────────────────────────
@@ -195,7 +205,7 @@ export function generateClassroomAdvice(params: {
       .join(", ");
     const moreCount = atRiskStudents.length - 3;
 
-    return `⚠️ Critical: ${atRiskStudents.length} out of ${totalStudents} students (${Math.round((atRiskStudents.length / totalStudents) * 100)}%) are at-risk in ${subjectLabel}${moreCount > 0 ? ` — including ${names} and ${moreCount} more` : ` — including ${names}`}. The class average is only ${classAverage}%. I strongly recommend creating an Easy-difficulty remedial quiz on foundational ${subjectLabel} concepts to rebuild the class's understanding. Consider reviewing how the material was taught.`;
+    return `Critical: ${atRiskStudents.length} out of ${totalStudents} students (${Math.round((atRiskStudents.length / totalStudents) * 100)}%) are at-risk in ${subjectLabel}${moreCount > 0 ? ` — including ${names} and ${moreCount} more` : ` — including ${names}`}. The class average is only ${classAverage}%. I strongly recommend creating an Easy-difficulty remedial quiz on foundational ${subjectLabel} concepts to rebuild the class's understanding. Consider reviewing how the material was taught.`;
   }
 
   // ── SOME AT-RISK STUDENTS ───────────────────────────────────────────────

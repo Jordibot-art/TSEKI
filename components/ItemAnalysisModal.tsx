@@ -347,7 +347,7 @@ export function ItemAnalysisModal({
                         <View style={styles.keyRow}>
                           <Text style={[styles.keyLabel, { color: textSub }]}>Official Answer Key:</Text>
                           <View style={[styles.keyBadge, { backgroundColor: "#10B981" }]}>
-                            <Text style={styles.keyBadgeText}>{q.correctAnswer}</Text>
+                            <Text style={styles.keyBadgeText}>{q.correctAnswer || "—"}</Text>
                           </View>
                         </View>
 
@@ -360,42 +360,39 @@ export function ItemAnalysisModal({
                         ) : null}
 
                         {/* Students Who Missed */}
-                        {q.studentsMissedDetails && q.studentsMissedDetails.length > 0 && (
-                          <View style={styles.studentsSection}>
-                            <Text style={[styles.studentsSectionTitle, { color: "#EF4444" }]}>
-                              Students Needing Support ({q.studentsMissedDetails.length}):
-                            </Text>
-                            <View style={styles.studentChipsWrap}>
-                              {q.studentsMissedDetails.map((s, idx) => (
-                                <TouchableOpacity
-                                  key={idx}
-                                  style={[styles.studentChip, { backgroundColor: darkMode ? "#7F1D1D30" : "#FEE2E2", borderColor: "#EF444440" }]}
-                                  onPress={() => onOpenStudentProfile && onOpenStudentProfile(s.studentName)}
-                                  activeOpacity={0.7}
-                                >
-                                  <Text style={[styles.studentChipName, { color: darkMode ? "#FCA5A5" : "#B91C1C" }]}>
-                                    {s.studentName}
-                                  </Text>
-                                  <Text style={[styles.studentChipAns, { color: darkMode ? "#F87171" : "#991B1B" }]}>
-                                    chose [{s.studentAnswer}]
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
+                        {(() => {
+                          const missedWithNames = (q.studentsMissedDetails || []).filter(
+                            (s) => Boolean(s.studentName && s.studentName.trim().length > 0)
+                          );
+                          if (missedWithNames.length === 0) return null;
+                          return (
+                            <View style={styles.studentsSection}>
+                              <Text style={[styles.studentsSectionTitle, { color: "#EF4444" }]}>
+                                Students Needing Support ({missedWithNames.length}):
+                              </Text>
+                              <View style={styles.studentChipsWrap}>
+                                {missedWithNames.map((s, idx) => (
+                                  <TouchableOpacity
+                                    key={idx}
+                                    style={[
+                                      styles.studentChip,
+                                      { backgroundColor: darkMode ? "#7F1D1D30" : "#FEE2E2", borderColor: "#EF444440" },
+                                    ]}
+                                    onPress={() => onOpenStudentProfile && onOpenStudentProfile(s.studentName)}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Text style={[styles.studentChipName, { color: darkMode ? "#FCA5A5" : "#B91C1C" }]}>
+                                      {s.studentName}
+                                    </Text>
+                                    <Text style={[styles.studentChipAns, { color: darkMode ? "#F87171" : "#991B1B" }]}>
+                                      chose [{s.studentAnswer}]
+                                    </Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
                             </View>
-                          </View>
-                        )}
-
-                        {/* Quick Remedial Action Button */}
-                        {onCreateRemedialQuiz && (
-                          <TouchableOpacity
-                            style={[styles.remedialActionBtn, { backgroundColor: accentColor }]}
-                            onPress={() => onCreateRemedialQuiz(q.questionText, `Question ${q.questionNumber} Review`)}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons name="sparkles" size={14} color="#FFF" />
-                            <Text style={styles.remedialActionText}>Generate Remedial Practice on Q{q.questionNumber}</Text>
-                          </TouchableOpacity>
-                        )}
+                          );
+                        })()}
                       </View>
                     )}
                   </View>
@@ -404,6 +401,23 @@ export function ItemAnalysisModal({
             )}
           </View>
         </ScrollView>
+
+        {/* Footer with Single Remedial CTA */}
+        {onCreateRemedialQuiz && (
+          <View style={[styles.modalFooter, { backgroundColor: cardBg, borderTopColor: border }]}>
+            <TouchableOpacity
+              style={[styles.modalFooterBtn, { backgroundColor: accentColor }]}
+              onPress={() => {
+                onClose();
+                onCreateRemedialQuiz();
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+              <Text style={styles.modalFooterBtnText}>Generate Remedial Quiz</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -746,6 +760,24 @@ const styles = StyleSheet.create({
   remedialActionText: {
     color: "#FFF",
     fontSize: 12,
+    fontWeight: "700",
+  },
+  modalFooter: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  modalFooterBtn: {
+    height: 48,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  modalFooterBtnText: {
+    color: "#FFFFFF",
+    fontSize: 15,
     fontWeight: "700",
   },
 });

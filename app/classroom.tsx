@@ -1545,9 +1545,13 @@ export default function ClassroomScreen() {
                 onPress={() => handleExportQuizScores(false)}
                 disabled={isExporting}
               >
-                <Ionicons name="grid-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                {isExporting ? (
+                  <ActivityIndicator size="small" color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                ) : (
+                  <Ionicons name="grid-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                )}
                 <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
-                  Export Quiz Scores (.xlsx)
+                  {isExporting ? "Exporting..." : "Export Quiz Scores (.xlsx)"}
                 </Text>
               </TouchableOpacity>
             </View>

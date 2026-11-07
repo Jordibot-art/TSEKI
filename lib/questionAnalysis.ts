@@ -315,11 +315,16 @@ export async function analyzeQuizForClass(
   if (publishedQuiz && Array.isArray(publishedQuiz.questions)) {
     for (const q of publishedQuiz.questions) {
       const qNum = q.questionNumber || q.id;
+      const keyItem = Array.isArray(publishedQuiz.answerKey)
+        ? publishedQuiz.answerKey.find((k: any) => (k.questionNumber || k.qNum) === qNum)
+        : null;
+      const ans = keyItem?.correctAnswer || q.correctAnswer || "";
+
       questionMap.set(qNum, {
         questionNumber: qNum,
         questionText: q.questionText || q.question,
         questionType: q.type || q.questionType || "multiple_choice",
-        correctAnswer: String(q.correctAnswer || "").trim().toUpperCase(),
+        correctAnswer: String(ans || "").trim().toUpperCase(),
         options: Array.isArray(q.options) ? q.options : ["A", "B", "C", "D"],
         totalAttempts: 0,
         correctCount: 0,
@@ -333,17 +338,26 @@ export async function analyzeQuizForClass(
   }
 
   for (const studentResult of quizResults) {
+    const rawName = (studentResult.studentName || "").trim();
+    const matchedRoster = rosterStudents?.find((s) => s.id === studentResult.studentId);
+    const resolvedStudentName = rawName || matchedRoster?.full_name?.trim() || "";
+
     for (const qr of studentResult.results) {
       const qNum = qr.questionNumber;
       let existing = questionMap.get(qNum);
       const studentAns = String(qr.studentAnswer || "BLANK").trim().toUpperCase();
 
       if (!existing) {
+        const keyItem = Array.isArray(publishedQuiz?.answerKey)
+          ? publishedQuiz.answerKey.find((k: any) => (k.questionNumber || k.qNum) === qNum)
+          : null;
+        const ans = keyItem?.correctAnswer || qr.correctAnswer || "";
+
         existing = {
           questionNumber: qNum,
           questionText: qr.questionText,
           questionType: qr.questionType,
-          correctAnswer: String(qr.correctAnswer || "").trim().toUpperCase(),
+          correctAnswer: String(ans || "").trim().toUpperCase(),
           options: ["A", "B", "C", "D"],
           totalAttempts: 0,
           correctCount: 0,
@@ -354,6 +368,8 @@ export async function analyzeQuizForClass(
           studentsCorrect: [],
         };
         questionMap.set(qNum, existing);
+      } else if (!existing.correctAnswer && qr.correctAnswer) {
+        existing.correctAnswer = String(qr.correctAnswer).trim().toUpperCase();
       }
 
       existing.totalAttempts++;
@@ -361,15 +377,19 @@ export async function analyzeQuizForClass(
 
       if (qr.isCorrect) {
         existing.correctCount++;
-        existing.studentsCorrect.push(studentResult.studentName);
+        if (resolvedStudentName) {
+          existing.studentsCorrect.push(resolvedStudentName);
+        }
       } else {
         existing.incorrectCount++;
-        existing.studentsMissed.push(studentResult.studentName);
-        existing.studentsMissedDetails.push({
-          studentId: studentResult.studentId,
-          studentName: studentResult.studentName,
-          studentAnswer: qr.studentAnswer || "Blank",
-        });
+        if (resolvedStudentName) {
+          existing.studentsMissed.push(resolvedStudentName);
+          existing.studentsMissedDetails.push({
+            studentId: studentResult.studentId,
+            studentName: resolvedStudentName,
+            studentAnswer: qr.studentAnswer || "Blank",
+          });
+        }
       }
     }
   }
@@ -624,10 +644,14 @@ export function generateDemoQuizAnalysis(
   const itemsToUse = publishedQuiz && Array.isArray(publishedQuiz.questions) && publishedQuiz.questions.length > 0
     ? publishedQuiz.questions.map((q: any, idx: number) => {
         const fallback = defaultItems[idx % defaultItems.length];
+        const keyItem = Array.isArray(publishedQuiz.answerKey)
+          ? publishedQuiz.answerKey.find((k: any) => (k.questionNumber || k.qNum) === (q.questionNumber || idx + 1))
+          : null;
+        const resolvedKey = keyItem?.correctAnswer || q.correctAnswer || fallback.key;
         return {
           qNum: q.questionNumber || (idx + 1),
           text: q.questionText || q.question || fallback.text,
-          key: String(q.correctAnswer || fallback.key).trim().toUpperCase(),
+          key: String(resolvedKey || fallback.key).trim().toUpperCase(),
           type: q.type || fallback.type,
           options: Array.isArray(q.options) && q.options.length > 0 ? q.options : fallback.options,
           accuracy: fallback.accuracy,
