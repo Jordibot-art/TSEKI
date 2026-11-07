@@ -934,7 +934,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             await saveDraftQuiz(classroomId, draftWithMeta, classTitle);
             Alert.alert(
                 "Assessment Saved as Draft",
-                `"${generatedAssessment.quizTitle}" has been saved to device drafts.\n\nDrafts are cached on this device and automatically delete after 7 days (like Instagram). You can inspect or publish it to your cloud archive anytime in Settings under "Drafts"!`,
+                `"${generatedAssessment.quizTitle}" has been saved to device drafts.\n\nDrafts are stored locally on this device for 7 days. You can inspect or publish it to your cloud archive anytime in Settings under "Drafts".`,
                 [{ text: "OK" }]
             );
         } catch (err: any) {
@@ -967,7 +967,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             {!showResults ? (
                 <>
                     {/* ── Attached File ── */}
-                    <Text style={[styles.fieldLabel, { color: textSub }]}>ATTACH REFERENCE FILE <Text style={styles.optional}>(DOC, PPT, PDF - OPTIONAL)</Text></Text>
+                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#374151" }]}>Attach reference file <Text style={styles.optional}>(DOC, PPT, PDF - optional)</Text></Text>
                     <TouchableOpacity
                         style={[
                             styles.attachBtn,
@@ -1011,15 +1011,15 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     Tap to attach file (DOC, PPT, PDF)
                                 </Text>
                                 <View style={[styles.formatPill, { backgroundColor: darkMode ? "#374151" : "#E5E7EB" }]}>
-                                    <Text style={[styles.formatPillText, { color: textSub }]}>Docs • PPT • PDF</Text>
+                                    <Text style={[styles.formatPillText, { color: textSub }]}>Docs · PPT · PDF</Text>
                                 </View>
                             </>
                         )}
                     </TouchableOpacity>
 
                     {/* ── Paste Lesson Notes or Syllabus Text (Optional) ── */}
-                    <Text style={[styles.fieldLabel, { color: textSub }]}>
-                        PASTE LESSON NOTES OR SYLLABUS TEXT <Text style={styles.optional}>(OPTIONAL)</Text>
+                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#374151" }]}>
+                        Paste lesson notes or syllabus text <Text style={styles.optional}>(optional)</Text>
                     </Text>
                     <TextInput
                         style={[styles.textAreaInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
@@ -1035,7 +1035,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     {/* ── Subject (Auto from Classroom) + Grade Level ── */}
                     <View style={styles.twoCol}>
                         <View style={styles.colHalf}>
-                            <Text style={[styles.fieldLabel, { color: textSub }]}>SUBJECT</Text>
+                            <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#374151" }]}>Subject</Text>
                             <View style={[styles.autoSubjectBtn, { backgroundColor: inputBg, borderColor: border }]}>
                                 <Text style={[styles.autoSubjectText, { color: textMain }]} numberOfLines={1}>
                                     {subject}
@@ -1045,7 +1045,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </View>
                         <View style={styles.colHalf}>
                             <Dropdown
-                                label="GRADE LEVEL"
+                                label="Grade level"
                                 value={gradeLevel}
                                 options={GRADE_LEVELS}
                                 onSelect={setGradeLevel}
@@ -1058,7 +1058,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     <View style={styles.twoCol}>
                         <View style={styles.colHalf}>
                             <Dropdown
-                                label="QUESTION TYPE"
+                                label="Question type"
                                 value={questionType}
                                 options={QUESTION_TYPES}
                                 onSelect={setQuestionType}
@@ -1067,7 +1067,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </View>
                         <View style={styles.colHalf}>
                             <Dropdown
-                                label="QUESTIONS COUNT"
+                                label="Questions count"
                                 value={questionCount}
                                 options={QUESTION_COUNTS}
                                 onSelect={setQuestionCount}
@@ -1217,7 +1217,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
                     {/* ── Bloom's Taxonomy Difficulty ── */}
                     <Dropdown
-                        label="BLOOM'S TAXONOMY DIFFICULTY"
+                        label="Bloom's taxonomy difficulty"
                         value={difficulty}
                         options={BLOOM_DIFFICULTIES}
                         onSelect={setDifficulty}
@@ -2397,8 +2397,8 @@ const styles = StyleSheet.create({
 
     /* Fields */
     fieldLabel: {
-        fontSize: 11, fontWeight: "700", color: "#6B7280",
-        letterSpacing: 0.6, marginBottom: 8, marginTop: 18,
+        fontSize: 13, fontWeight: "500", color: "#374151",
+        letterSpacing: 0, marginBottom: 6, marginTop: 16,
     },
     required: { color: "#EF4444" },
     optional: { color: "#9CA3AF", fontWeight: "400" },

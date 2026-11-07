@@ -77,7 +77,7 @@ async function saveClassroomColor(classroomId: string, color: string): Promise<v
 }
 
 // ── Orange & White Theme Palette ────────────────────────────────
-const ORANGE = "#FF6B00";
+const ORANGE = "#EA580C";
 const ORANGE_LIGHT = "#FFF7ED";
 
 /** Capitalizes the first letter of each word/token (after spaces, hyphens, slashes, or parentheses) */
@@ -89,13 +89,13 @@ function capitalizeWords(text: string): string {
 /** Formats the greeting with the teacher's username/name */
 function getTeacherGreeting(name: string): string {
   if (!name || !name.trim()) {
-    return "Hi Teacher! I'm Tseki 👋";
+    return "Hi Teacher! 👋";
   }
   const clean = name.trim();
   if (/^teacher\b/i.test(clean)) {
-    return `Hi ${clean}! I'm Tseki 👋`;
+    return `Hi ${clean}! 👋`;
   }
-  return `Hi Teacher ${clean}! I'm Tseki 👋`;
+  return `Hi Teacher ${clean}! 👋`;
 }
 
 export default function HomePage() {
@@ -106,8 +106,8 @@ export default function HomePage() {
   const bg = darkMode ? "#111827" : "#FFFFFF";
   const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
   const textMain = darkMode ? "#F9FAFB" : "#181920";
-  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-  const border = darkMode ? "#374151" : "#F3F4F6";
+  const textSub = darkMode ? "#9CA3AF" : "#64748B";
+  const border = darkMode ? "#374151" : "#E5E7EB";
 
 
   const [cards, setCards] = useState<ClassCard[]>([]);
@@ -116,6 +116,7 @@ export default function HomePage() {
   const [modalVisible, setModalVisible] = useState(false);
   const [alerts, setAlerts] = useState<RosterAlert[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Delete Classroom Confirmation State
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
@@ -594,7 +595,7 @@ export default function HomePage() {
             ]}
             onPress={openModal}
           >
-            <Ionicons name="add" size={20} color="#FFFFFF" />
+            <Ionicons name="add" size={18} color="#FFFFFF" />
             <Text style={styles.addBtnText}>New Class</Text>
           </Pressable>
         </View>
@@ -609,113 +610,135 @@ export default function HomePage() {
         )}
 
         {/* ── Class Cards (dynamic) ── */}
-        {!loading && cards.map((card) => (
-          <Pressable
-            key={card.id}
-            style={[styles.classCard, { backgroundColor: cardBg, borderColor: border }]}
-            onPress={() =>
-              router.push({
-                pathname: "/classroom",
-                params: {
-                  id: card.id,
-                  title: card.title,
-                  subject: card.subject,
-                  section: card.section,
-                  room: card.room,
-                  schedule: card.schedule,
-                  color: card.color,
-                },
-              })
-            }
-          >
-            <View style={[styles.cardTop, { backgroundColor: card.color }]}>
-              <View style={styles.cardHeaderRow}>
-                {card.subject ? (
-                  <View style={styles.cardSubjectBadge}>
-                    <Text style={styles.cardSubjectText} numberOfLines={1}>
-                      {card.subject.toUpperCase()}
-                    </Text>
+        {!loading && cards.map((card) => {
+          const eyebrowParts: string[] = [];
+          if (card.subject && card.subject.toUpperCase() !== card.title.toUpperCase()) {
+            eyebrowParts.push(card.subject.toUpperCase());
+          }
+          if (card.section) {
+            eyebrowParts.push(
+              /^\d+$/.test(card.section.trim())
+                ? `SECTION ${card.section.trim()}`
+                : card.section.toUpperCase()
+            );
+          }
+          const eyebrowLabel = eyebrowParts.length > 0 ? eyebrowParts.join(" · ") : (card.subject ? card.subject.toUpperCase() : "COURSE");
+
+          const metaParts: string[] = [];
+          if (card.room) {
+            metaParts.push(
+              card.room.toUpperCase().startsWith("ROOM")
+                ? card.room.toUpperCase()
+                : `ROOM ${card.room.toUpperCase()}`
+            );
+          }
+          if (card.schedule) {
+            metaParts.push(card.schedule.toUpperCase());
+          }
+          const metaLine = metaParts.join(" · ");
+
+          return (
+            <Pressable
+              key={card.id}
+              style={[styles.classCard, { backgroundColor: cardBg, borderColor: border }]}
+              onPress={() =>
+                router.push({
+                  pathname: "/classroom",
+                  params: {
+                    id: card.id,
+                    title: card.title,
+                    subject: card.subject,
+                    section: card.section,
+                    room: card.room,
+                    schedule: card.schedule,
+                    color: card.color,
+                  },
+                })
+              }
+            >
+              <View style={[styles.cardTop, { backgroundColor: card.color }]}>
+                <View style={styles.cardHeaderRow}>
+                  <Text style={styles.cardEyebrowText} numberOfLines={1}>
+                    {eyebrowLabel}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.cardMoreBtn}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      Alert.alert(
+                        card.title,
+                        "Classroom options",
+                        [
+                          {
+                            text: "Open Classroom",
+                            onPress: () =>
+                              router.push({
+                                pathname: "/classroom",
+                                params: {
+                                  id: card.id,
+                                  title: card.title,
+                                  subject: card.subject,
+                                  section: card.section,
+                                  room: card.room,
+                                  schedule: card.schedule,
+                                  color: card.color,
+                                },
+                              }),
+                          },
+                          {
+                            text: "Delete Classroom",
+                            style: "destructive",
+                            onPress: () => promptDeleteClass(card),
+                          },
+                          { text: "Cancel", style: "cancel" },
+                        ]
+                      );
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Classroom options"
+                  >
+                    <Ionicons name="ellipsis-horizontal" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.cardTitle} numberOfLines={1}>{card.title.toUpperCase()}</Text>
+
+                {metaLine ? (
+                  <Text style={styles.cardMetaLineText} numberOfLines={1}>
+                    {metaLine}
+                  </Text>
+                ) : null}
+              </View>
+
+              <View style={[styles.cardBottom, { backgroundColor: cardBg }]}>
+                <View style={styles.statItem}>
+                  <Ionicons name="people-outline" size={16} color={textSub} />
+                  <Text style={[styles.statText, { color: textSub }]}>
+                    {card.students} {card.students === 1 ? "student" : "students"}
+                  </Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="book-outline" size={16} color={textSub} />
+                  <Text style={[styles.statText, { color: textSub }]}>
+                    {card.quizzes} {card.quizzes === 1 ? "Quiz" : "Quizzes"}
+                  </Text>
+                </View>
+                {card.flagged > 0 ? (
+                  <View style={styles.flaggedBadge}>
+                    <Ionicons name="warning-outline" size={13} color="#DC2626" />
+                    <Text style={styles.flaggedText}>{card.flagged} FLAGGED</Text>
                   </View>
                 ) : (
-                  <View style={styles.cardSubjectBadge}>
-                    <Text style={styles.cardSubjectText}>GENERAL</Text>
+                  <View style={styles.allClearBadge}>
+                    <Ionicons name="checkmark-circle-outline" size={13} color="#059669" />
+                    <Text style={styles.allClearBadgeText}>ALL CLEAR</Text>
                   </View>
                 )}
-                <TouchableOpacity
-                  style={styles.cardDeleteBtn}
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    promptDeleteClass(card);
-                  }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Delete classroom"
-                >
-                  <Ionicons name="trash-outline" size={15} color="#FFFFFF" />
-                </TouchableOpacity>
               </View>
-
-              <Text style={styles.cardTitle} numberOfLines={1}>{card.title.toUpperCase()}</Text>
-
-              {/* Section & Room */}
-              {(card.section || card.room) ? (
-                <View style={styles.cardMetaRow}>
-                  {card.section ? (
-                    <View style={styles.cardMetaItem}>
-                      <Ionicons name="people-outline" size={13} color="rgba(255,255,255,0.9)" />
-                      <Text style={styles.cardMetaText}>{card.section.toUpperCase()}</Text>
-                    </View>
-                  ) : null}
-                  {(card.section && card.room) ? (
-                    <Text style={styles.cardMetaDot}>•</Text>
-                  ) : null}
-                  {card.room ? (
-                    <View style={styles.cardMetaItem}>
-                      <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.9)" />
-                      <Text style={styles.cardMetaText}>
-                        {card.room.toUpperCase().startsWith("ROOM") ? card.room.toUpperCase() : `ROOM ${card.room.toUpperCase()}`}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {/* Schedule */}
-              {card.schedule ? (
-                <View style={styles.cardScheduleRow}>
-                  <Ionicons name="time-outline" size={13} color="rgba(255,255,255,0.95)" />
-                  <Text style={styles.cardScheduleText}>{card.schedule.toUpperCase()}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            <View style={[styles.cardBottom, { backgroundColor: cardBg }]}>
-              <View style={styles.statItem}>
-                <Ionicons name="people-outline" size={16} color={textSub} />
-                <Text style={[styles.statText, { color: textSub }]}>
-                  {card.students} {card.students === 1 ? "student" : "students"}
-                </Text>
-              </View>
-              <View style={styles.statItem}>
-                <Ionicons name="book-outline" size={16} color={textSub} />
-                <Text style={[styles.statText, { color: textSub }]}>
-                  {card.quizzes} {card.quizzes === 1 ? "Quiz" : "Quizzes"}
-                </Text>
-              </View>
-              {card.flagged > 0 ? (
-                <View style={styles.flaggedBadge}>
-                  <Ionicons name="warning-outline" size={14} color="#EF4444" />
-                  <Text style={styles.flaggedText}>{card.flagged} FLAGGED</Text>
-                </View>
-              ) : (
-                <View style={styles.allClearBadge}>
-                  <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
-                  <Text style={styles.allClearBadgeText}>0 FLAGGED</Text>
-                </View>
-              )}
-            </View>
-          </Pressable>
-        ))}
+            </Pressable>
+          );
+        })}
 
         {/* ── Empty State ── */}
         {!loading && cards.length === 0 && (
@@ -739,30 +762,42 @@ export default function HomePage() {
       </ScrollView>
 
       {/* ── Fixed Bottom Info Banner ── */}
-      <View style={styles.fixedBannerContainer}>
-        <View style={[styles.infoBanner, { backgroundColor: darkMode ? "#1F2937" : ORANGE_LIGHT, borderColor: darkMode ? "#374151" : "#FFEDD5" }]}>
-          <View style={styles.bannerMascotWrap}>
-            <AnimatedTsekiLogo size={58} />
-          </View>
-          <View style={styles.bannerTextContent}>
-            <Text style={[styles.bannerTitle, { color: textMain }]}>{getTeacherGreeting(userName)}</Text>
-            <Text style={[styles.bannerBody, { color: textSub }]} numberOfLines={3}>
-              I&apos;m here to automate grading and flag struggling students! Open a class, tap the camera tab to grade sheets instantly, or use the AI Generator to build standard-based quizzes.
-            </Text>
+      {!bannerDismissed && (
+        <View style={styles.fixedBannerContainer}>
+          <View style={[styles.infoBanner, { backgroundColor: darkMode ? "#1F2937" : "#FFFBF5", borderColor: darkMode ? "#374151" : "#E5E7EB" }]}>
+            <View style={styles.bannerMascotWrap}>
+              <AnimatedTsekiLogo size={52} />
+            </View>
+            <View style={styles.bannerTextContent}>
+              <View style={styles.bannerTitleRow}>
+                <Text style={[styles.bannerTitle, { color: textMain }]}>{getTeacherGreeting(userName)}</Text>
+                <TouchableOpacity
+                  onPress={() => setBannerDismissed(true)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={styles.bannerCloseBtn}
+                  accessibilityLabel="Dismiss helper banner"
+                >
+                  <Ionicons name="close" size={16} color={textSub} />
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.bannerBody, { color: textSub }]}>
+                Open a class to grade answer sheets with the camera or generate DepEd-aligned quizzes in seconds.
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
+      )}
 
       {/* ── Bottom Navigation ── */}
       <View style={[styles.bottomNav, { backgroundColor: cardBg, borderTopColor: border }]}>
-        <Pressable style={[styles.navItem, styles.navItemActive]}>
-          <Ionicons name="school" size={22} color={ORANGE} />
+        <Pressable style={styles.navItem}>
+          <Ionicons name="school-outline" size={20} color={ORANGE} />
           <Text style={styles.navTextActive}>My Classes</Text>
         </Pressable>
         {/* Settings nav */}
         <Pressable style={styles.navItem} onPress={() => router.push("/settings" as any)}>
-          <Ionicons name="settings-outline" size={22} color={textSub} />
-          <Text style={[styles.navText, { color: textSub }]}>Settings</Text>
+          <Ionicons name="settings-outline" size={20} color="#64748B" />
+          <Text style={[styles.navText, { color: "#64748B" }]}>Settings</Text>
         </Pressable>
       </View>
 
@@ -782,10 +817,6 @@ export default function HomePage() {
             ]}
           >
             <View style={styles.modalHeaderInfo}>
-              <View style={styles.modalHeaderTag}>
-                <Ionicons name="add-circle" size={16} color={ORANGE} />
-                <Text style={styles.modalHeaderTagText}>NEW CLASSROOM</Text>
-              </View>
               <Text style={[styles.modalTitle, { color: textMain }]}>Build Classroom</Text>
               <Text style={[styles.modalSubtitle, { color: textSub }]}>
                 Set up course information &amp; schedule
@@ -800,7 +831,7 @@ export default function HomePage() {
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityLabel="Close modal"
             >
-              <Ionicons name="close" size={22} color={textMain} />
+              <Ionicons name="close" size={20} color={textMain} />
             </TouchableOpacity>
           </View>
 
@@ -815,16 +846,16 @@ export default function HomePage() {
               contentContainerStyle={styles.modalScrollContent}
               bounces={false}
             >
-              {/* CLASS TITLE */}
-              <Text style={[styles.fieldLabel, { color: textMain }]}>
-                CLASS TITLE <Text style={styles.required}>*</Text>
+              {/* Class title */}
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151", marginTop: 6 }]}>
+                Class title <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: darkMode ? "#374151" : "#FAFAFA",
-                    borderColor: border,
+                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                    borderColor: darkMode ? "#4B5563" : "#D1D5DB",
                     color: textMain,
                   },
                 ]}
@@ -835,16 +866,16 @@ export default function HomePage() {
                 onChangeText={setClassTitle}
               />
 
-              {/* SUBJECT */}
-              <Text style={[styles.fieldLabel, { color: textMain }]}>
-                SUBJECT <Text style={styles.required}>*</Text>
+              {/* Subject */}
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>
+                Subject <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: darkMode ? "#374151" : "#FAFAFA",
-                    borderColor: border,
+                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                    borderColor: darkMode ? "#4B5563" : "#D1D5DB",
                     color: textMain,
                   },
                 ]}
@@ -855,16 +886,16 @@ export default function HomePage() {
                 onChangeText={setSubject}
               />
 
-              {/* SECTION + ROOM (side by side) */}
+              {/* Section + Room (side by side) */}
               <View style={styles.rowFields}>
                 <View style={styles.halfField}>
-                  <Text style={[styles.fieldLabel, { color: textMain }]}>SECTION</Text>
+                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>Section</Text>
                   <TextInput
                     style={[
                       styles.input,
                       {
-                        backgroundColor: darkMode ? "#374151" : "#FAFAFA",
-                        borderColor: border,
+                        backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                        borderColor: darkMode ? "#4B5563" : "#D1D5DB",
                         color: textMain,
                       },
                     ]}
@@ -876,13 +907,13 @@ export default function HomePage() {
                   />
                 </View>
                 <View style={styles.halfField}>
-                  <Text style={[styles.fieldLabel, { color: textMain }]}>ROOM</Text>
+                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>Room</Text>
                   <TextInput
                     style={[
                       styles.input,
                       {
-                        backgroundColor: darkMode ? "#374151" : "#FAFAFA",
-                        borderColor: border,
+                        backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                        borderColor: darkMode ? "#4B5563" : "#D1D5DB",
                         color: textMain,
                       },
                     ]}
@@ -895,14 +926,14 @@ export default function HomePage() {
                 </View>
               </View>
 
-              {/* SCHEDULE */}
-              <Text style={[styles.fieldLabel, { color: textMain }]}>SCHEDULE</Text>
+              {/* Schedule */}
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>Schedule</Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: darkMode ? "#374151" : "#FAFAFA",
-                    borderColor: border,
+                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+                    borderColor: darkMode ? "#4B5563" : "#D1D5DB",
                     color: textMain,
                   },
                 ]}
@@ -913,13 +944,10 @@ export default function HomePage() {
                 onChangeText={setSchedule}
               />
 
-              {/* THEME COLOR */}
-              <View style={styles.colorFieldHeader}>
-                <Ionicons name="color-palette-outline" size={17} color={selectedColor} />
-                <Text style={[styles.fieldLabel, { color: textMain, marginTop: 0, marginBottom: 0 }]}>
-                  THEME COLOR
-                </Text>
-              </View>
+              {/* Theme color */}
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151", marginBottom: 4 }]}>
+                Theme color
+              </Text>
               <Text style={[styles.colorSubtitle, { color: textSub }]}>
                 Select an accent color for this classroom card &amp; banner
               </Text>
@@ -933,21 +961,25 @@ export default function HomePage() {
                       activeOpacity={0.8}
                       onPress={() => setSelectedColor(c)}
                       style={[
-                        styles.colorDot,
-                        { backgroundColor: c },
-                        isSelected && [
-                          styles.colorDotActive,
-                          {
-                            borderColor: darkMode ? "#FFFFFF" : "#0F172A",
-                            shadowColor: c,
-                          },
-                        ],
+                        styles.colorRingOuter,
+                        isSelected && { borderColor: c },
                       ]}
                       accessibilityLabel={`Select theme color ${c}`}
                     >
-                      {isSelected && (
-                        <Ionicons name="checkmark-sharp" size={20} color="#FFFFFF" />
-                      )}
+                      <View
+                        style={[
+                          styles.colorDot,
+                          { backgroundColor: c },
+                          isSelected && {
+                            borderWidth: 2,
+                            borderColor: darkMode ? "#1F2937" : "#FFFFFF",
+                          },
+                        ]}
+                      >
+                        {isSelected && (
+                          <Ionicons name="checkmark-sharp" size={15} color="#FFFFFF" />
+                        )}
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
@@ -958,7 +990,7 @@ export default function HomePage() {
                 <TouchableOpacity
                   style={[
                     styles.cancelBtn,
-                    { borderColor: border, backgroundColor: cardBg },
+                    { borderColor: darkMode ? "#4B5563" : "#D1D5DB", backgroundColor: cardBg },
                   ]}
                   onPress={handleCancel}
                 >
@@ -977,7 +1009,7 @@ export default function HomePage() {
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
-                      <Ionicons name="add-circle" size={18} color="#FFFFFF" />
+                      <Ionicons name="add" size={18} color="#FFFFFF" />
                       <Text style={styles.buildBtnText}>Build Class</Text>
                     </>
                   )}
@@ -1000,16 +1032,16 @@ export default function HomePage() {
             <View style={StyleSheet.absoluteFillObject} />
           </TouchableWithoutFeedback>
 
-          <View style={[styles.alertsCard, { backgroundColor: cardBg, borderColor: darkMode ? "#4B5563" : "#0F172A" }]}>
+          <View style={[styles.alertsCard, { backgroundColor: cardBg, borderColor: darkMode ? "#374151" : "#E5E7EB" }]}>
             {/* Header */}
             <View style={styles.alertsHeader}>
               <View style={styles.alertsHeaderLeft}>
-                <Ionicons name="notifications" size={18} color="#F97316" />
+                <Ionicons name="notifications-outline" size={18} color={ORANGE} />
                 <Text style={[styles.alertsTitle, { color: textMain }]}>Active Roster Alerts</Text>
               </View>
               {alerts.length > 0 && (
                 <TouchableOpacity onPress={handleClearAllAlerts} activeOpacity={0.7}>
-                  <Text style={styles.alertsClearBtn}>Clear all</Text>
+                  <Text style={[styles.alertsClearBtn, { color: textSub }]}>Clear all</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1031,40 +1063,27 @@ export default function HomePage() {
                     style={[
                       styles.alertCard,
                       {
-                        backgroundColor: darkMode ? "#374151" : "#FFFFFF",
-                        borderColor: alert.isRead ? (darkMode ? "#4B5563" : "#E5E7EB") : "#F97316",
+                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                        borderColor: darkMode ? "#334155" : "#E5E7EB",
                       },
                     ]}
                     onPress={() => handleAlertPress(alert)}
                     activeOpacity={0.75}
                   >
                     <View style={styles.alertCardHeader}>
-                      <View style={styles.alertCardTag}>
-                        <Ionicons name="warning-outline" size={12} color="#DC2626" />
-                        <Text style={styles.alertCardTagText}>{alert.alertType}</Text>
+                      <View style={styles.atRiskBadge}>
+                        <Text style={styles.atRiskBadgeText}>At-Risk</Text>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        {alert.isRead ? (
-                          <View style={styles.readBadge}>
-                            <Ionicons name="checkmark-done" size={11} color="#10B981" />
-                            <Text style={styles.readBadgeText}>READ</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.newBadge}>
-                            <Text style={styles.newBadgeText}>NEW</Text>
-                          </View>
-                        )}
-                        <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
-                      </View>
+                      <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
                     </View>
                     <Text style={[styles.alertCardMessage, { color: textMain }]}>
                       {alert.message}
                     </Text>
-                    <View style={styles.alertCardActionRow}>
-                      <Text style={styles.alertCardActionText} numberOfLines={1}>
-                        {alert.classroomTitle} • Tap to view Tracker & profile
+                    <View style={[styles.alertCardActionRow, { borderTopColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                      <Text style={[styles.alertCardActionText, { color: darkMode ? "#E2E8F0" : "#1E293B" }]}>
+                        {alert.classroomTitle} · View student tracker
                       </Text>
-                      <Ionicons name="arrow-forward" size={12} color="#2563EB" />
+                      <Ionicons name="arrow-forward" size={13} color={darkMode ? "#E2E8F0" : "#1E293B"} />
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -1281,115 +1300,87 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 22,
-    fontWeight: "900",
+    fontWeight: "800",
     color: "#181920",
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
     marginBottom: 4,
   },
   sectionSubtitle: {
-    fontSize: 13,
-    color: "#6B7280",
+    fontSize: 13.5,
+    color: "#64748B",
+    lineHeight: 19,
   },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 16,
-    height: 42,
-    borderRadius: 14,
+    gap: 5,
+    paddingHorizontal: 14,
+    height: 38,
+    borderRadius: 10,
     backgroundColor: ORANGE,
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
     shadowRadius: 6,
-    elevation: 4,
+    elevation: 2,
   },
   addBtnText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.4,
+    fontWeight: "700",
+    letterSpacing: 0.1,
   },
 
   /* ── Class Cards ── */
   classCard: {
-    borderRadius: 18,
+    borderRadius: 16,
     marginBottom: 16,
     backgroundColor: "#FFFFFF",
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#F3F4F6",
+    borderColor: "#E5E7EB",
   },
   cardTop: {
     padding: 16,
-    paddingBottom: 18,
+    paddingBottom: 16,
   },
-  cardSubjectBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.22)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    alignSelf: "flex-start",
-  },
-  cardSubjectText: {
-    color: "#FFFFFF",
-    fontSize: 10.5,
-    fontWeight: "800",
-    letterSpacing: 0.6,
+  cardEyebrowText: {
+    color: "rgba(255, 255, 255, 0.8)",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+    flex: 1,
+    marginRight: 8,
   },
   cardTitle: {
     color: "#FFFFFF",
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: "800",
     letterSpacing: -0.3,
-    marginTop: 8,
-    marginBottom: 2,
+    marginTop: 4,
+    marginBottom: 4,
   },
-  cardMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 6,
-    flexWrap: "wrap",
-  },
-  cardMetaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  cardMetaText: {
-    color: "rgba(255, 255, 255, 0.92)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  cardMetaDot: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  cardScheduleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 6,
-  },
-  cardScheduleText: {
-    color: "rgba(255, 255, 255, 0.95)",
-    fontSize: 11.5,
-    fontWeight: "600",
+  cardMetaLineText: {
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: 12.5,
+    fontWeight: "500",
+    lineHeight: 18,
+    marginTop: 4,
   },
   cardBottom: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 14,
+    paddingVertical: 13,
     paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
   },
   cardStatsRow: {
     flexDirection: "row",
@@ -1402,62 +1393,62 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: "#4B5563",
     fontWeight: "600",
   },
   flaggedBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FEE2E2",
-    paddingHorizontal: 9,
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 8,
     gap: 4,
   },
   flaggedText: {
-    fontSize: 10,
-    color: "#EF4444",
-    fontWeight: "800",
+    fontSize: 10.5,
+    color: "#DC2626",
+    fontWeight: "700",
   },
   allClearBadge: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#ECFDF5",
-    paddingHorizontal: 9,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 8,
     gap: 4,
   },
   allClearBadgeText: {
-    fontSize: 10,
-    color: "#10B981",
-    fontWeight: "800",
+    fontSize: 10.5,
+    color: "#059669",
+    fontWeight: "700",
   },
 
   /* ── Info Banner ── */
   fixedBannerContainer: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 6,
     paddingBottom: 10,
   },
   infoBanner: {
     flexDirection: "row",
-    backgroundColor: ORANGE_LIGHT,
-    borderRadius: 20,
+    backgroundColor: "#FFFBF5",
+    borderRadius: 14,
     padding: 14,
     alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "#FFEDD5",
-    shadowColor: "#000",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 1,
   },
   bannerMascotWrap: {
-    width: 60,
-    height: 60,
+    width: 54,
+    height: 54,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -1465,15 +1456,29 @@ const styles = StyleSheet.create({
   bannerTextContent: {
     flex: 1,
   },
-  bannerTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#181920",
+  bannerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 4,
   },
+  bannerTitle: {
+    fontSize: 14.5,
+    fontWeight: "700",
+    color: "#181920",
+    flex: 1,
+    marginRight: 8,
+  },
+  bannerCloseBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   bannerBody: {
-    fontSize: 12,
-    color: "#6B7280",
+    fontSize: 12.5,
+    color: "#64748B",
     lineHeight: 18,
   },
 
@@ -1481,10 +1486,10 @@ const styles = StyleSheet.create({
   bottomNav: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
-    paddingBottom: Platform.OS === "ios" ? 28 : 16,
+    paddingBottom: Platform.OS === "ios" ? 28 : 14,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
+    borderTopColor: "#E5E7EB",
     paddingHorizontal: 20,
     gap: 16,
   },
@@ -1493,21 +1498,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingVertical: 10,
-    borderRadius: 14,
-  },
-  navItemActive: {
-    backgroundColor: ORANGE_LIGHT,
+    gap: 6,
+    paddingVertical: 8,
   },
   navText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#6B7280",
+    color: "#64748B",
   },
   navTextActive: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: ORANGE,
   },
 
@@ -1519,65 +1520,54 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: Platform.OS === "ios" ? 54 : 44,
-    paddingBottom: 16,
+    paddingTop: Platform.OS === "ios" ? 50 : 40,
+    paddingBottom: 14,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
   },
   modalHeaderInfo: {
     flex: 1,
   },
-  modalHeaderTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginBottom: 4,
-  },
-  modalHeaderTagText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: ORANGE,
-    letterSpacing: 0.8,
-  },
   modalTitle: {
-    fontSize: 22,
-    fontWeight: "900",
-    letterSpacing: -0.4,
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.3,
   },
   modalSubtitle: {
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "400",
     marginTop: 2,
+    lineHeight: 18,
   },
   modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 12,
   },
   modalScrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 12,
     paddingBottom: 40,
   },
   fieldLabel: {
     fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    marginBottom: 8,
+    fontWeight: "500",
+    color: "#374151",
+    marginBottom: 6,
     marginTop: 16,
   },
   required: {
     color: ORANGE,
   },
   input: {
-    height: 52,
-    borderWidth: 1.5,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    fontSize: 16,
+    height: 44,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    fontSize: 14.5,
   },
   rowFields: {
     flexDirection: "row",
@@ -1589,34 +1579,34 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: "row",
     gap: 12,
-    marginTop: 28,
+    marginTop: 24,
   },
   cancelBtn: {
     flex: 1,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1.5,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   cancelBtnText: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
   },
   buildBtn: {
     flex: 1.4,
-    height: 52,
-    borderRadius: 14,
+    height: 44,
+    borderRadius: 10,
     backgroundColor: ORANGE,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 6,
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   buildBtnDisabled: {
     backgroundColor: "#FED7AA",
@@ -1624,66 +1614,58 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   buildBtnText: {
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "700",
     color: "#FFFFFF",
-    letterSpacing: 0.3,
-  },
-  colorFieldHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 18,
-    marginBottom: 4,
   },
   colorSubtitle: {
-    fontSize: 12,
-    fontWeight: "500",
-    marginBottom: 10,
+    fontSize: 12.5,
+    fontWeight: "400",
+    lineHeight: 18,
+    marginBottom: 12,
   },
   colorPickerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6,
+    gap: 14,
+    paddingVertical: 4,
     marginBottom: 4,
   },
-  colorDot: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  colorRingOuter: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 3,
-    borderColor: "transparent",
   },
-  colorDotActive: {
-    borderWidth: 3.5,
-    transform: [{ scale: 1.12 }],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
+  colorDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   /* ── Active Roster Alerts Popup (Image 2) ── */
   alertsModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: "rgba(15, 23, 42, 0.4)",
     paddingTop: 80,
     paddingHorizontal: 16,
   },
   alertsCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 16,
-    borderWidth: 1.5,
-    borderColor: "#0F172A",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 14,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
     maxHeight: 480,
   },
   alertsHeader: {
@@ -1699,13 +1681,13 @@ const styles = StyleSheet.create({
   },
   alertsTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#0F172A",
   },
   alertsClearBtn: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#2563EB",
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
   },
   alertsEmptyState: {
     paddingVertical: 32,
@@ -1718,7 +1700,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   alertsEmptySub: {
-    fontSize: 12,
+    fontSize: 12.5,
     textAlign: "center",
     paddingHorizontal: 20,
     lineHeight: 18,
@@ -1727,92 +1709,69 @@ const styles = StyleSheet.create({
     maxHeight: 390,
   },
   alertCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#0F172A",
-    padding: 12,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderLeftWidth: 4,
+    borderLeftColor: "#EF4444",
+    padding: 14,
     marginBottom: 10,
   },
   alertCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  alertCardTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  atRiskBadge: {
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  alertCardTagText: {
+  atRiskBadgeText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#DC2626",
-    letterSpacing: 0.3,
   },
   alertCardTime: {
-    fontSize: 11,
-    color: "#94A3B8",
-    fontWeight: "600",
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
   },
   alertCardMessage: {
-    fontSize: 12.5,
-    fontWeight: "600",
+    fontSize: 13.5,
+    fontWeight: "500",
     color: "#1E293B",
-    lineHeight: 18,
+    lineHeight: 19,
   },
   alertCardActionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 8,
-    paddingTop: 6,
+    marginTop: 10,
+    paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: "#E2E8F0",
   },
   alertCardActionText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: "600",
-    color: "#2563EB",
+    color: "#1E293B",
     flex: 1,
-  },
-  readBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  readBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#10B981",
-  },
-  newBadge: {
-    backgroundColor: "#FEF2F2",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  newBadgeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#EF4444",
   },
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  cardDeleteBtn: {
+  cardMoreBtn: {
     width: 28,
     height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(0, 0, 0, 0.22)",
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
     alignItems: "center",
     justifyContent: "center",
   },

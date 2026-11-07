@@ -2137,19 +2137,19 @@ export default function ClassroomScreen() {
               styles.alertsCard,
               {
                 backgroundColor: cardBg,
-                borderColor: darkMode ? "#4B5563" : "#0F172A",
+                borderColor: darkMode ? "#374151" : "#E5E7EB",
               },
             ]}
           >
             {/* Header */}
             <View style={styles.alertsHeader}>
               <View style={styles.alertsHeaderLeft}>
-                <Ionicons name="notifications" size={18} color={ORANGE} />
-                <Text style={[styles.alertsTitle, { color: textMain }]}>Classroom Alerts</Text>
+                <Ionicons name="notifications-outline" size={18} color={ORANGE} />
+                <Text style={[styles.alertsTitle, { color: textMain }]}>Active Roster Alerts</Text>
               </View>
               {classroomAlerts.length > 0 && (
                 <TouchableOpacity onPress={handleClearAllClassroomAlerts} activeOpacity={0.7}>
-                  <Text style={styles.alertsClearBtn}>Clear all</Text>
+                  <Text style={[styles.alertsClearBtn, { color: textSub }]}>Clear all</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -2171,40 +2171,27 @@ export default function ClassroomScreen() {
                     style={[
                       styles.alertCard,
                       {
-                        backgroundColor: darkMode ? "#374151" : "#FFFFFF",
-                        borderColor: alert.isRead ? (darkMode ? "#4B5563" : "#E5E7EB") : ORANGE,
+                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                        borderColor: darkMode ? "#334155" : "#E5E7EB",
                       },
                     ]}
                     onPress={() => handleClassroomAlertPress(alert)}
                     activeOpacity={0.75}
                   >
                     <View style={styles.alertCardHeader}>
-                      <View style={styles.alertCardTag}>
-                        <Ionicons name="warning-outline" size={12} color="#DC2626" />
-                        <Text style={styles.alertCardTagText}>{alert.alertType}</Text>
+                      <View style={styles.atRiskBadge}>
+                        <Text style={styles.atRiskBadgeText}>At-Risk</Text>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        {alert.isRead ? (
-                          <View style={styles.readBadge}>
-                            <Ionicons name="checkmark-done" size={11} color="#10B981" />
-                            <Text style={styles.readBadgeText}>READ</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.newBadge}>
-                            <Text style={styles.newBadgeText}>NEW</Text>
-                          </View>
-                        )}
-                        <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
-                      </View>
+                      <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
                     </View>
                     <Text style={[styles.alertCardMessage, { color: textMain }]}>
                       {alert.message}
                     </Text>
-                    <View style={styles.alertCardActionRow}>
-                      <Text style={styles.alertCardActionText} numberOfLines={1}>
-                        Tap to view student in Tracker & profile
+                    <View style={[styles.alertCardActionRow, { borderTopColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                      <Text style={[styles.alertCardActionText, { color: darkMode ? "#E2E8F0" : "#1E293B" }]}>
+                        View student tracker
                       </Text>
-                      <Ionicons name="arrow-forward" size={12} color="#2563EB" />
+                      <Ionicons name="arrow-forward" size={13} color={darkMode ? "#E2E8F0" : "#1E293B"} />
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -3504,7 +3491,7 @@ const styles = StyleSheet.create({
   },
   alertsModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(15, 23, 42, 0.4)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
@@ -3513,15 +3500,15 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 16,
-    borderWidth: 1.5,
-    borderColor: "#0F172A",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 14,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
     maxHeight: 480,
   },
   alertsHeader: {
@@ -3537,13 +3524,13 @@ const styles = StyleSheet.create({
   },
   alertsTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#0F172A",
   },
   alertsClearBtn: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: ORANGE,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
   },
   alertsEmptyState: {
     paddingVertical: 32,
@@ -3556,7 +3543,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   alertsEmptySub: {
-    fontSize: 12,
+    fontSize: 12.5,
     textAlign: "center",
     paddingHorizontal: 20,
     lineHeight: 18,
@@ -3565,80 +3552,57 @@ const styles = StyleSheet.create({
     maxHeight: 390,
   },
   alertCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#0F172A",
-    padding: 12,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderLeftWidth: 4,
+    borderLeftColor: "#EF4444",
+    padding: 14,
     marginBottom: 10,
   },
   alertCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  alertCardTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  atRiskBadge: {
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  alertCardTagText: {
+  atRiskBadgeText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#DC2626",
-    letterSpacing: 0.3,
   },
   alertCardTime: {
-    fontSize: 11,
-    color: "#94A3B8",
-    fontWeight: "600",
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
   },
   alertCardMessage: {
-    fontSize: 12.5,
-    fontWeight: "600",
+    fontSize: 13.5,
+    fontWeight: "500",
     color: "#1E293B",
-    lineHeight: 18,
+    lineHeight: 19,
   },
   alertCardActionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 8,
-    paddingTop: 6,
+    marginTop: 10,
+    paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: "#E2E8F0",
   },
   alertCardActionText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: "600",
-    color: ORANGE,
+    color: "#1E293B",
     flex: 1,
-  },
-  readBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  readBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#10B981",
-  },
-  newBadge: {
-    backgroundColor: "#FEF2F2",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  newBadgeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#EF4444",
   },
   topBarRight: {
     flexDirection: "row",

@@ -518,9 +518,6 @@ export default function SettingsScreen() {
                 {drafts.length} {drafts.length === 1 ? "draft" : "drafts"} saved
               </Text>
             </View>
-            <View style={styles.draftBadge}>
-              <Text style={styles.draftBadgeText}>DRAFT</Text>
-            </View>
             <Ionicons name="chevron-forward" size={18} color={textSub} />
           </TouchableOpacity>
 
@@ -543,9 +540,6 @@ export default function SettingsScreen() {
               <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
                 {archived.length} published {archived.length === 1 ? "assessment" : "assessments"}
               </Text>
-            </View>
-            <View style={styles.archiveBadge}>
-              <Text style={styles.archiveBadgeText}>ARCHIVE</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={textSub} />
           </TouchableOpacity>
@@ -690,8 +684,8 @@ export default function SettingsScreen() {
           {/* Hub Header */}
           <View style={[styles.hubHeader, { backgroundColor: card, borderBottomColor: border }]}>
             <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-              <Text style={[styles.hubHeaderTitle, { color: textMain }]} numberOfLines={1}>Assessments Repository</Text>
-              <Text style={[styles.hubHeaderSub, { color: textSub }]} numberOfLines={1}>
+              <Text style={[styles.hubHeaderTitle, { color: textMain }]}>Assessments Repository</Text>
+              <Text style={[styles.hubHeaderSub, { color: textSub }]}>
                 Manage your saved drafts and published classroom archives
               </Text>
             </View>
@@ -705,20 +699,18 @@ export default function SettingsScreen() {
           </View>
 
           {/* Segmented Switcher */}
-          <View style={[styles.tabSegmentWrap, { backgroundColor: border }]}>
+          <View style={[styles.tabSegmentWrap, { backgroundColor: darkMode ? "#1F2937" : "#F3F4F6" }]}>
             <TouchableOpacity
               style={[
                 styles.tabSegmentBtn,
-                assessmentTab === "DRAFT" && { backgroundColor: card },
+                assessmentTab === "DRAFT" && [
+                  styles.tabSegmentBtnActive,
+                  { backgroundColor: card },
+                ],
               ]}
               onPress={() => setAssessmentTab("DRAFT")}
               activeOpacity={0.8}
             >
-              <Ionicons
-                name="document-text"
-                size={16}
-                color={assessmentTab === "DRAFT" ? "#D97706" : textSub}
-              />
               <Text
                 style={[
                   styles.tabSegmentText,
@@ -726,23 +718,41 @@ export default function SettingsScreen() {
                   assessmentTab === "DRAFT" && { fontWeight: "700" },
                 ]}
               >
-                Drafts ({drafts.length})
+                Drafts
               </Text>
+              <View
+                style={[
+                  styles.segmentCountPill,
+                  {
+                    backgroundColor:
+                      assessmentTab === "DRAFT"
+                        ? darkMode ? "#374151" : "#F3F4F6"
+                        : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentCountText,
+                    { color: assessmentTab === "DRAFT" ? textMain : textSub },
+                  ]}
+                >
+                  {drafts.length}
+                </Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.tabSegmentBtn,
-                assessmentTab === "ARCHIVE" && { backgroundColor: card },
+                assessmentTab === "ARCHIVE" && [
+                  styles.tabSegmentBtnActive,
+                  { backgroundColor: card },
+                ],
               ]}
               onPress={() => setAssessmentTab("ARCHIVE")}
               activeOpacity={0.8}
             >
-              <Ionicons
-                name="archive"
-                size={16}
-                color={assessmentTab === "ARCHIVE" ? "#2563EB" : textSub}
-              />
               <Text
                 style={[
                   styles.tabSegmentText,
@@ -750,8 +760,28 @@ export default function SettingsScreen() {
                   assessmentTab === "ARCHIVE" && { fontWeight: "700" },
                 ]}
               >
-                Archive ({archived.length})
+                Archive
               </Text>
+              <View
+                style={[
+                  styles.segmentCountPill,
+                  {
+                    backgroundColor:
+                      assessmentTab === "ARCHIVE"
+                        ? darkMode ? "#374151" : "#F3F4F6"
+                        : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentCountText,
+                    { color: assessmentTab === "ARCHIVE" ? textMain : textSub },
+                  ]}
+                >
+                  {archived.length}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
 
@@ -770,191 +800,182 @@ export default function SettingsScreen() {
               // ── Drafts List ──
               drafts.length === 0 ? (
                 <View style={styles.hubEmptyWrap}>
-                  <View style={[styles.emptyIconWrap, { backgroundColor: "#FEF3C7" }]}>
-                    <Ionicons name="document-text-outline" size={32} color="#D97706" />
+                  <View style={[styles.emptyIconWrap, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                    <Ionicons name="document-text-outline" size={28} color={textSub} />
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Draft Assessments</Text>
                   <Text style={[styles.hubEmptySub, { color: textSub }]}>
-                    {'Drafts are cached only on this device and automatically delete after 7 days (like Instagram). Generate a quiz in AI Builder and tap "Save as Draft" to store one here.'}
+                    {"Drafts are stored locally on this device for 7 days. Create a quiz in the AI Builder and select 'Save as Draft' to access it here."}
                   </Text>
                 </View>
               ) : (
-                drafts.map((draft) => (
-                  <View key={draft.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
-                    <View style={styles.cardTopRow}>
-                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                        <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
-                          {draft.quizTitle}
-                        </Text>
-                        <View style={styles.classroomBadgeRow}>
-                          <Ionicons name="school-outline" size={13} color={themeColor} />
-                          <Text style={[styles.classroomBadgeText, { color: themeColor }]} numberOfLines={1}>
-                            {draft.classTitle || "Classroom"}
+                drafts.map((draft) => {
+                  const formattedDate = new Date(draft.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
+                  const timeInfo = getDraftTimeRemaining(draft);
+
+                  return (
+                    <View key={draft.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
+                      <View style={styles.cardTopRow}>
+                        <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                          <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
+                            {draft.quizTitle}
+                          </Text>
+                          <View style={styles.classroomBadgeRow}>
+                            <Ionicons name="school-outline" size={13} color={themeColor} />
+                            <Text style={[styles.classroomBadgeText, { color: themeColor }]} numberOfLines={1}>
+                              {draft.classTitle || "Classroom"}
+                            </Text>
+                            <Text style={[styles.metaDotSeparator, { color: textSub }]}>·</Text>
+                            <Text style={[styles.dateText, { color: textSub }]}>{formattedDate}</Text>
+                          </View>
+                        </View>
+                        <View
+                          style={[
+                            styles.draftTimerBadge,
+                            timeInfo.isExpiringSoon && styles.draftTimerExpiringBadge,
+                          ]}
+                        >
+                          <Ionicons
+                            name="time-outline"
+                            size={11}
+                            color={timeInfo.isExpiringSoon ? "#DC2626" : "#B45309"}
+                          />
+                          <Text
+                            style={[
+                              styles.draftTimerText,
+                              timeInfo.isExpiringSoon && styles.draftTimerExpiringText,
+                            ]}
+                          >
+                            {timeInfo.text}
                           </Text>
                         </View>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                        {(() => {
-                          const timeInfo = getDraftTimeRemaining(draft);
-                          return (
-                            <View
-                              style={[
-                                styles.draftTimerBadge,
-                                timeInfo.isExpiringSoon && styles.draftTimerExpiringBadge,
-                              ]}
-                            >
-                              <Ionicons
-                                name="time-outline"
-                                size={11}
-                                color={timeInfo.isExpiringSoon ? "#DC2626" : "#D97706"}
-                              />
-                              <Text
-                                style={[
-                                  styles.draftTimerText,
-                                  timeInfo.isExpiringSoon && styles.draftTimerExpiringText,
-                                ]}
-                              >
-                                {timeInfo.text}
-                              </Text>
-                            </View>
-                          );
-                        })()}
-                        <View style={styles.draftBadge}>
-                          <Text style={styles.draftBadgeText}>DRAFT</Text>
-                        </View>
+
+                      <View style={styles.cardMetaRow}>
+                        <Text style={[styles.metaPillText, { color: textSub }]}>
+                          {draft.questions.length} Questions · {draft.difficulty || "Standard"} · {draft.questionType || "Mixed"}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.cardActionsDivider, { backgroundColor: border }]} />
+
+                      <View style={styles.cardActionsRow}>
+                        <TouchableOpacity
+                          style={[styles.inspectBtn, { borderColor: border }]}
+                          onPress={() => {
+                            setInspectedQuiz(draft);
+                            setInspectModalVisible(true);
+                          }}
+                        >
+                          <Ionicons name="eye-outline" size={15} color={textMain} />
+                          <Text style={[styles.inspectBtnText, { color: textMain }]} numberOfLines={1}>Inspect</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.actionPublishBtn, { backgroundColor: themeColor }]}
+                          onPress={() => handlePublishDraft(draft)}
+                        >
+                          <Ionicons name="send-outline" size={15} color="#FFFFFF" />
+                          <Text style={styles.actionPublishText} numberOfLines={1}>Publish</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.deleteBtn, { borderColor: "#FEE2E2" }]}
+                          onPress={() => handleDeleteDraft(draft)}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                        </TouchableOpacity>
                       </View>
                     </View>
-
-                    <View style={styles.cardMetaRow}>
-                      <Text style={[styles.metaPillText, { color: textSub }]}>
-                        {draft.questions.length} Questions • {draft.difficulty || "Standard"} • {draft.questionType || "Mixed"}
-                      </Text>
-                      <Text style={[styles.dateText, { color: textSub }]}>
-                        {new Date(draft.createdAt).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.cardActionsDivider, { backgroundColor: border }]} />
-
-                    <View style={styles.cardActionsRow}>
-                      <TouchableOpacity
-                        style={[styles.inspectBtn, { borderColor: border }]}
-                        onPress={() => {
-                          setInspectedQuiz(draft);
-                          setInspectModalVisible(true);
-                        }}
-                      >
-                        <Ionicons name="eye-outline" size={15} color={textMain} />
-                        <Text style={[styles.inspectBtnText, { color: textMain }]} numberOfLines={1}>Inspect</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.actionPublishBtn, { backgroundColor: themeColor }]}
-                        onPress={() => handlePublishDraft(draft)}
-                      >
-                        <Ionicons name="send-outline" size={15} color="#FFFFFF" />
-                        <Text style={styles.actionPublishText} numberOfLines={1}>Publish</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.deleteBtn, { borderColor: "#FEE2E2" }]}
-                        onPress={() => handleDeleteDraft(draft)}
-                      >
-                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
+                  );
+                })
               )
             ) : (
               // ── Archive List ──
               archived.length === 0 ? (
                 <View style={styles.hubEmptyWrap}>
-                  <View style={[styles.emptyIconWrap, { backgroundColor: "#DBEAFE" }]}>
-                    <Ionicons name="archive-outline" size={32} color="#2563EB" />
+                  <View style={[styles.emptyIconWrap, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                    <Ionicons name="archive-outline" size={28} color={textSub} />
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Archived Assessments</Text>
                   <Text style={[styles.hubEmptySub, { color: textSub }]}>
-                    Assessments published to your classrooms are saved in your database cloud archive and accessible across all your devices.
+                    Assessments published to your classrooms are saved in your cloud archive and accessible across all your devices.
                   </Text>
                 </View>
               ) : (
-                archived.map((quiz) => (
-                  <View key={quiz.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
-                    <View style={styles.cardTopRow}>
-                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                        <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
-                          {quiz.quizTitle}
-                        </Text>
-                        <View style={styles.classroomBadgeRow}>
-                          <Ionicons name="school-outline" size={13} color="#2563EB" />
-                          <Text style={[styles.classroomBadgeText, { color: "#2563EB" }]} numberOfLines={1}>
-                            {quiz.classTitle || "Classroom"}
+                archived.map((quiz) => {
+                  const formattedDate = new Date(quiz.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
+
+                  return (
+                    <View key={quiz.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
+                      <View style={styles.cardTopRow}>
+                        <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                          <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
+                            {quiz.quizTitle}
                           </Text>
+                          <View style={styles.classroomBadgeRow}>
+                            <Ionicons name="school-outline" size={13} color="#2563EB" />
+                            <Text style={[styles.classroomBadgeText, { color: "#2563EB" }]} numberOfLines={1}>
+                              {quiz.classTitle || "Classroom"}
+                            </Text>
+                            <Text style={[styles.metaDotSeparator, { color: textSub }]}>·</Text>
+                            <Text style={[styles.dateText, { color: textSub }]}>{formattedDate}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.cloudIconWrap} accessibilityLabel="Synced to cloud">
+                          <Ionicons name="cloud-done-outline" size={17} color="#059669" />
                         </View>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                        <View style={styles.cloudSyncBadge}>
-                          <Ionicons name="cloud-done-outline" size={11} color="#059669" />
-                          <Text style={styles.cloudSyncBadgeText}>CLOUD</Text>
-                        </View>
-                        <View style={styles.archiveBadge}>
-                          <Text style={styles.archiveBadgeText}>ARCHIVE</Text>
-                        </View>
+
+                      <View style={styles.cardMetaRow}>
+                        <Text style={[styles.metaPillText, { color: textSub }]}>
+                          {quiz.questions.length} Questions · {quiz.difficulty || "Standard"} · DepEd Scannable
+                        </Text>
+                      </View>
+
+                      <View style={[styles.cardActionsDivider, { backgroundColor: border }]} />
+
+                      <View style={styles.cardActionsRow}>
+                        <TouchableOpacity
+                          style={[styles.inspectBtn, { borderColor: border }]}
+                          onPress={() => {
+                            setInspectedQuiz(quiz);
+                            setInspectModalVisible(true);
+                          }}
+                        >
+                          <Ionicons name="eye-outline" size={15} color={textMain} />
+                          <Text style={[styles.inspectBtnText, { color: textMain }]} numberOfLines={1}>Inspect</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.exportPdfBtn, { backgroundColor: "#1E293B" }]}
+                          onPress={() => {
+                            setSelectedExportQuiz(quiz);
+                            setExportModalVisible(true);
+                          }}
+                        >
+                          <Ionicons name="print-outline" size={15} color="#FFFFFF" />
+                          <Text style={styles.exportPdfText} numberOfLines={1}>Export PDF</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.deleteBtn, { borderColor: "#FEE2E2" }]}
+                          onPress={() => handleDeleteArchive(quiz)}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                        </TouchableOpacity>
                       </View>
                     </View>
-
-                    <View style={styles.cardMetaRow}>
-                      <Text style={[styles.metaPillText, { color: textSub }]}>
-                        {quiz.questions.length} Questions • {quiz.difficulty || "Standard"} • DepEd Scannable
-                      </Text>
-                      <Text style={[styles.dateText, { color: textSub }]}>
-                        {new Date(quiz.createdAt).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.cardActionsDivider, { backgroundColor: border }]} />
-
-                    <View style={styles.cardActionsRow}>
-                      <TouchableOpacity
-                        style={[styles.inspectBtn, { borderColor: border }]}
-                        onPress={() => {
-                          setInspectedQuiz(quiz);
-                          setInspectModalVisible(true);
-                        }}
-                      >
-                        <Ionicons name="eye-outline" size={15} color={textMain} />
-                        <Text style={[styles.inspectBtnText, { color: textMain }]} numberOfLines={1}>Inspect</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.exportPdfBtn, { backgroundColor: "#1F2937" }]}
-                        onPress={() => {
-                          setSelectedExportQuiz(quiz);
-                          setExportModalVisible(true);
-                        }}
-                      >
-                        <Ionicons name="print-outline" size={15} color="#FFFFFF" />
-                        <Text style={styles.exportPdfText} numberOfLines={1}>Export PDF</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.deleteBtn, { borderColor: "#FEE2E2" }]}
-                        onPress={() => handleDeleteArchive(quiz)}
-                      >
-                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
+                  );
+                })
               )
             )}
           </ScrollView>
@@ -1561,15 +1582,15 @@ const styles = StyleSheet.create({
   hubContainer: { flex: 1 },
   hubHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     paddingTop: 50,
     paddingBottom: 16,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
   },
-  hubHeaderTitle: { fontSize: 18, fontWeight: "800", flexShrink: 1 },
-  hubHeaderSub: { fontSize: 12, marginTop: 2 },
+  hubHeaderTitle: { fontSize: 19, fontWeight: "800", letterSpacing: -0.3 },
+  hubHeaderSub: { fontSize: 13, marginTop: 3, lineHeight: 18 },
   hubHeaderRightActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -1577,18 +1598,19 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   hubCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 2,
   },
   tabSegmentWrap: {
     flexDirection: "row",
     marginHorizontal: 20,
     marginTop: 16,
     marginBottom: 12,
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 4,
     gap: 4,
   },
@@ -1597,36 +1619,62 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 8,
     gap: 6,
   },
-  tabSegmentText: { fontSize: 14, fontWeight: "600" },
+  tabSegmentBtnActive: {
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  tabSegmentText: { fontSize: 13.5, fontWeight: "600" },
+  segmentCountPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  segmentCountText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
 
   hubScrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
-  hubEmptyWrap: { alignItems: "center", justifyContent: "center", paddingTop: 60, paddingHorizontal: 30 },
-  emptyIconWrap: { width: 68, height: 68, borderRadius: 34, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  hubEmptyTitle: { fontSize: 17, fontWeight: "700", marginBottom: 8 },
-  hubEmptySub: { fontSize: 13, textAlign: "center", lineHeight: 20 },
+  hubEmptyWrap: { alignItems: "center", justifyContent: "center", paddingTop: 60, paddingHorizontal: 28 },
+  emptyIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  hubEmptyTitle: { fontSize: 16, fontWeight: "700", marginBottom: 6 },
+  hubEmptySub: { fontSize: 13.5, textAlign: "center", lineHeight: 20 },
 
   assessmentCard: {
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     padding: 16,
     marginBottom: 14,
-    shadowColor: "#000",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 1,
   },
   cardTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   quizTitle: { fontSize: 16, fontWeight: "700", lineHeight: 22 },
-  classroomBadgeRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  classroomBadgeText: { fontSize: 13, fontWeight: "600" },
-  cardMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12 },
-  metaPillText: { fontSize: 12, fontWeight: "500" },
-  dateText: { fontSize: 11 },
+  classroomBadgeRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6, flexWrap: "wrap" },
+  classroomBadgeText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
+  metaDotSeparator: { fontSize: 12.5, fontWeight: "600" },
+  cloudIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  cardMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", marginTop: 10 },
+  metaPillText: { fontSize: 12.5, fontWeight: "500", lineHeight: 18, flexShrink: 1 },
+  dateText: { fontSize: 12.5, fontWeight: "500" },
   cardActionsDivider: { height: 1, marginVertical: 12 },
   cardActionsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   inspectBtn: {
