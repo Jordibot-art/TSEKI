@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -17,6 +17,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
 import { AssessmentGeneratingAnimation } from "./AssessmentGeneratingAnimation";
 import {
@@ -198,6 +199,7 @@ type Props = {
 
 export default function AIBuilderTab({ classroomId, classTitle, classSubject, accentColor, onQuizPublished }: Props) {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const { darkMode } = useTheme();
     const bg = darkMode ? "#111827" : "#F9FAFB";
     const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
@@ -292,7 +294,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     // Keep per-part item split synchronized when questionCount or mixedTypes changes
     const totalCountNumeric = parseInt(questionCount.split(" ")[0], 10) || 20;
     useEffect(() => {
-        if (mixedTypes.length === 0) return;
+        if (mixedTypes.length === 0 || showResults) return;
         const base = Math.floor(totalCountNumeric / mixedTypes.length);
         const rem = totalCountNumeric % mixedTypes.length;
         const nextCounts: Record<string, number> = {};
@@ -300,22 +302,57 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             nextCounts[key] = base + (idx === 0 ? rem : 0);
         });
         setMixedPartCounts(nextCounts);
-    }, [totalCountNumeric, mixedTypes]);
+    }, [totalCountNumeric, mixedTypes.length, showResults]);
 
-    function adjustPartCount(partKey: string, delta: number) {
-        const idx = mixedTypes.indexOf(partKey);
-        if (idx === -1 || mixedTypes.length < 2) return;
+    function adjustMixedPartCount(partKey: string, delta: number, isPreviewModal: boolean = false) {
         const currentVal = mixedPartCounts[partKey] ?? 1;
         const nextVal = currentVal + delta;
         if (nextVal < 1) return;
-        const otherKey = mixedTypes[(idx + 1) % mixedTypes.length];
-        const otherVal = mixedPartCounts[otherKey] ?? 1;
-        if (otherVal - delta < 1) return;
-        setMixedPartCounts((prev) => ({
-            ...prev,
+
+        const nextCounts = {
+            ...mixedPartCounts,
             [partKey]: nextVal,
-            [otherKey]: otherVal - delta,
-        }));
+        };
+        setMixedPartCounts(nextCounts);
+
+        const newTotal = mixedTypes.reduce((sum, key) => sum + (nextCounts[key] ?? 1), 0);
+        if (isPreviewModal) {
+            setAdjustTargetCount(newTotal);
+        } else {
+            setQuestionCount(`${newTotal} Questions`);
+        }
+    }
+
+    function toggleMixedPart(partKey: string, isPreviewModal: boolean = false) {
+        if (mixedTypes.includes(partKey)) {
+            if (mixedTypes.length <= 2) {
+                Alert.alert("Minimum Required", "Please keep at least 2 test types for a mixed assessment.");
+                return;
+            }
+            const nextTypes = mixedTypes.filter((k) => k !== partKey);
+            setMixedTypes(nextTypes);
+            const newTotal = nextTypes.reduce((sum, k) => sum + (mixedPartCounts[k] ?? 1), 0);
+            if (isPreviewModal) {
+                setAdjustTargetCount(newTotal);
+            } else {
+                setQuestionCount(`${newTotal} Questions`);
+            }
+        } else {
+            const nextTypes = [...mixedTypes, partKey];
+            setMixedTypes(nextTypes);
+            const defaultCount = mixedPartCounts[partKey] ?? 3;
+            const nextCounts = {
+                ...mixedPartCounts,
+                [partKey]: defaultCount,
+            };
+            setMixedPartCounts(nextCounts);
+            const newTotal = nextTypes.reduce((sum, k) => sum + (nextCounts[k] ?? 1), 0);
+            if (isPreviewModal) {
+                setAdjustTargetCount(newTotal);
+            } else {
+                setQuestionCount(`${newTotal} Questions`);
+            }
+        }
     }
 
     // ── Manual Add Question state ─────────────────────────────────────────────
@@ -508,6 +545,61 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setSubject(resolvedSubject);
         setAttachedFile(null);
         setMixedTypes(["multiple_choice", "enumeration", "true_false"]);
+    }
+
+    function handleConfirmNewQuiz() {
+        Alert.alert(
+            "Start a New Quiz?",
+            "Discard this generated assessment and return to the AI builder setup? Any unsaved edits will be lost.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Discard & Start New",
+                    style: "destructive",
+                    onPress: () => handleReset(),
+                },
+            ]
+        );
+    }
+
+    function handleOpenAdjustSetup() {
+        if (!generatedAssessment) return;
+        const currentCount = generatedAssessment.questions.length;
+        setAdjustTargetCount(currentCount);
+        setAdjustTargetType(questionType);
+        setAdjustTargetDifficulty(difficulty);
+        setAdjustTargetGradeLevel(gradeLevel);
+
+        // Detect existing types in questions
+        const typesInAssessment = Array.from(new Set(generatedAssessment.questions.map((q) => q.type)));
+        const countsInAssessment: Record<string, number> = {};
+        generatedAssessment.questions.forEach((q) => {
+            countsInAssessment[q.type] = (countsInAssessment[q.type] || 0) + 1;
+        });
+
+        if (questionType === "Mixed Assessment" || typesInAssessment.length > 1) {
+            setAdjustTargetType("Mixed Assessment");
+            const validTypes = typesInAssessment.filter((t) => MIXED_TYPE_OPTIONS.some((o) => o.key === t));
+            if (validTypes.length >= 2) {
+                setMixedTypes(validTypes);
+                setMixedPartCounts(countsInAssessment);
+            } else if (mixedTypes.length >= 2) {
+                const nextCounts: Record<string, number> = { ...mixedPartCounts };
+                mixedTypes.forEach((k) => {
+                    if (!nextCounts[k]) nextCounts[k] = Math.max(1, Math.floor(currentCount / mixedTypes.length));
+                });
+                setMixedPartCounts(nextCounts);
+            }
+        } else {
+            const base = Math.max(1, Math.floor(currentCount / (mixedTypes.length || 3)));
+            const nextCounts: Record<string, number> = {};
+            mixedTypes.forEach((k) => {
+                nextCounts[k] = base;
+            });
+            setMixedPartCounts(nextCounts);
+        }
+
+        setAdjustSetupModalOpen(true);
     }
 
     // ── Manual question helpers ────────────────────────────────────────────────
@@ -812,6 +904,111 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setQuestionType(adjustTargetType);
         setDifficulty(adjustTargetDifficulty);
         setGradeLevel(adjustTargetGradeLevel);
+
+        if (adjustTargetType === "Mixed Assessment" && mixedTypes.length >= 2) {
+            const targetSequence: QuestionType[] = [];
+            mixedTypes.forEach((t) => {
+                const count = mixedPartCounts[t] ?? 1;
+                for (let i = 0; i < count; i++) {
+                    targetSequence.push(t as QuestionType);
+                }
+            });
+
+            const updatedQ = generatedAssessment.questions.map((q, idx) => {
+                const desiredType = targetSequence[idx] || q.type;
+                if (desiredType === q.type) return q;
+
+                let newOptions: string[] = [];
+                let newBoxes = 1;
+                if (desiredType === "multiple_choice") {
+                    newOptions = q.options && q.options.length >= 4 ? q.options : ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"];
+                } else if (desiredType === "true_false") {
+                    newOptions = ["A) True", "B) False"];
+                } else if (desiredType === "word_box") {
+                    newOptions = q.options && q.options.length >= 2 ? q.options : ["Word1", "Word2", "Word3", "Word4"];
+                } else if (desiredType === "enumeration") {
+                    newBoxes = 3;
+                }
+                return {
+                    ...q,
+                    type: desiredType,
+                    options: newOptions,
+                    answerBoxesRequired: newBoxes,
+                };
+            });
+
+            const updatedA = generatedAssessment.answerKey.map((ak, idx) => {
+                const desiredType = targetSequence[idx] || (generatedAssessment.questions[idx]?.type ?? "multiple_choice");
+                if (desiredType === generatedAssessment.questions[idx]?.type) return ak;
+
+                let defaultAns = ak.correctAnswer || "A";
+                if (desiredType === "true_false") defaultAns = "T";
+                else if (desiredType === "identification" || desiredType === "fill_blank") defaultAns = ak.correctAnswer && ak.correctAnswer.length <= 25 ? ak.correctAnswer : "Answer";
+                else if (desiredType === "enumeration") defaultAns = "Item 1, Item 2, Item 3";
+                else if (desiredType === "word_box") defaultAns = "Word1";
+                return {
+                    ...ak,
+                    correctAnswer: defaultAns,
+                    points: desiredType === "enumeration" ? 3 : 1,
+                };
+            });
+
+            setGeneratedAssessment({
+                ...generatedAssessment,
+                questions: updatedQ,
+                answerKey: updatedA,
+            });
+            setQuestionCount(`${updatedQ.length} Questions`);
+        } else if (adjustTargetType !== "Mixed Assessment") {
+            const typeMap: Record<string, QuestionType> = {
+                "Multiple Choice": "multiple_choice",
+                "True / False": "true_false",
+                "Identification": "identification",
+                "Fill in the Blank": "fill_blank",
+                "Enumeration": "enumeration",
+                "Word Box": "word_box",
+            };
+            const targetQType = typeMap[adjustTargetType];
+            if (targetQType && generatedAssessment.questions.some((q) => q.type !== targetQType)) {
+                const updatedQ = generatedAssessment.questions.map((q) => {
+                    if (q.type === targetQType) return q;
+                    let newOptions: string[] = [];
+                    let newBoxes = 1;
+                    if (targetQType === "multiple_choice") {
+                        newOptions = ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"];
+                    } else if (targetQType === "true_false") {
+                        newOptions = ["A) True", "B) False"];
+                    } else if (targetQType === "word_box") {
+                        newOptions = ["Word1", "Word2", "Word3", "Word4"];
+                    } else if (targetQType === "enumeration") {
+                        newBoxes = 3;
+                    }
+                    return {
+                        ...q,
+                        type: targetQType,
+                        options: newOptions,
+                        answerBoxesRequired: newBoxes,
+                    };
+                });
+                const updatedA = generatedAssessment.answerKey.map((ak) => {
+                    let defaultAns = ak.correctAnswer || "A";
+                    if (targetQType === "true_false") defaultAns = "T";
+                    else if (targetQType === "identification" || targetQType === "fill_blank") defaultAns = "Answer";
+                    else if (targetQType === "enumeration") defaultAns = "Item 1, Item 2, Item 3";
+                    else if (targetQType === "word_box") defaultAns = "Word1";
+                    return {
+                        ...ak,
+                        correctAnswer: defaultAns,
+                        points: targetQType === "enumeration" ? 3 : 1,
+                    };
+                });
+                setGeneratedAssessment({
+                    ...generatedAssessment,
+                    questions: updatedQ,
+                    answerKey: updatedA,
+                });
+            }
+        }
         setAdjustSetupModalOpen(false);
     }
 
@@ -1136,6 +1333,221 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         }
     }
 
+    const assessmentSections = useMemo(() => {
+        if (!generatedAssessment || !generatedAssessment.questions.length) return [];
+
+        const sections: {
+            partNumber: number;
+            roman: string;
+            type: QuestionType;
+            title: string;
+            questions: ScannableQuestion[];
+            startNum: number;
+            endNum: number;
+            totalPoints: number;
+        }[] = [];
+
+        const ROMANS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+        let currentType: QuestionType | null = null;
+        let currentList: ScannableQuestion[] = [];
+
+        generatedAssessment.questions.forEach((q) => {
+            if (currentType === null || q.type === currentType) {
+                currentType = q.type;
+                currentList.push(q);
+            } else {
+                const pNum = sections.length + 1;
+                const roman = ROMANS[sections.length] || `${pNum}`;
+                const pts = currentList.reduce((sum, item) => {
+                    const a = generatedAssessment.answerKey.find((k) => k.questionNumber === item.questionNumber);
+                    return sum + (a ? a.points : (item.type === "enumeration" ? (item.answerBoxesRequired || 3) : 1));
+                }, 0);
+                sections.push({
+                    partNumber: pNum,
+                    roman,
+                    type: currentType,
+                    title: `PART ${roman} · ${formatTypeLabel(currentType).toUpperCase()}`,
+                    questions: currentList,
+                    startNum: currentList[0].questionNumber,
+                    endNum: currentList[currentList.length - 1].questionNumber,
+                    totalPoints: pts,
+                });
+                currentType = q.type;
+                currentList = [q];
+            }
+        });
+
+        if (currentList.length > 0 && currentType !== null) {
+            const pNum = sections.length + 1;
+            const roman = ROMANS[sections.length] || `${pNum}`;
+            const pts = currentList.reduce((sum, item) => {
+                const a = generatedAssessment.answerKey.find((k) => k.questionNumber === item.questionNumber);
+                return sum + (a ? a.points : (item.type === "enumeration" ? (item.answerBoxesRequired || 3) : 1));
+            }, 0);
+            sections.push({
+                partNumber: pNum,
+                roman,
+                type: currentType,
+                title: `PART ${roman} · ${formatTypeLabel(currentType).toUpperCase()}`,
+                questions: currentList,
+                startNum: currentList[0].questionNumber,
+                endNum: currentList[currentList.length - 1].questionNumber,
+                totalPoints: pts,
+            });
+        }
+
+        return sections;
+    }, [generatedAssessment]);
+
+    function renderUnifiedMixedPicker(isPreviewModal: boolean = false) {
+        const totalSelectedParts = mixedTypes.length;
+        const currentTotalItems = mixedTypes.reduce((sum, key) => sum + (mixedPartCounts[key] ?? (isPreviewModal ? 1 : 3)), 0);
+        const ROMANS = ["I", "II", "III", "IV", "V", "VI"];
+
+        return (
+            <View style={[styles.unifiedMixedCard, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF", borderColor: border }]}>
+                {/* Header: Title + Neutral summary pill */}
+                <View style={styles.unifiedMixedHeader}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={[styles.unifiedMixedTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                            Included exam parts
+                        </Text>
+                        <Text style={[styles.unifiedMixedSub, { color: darkMode ? textSub : "#64748B" }]}>
+                            Tick parts in the order they should appear (I, II, III...).
+                        </Text>
+                    </View>
+                    <View style={[styles.unifiedSummaryPill, { backgroundColor: darkMode ? "#111827" : "#F1F5F9" }]}>
+                        <Text style={[styles.unifiedSummaryPillText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>
+                            {totalSelectedParts} selected · {currentTotalItems} items
+                        </Text>
+                    </View>
+                </View>
+
+                {/* Unified 6-row list */}
+                <View style={{ marginTop: 10 }}>
+                    {MIXED_TYPE_OPTIONS.map((opt) => {
+                        const orderIndex = mixedTypes.indexOf(opt.key);
+                        const isSelected = orderIndex !== -1;
+                        const roman = isSelected ? ROMANS[orderIndex] : null;
+                        const countVal = mixedPartCounts[opt.key] ?? (isPreviewModal ? 1 : 3);
+
+                        return (
+                            <View
+                                key={opt.key}
+                                style={[
+                                    styles.unifiedRow,
+                                    {
+                                        backgroundColor: isSelected
+                                            ? (darkMode ? "#1E293B" : "#F8FAFC")
+                                            : (darkMode ? "#111827" : "#FFFFFF"),
+                                        borderColor: isSelected
+                                            ? (darkMode ? "#475569" : "#CBD5E1")
+                                            : (darkMode ? "#1F2937" : "#F1F5F9"),
+                                    },
+                                ]}
+                            >
+                                {/* Left: Tappable Checkbox + Roman badge + Type label */}
+                                <TouchableOpacity
+                                    style={styles.unifiedRowLeft}
+                                    onPress={() => toggleMixedPart(opt.key, isPreviewModal)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons
+                                        name={isSelected ? "checkbox" : "square-outline"}
+                                        size={18}
+                                        color={isSelected ? (accentColor || "#2563EB") : textSub}
+                                        style={{ marginRight: 8 }}
+                                    />
+                                    <View
+                                        style={[
+                                            styles.unifiedRomanBadge,
+                                            {
+                                                backgroundColor: isSelected
+                                                    ? (darkMode ? "#334155" : "#0F172A")
+                                                    : (darkMode ? "#1E293B" : "#E2E8F0"),
+                                            },
+                                        ]}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.unifiedRomanBadgeText,
+                                                {
+                                                    color: isSelected
+                                                        ? "#FFFFFF"
+                                                        : (darkMode ? textSub : "#94A3B8"),
+                                                },
+                                            ]}
+                                        >
+                                            {roman || "—"}
+                                        </Text>
+                                    </View>
+                                    <Text
+                                        style={[
+                                            styles.unifiedRowLabel,
+                                            {
+                                                color: isSelected
+                                                    ? (darkMode ? textMain : "#0F172A")
+                                                    : (darkMode ? textSub : "#64748B"),
+                                                fontWeight: isSelected ? "600" : "500",
+                                            },
+                                        ]}
+                                        numberOfLines={1}
+                                    >
+                                        {opt.label}
+                                    </Text>
+                                </TouchableOpacity>
+
+                                {/* Right: Compact stepper [ - ] count [ + ] if selected, else subtle hint */}
+                                {isSelected ? (
+                                    <View style={styles.unifiedStepper}>
+                                        <TouchableOpacity
+                                            onPress={() => adjustMixedPartCount(opt.key, -1, isPreviewModal)}
+                                            style={[
+                                                styles.unifiedStepBtn,
+                                                {
+                                                    backgroundColor: darkMode ? "#334155" : "#FFFFFF",
+                                                    borderColor: darkMode ? "#475569" : "#CBD5E1",
+                                                },
+                                            ]}
+                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                        >
+                                            <Ionicons name="remove" size={14} color={darkMode ? textMain : "#0F172A"} />
+                                        </TouchableOpacity>
+                                        <Text style={[styles.unifiedStepCount, { color: darkMode ? textMain : "#0F172A" }]}>
+                                            {countVal}
+                                        </Text>
+                                        <TouchableOpacity
+                                            onPress={() => adjustMixedPartCount(opt.key, 1, isPreviewModal)}
+                                            style={[
+                                                styles.unifiedStepBtn,
+                                                {
+                                                    backgroundColor: darkMode ? "#334155" : "#FFFFFF",
+                                                    borderColor: darkMode ? "#475569" : "#CBD5E1",
+                                                },
+                                            ]}
+                                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                        >
+                                            <Ionicons name="add" size={14} color={darkMode ? textMain : "#0F172A"} />
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity
+                                        onPress={() => toggleMixedPart(opt.key, isPreviewModal)}
+                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                        <Text style={{ fontSize: 12, color: textSub, fontStyle: "italic" }}>
+                                            Tap to add
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        );
+                    })}
+                </View>
+            </View>
+        );
+    }
+
     const canGenerate = (attachedFile !== null || lessonNotes.trim().length > 0) && !generating;
 
     return (
@@ -1268,143 +1680,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     </View>
 
                     {/* ── Mixed Assessment Type Picker ── */}
-                    {questionType === "Mixed Assessment" && (
-                        <View style={[styles.mixedPickerContainer, { backgroundColor: inputBg, borderColor: border }]}>
-                            <View style={styles.mixedPickerHeader}>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                    <Ionicons name="layers-outline" size={16} color={accentColor} />
-                                    <Text style={[styles.mixedPickerTitle, { color: accentColor }]}>
-                                        Select Test Types to Include
-                                    </Text>
-                                </View>
-                                <View style={[styles.mixedCountBadge, { backgroundColor: accentColor + "18" }]}>
-                                    <Text style={[styles.mixedCountText, { color: accentColor }]}>
-                                        {mixedTypes.length} Selected
-                                    </Text>
-                                </View>
-                            </View>
-
-                            <Text style={[styles.mixedPickerHint, { color: textSub }]}>
-                                Pick which test parts to include (e.g. I. Multiple Choice, II. Enumeration, III. True/False). Questions will be grouped into sequential parts.
-                            </Text>
-
-                            <View style={styles.mixedPickerGrid}>
-                                {MIXED_TYPE_OPTIONS.map((opt) => {
-                                    const orderIndex = mixedTypes.indexOf(opt.key);
-                                    const isSelected = orderIndex !== -1;
-                                    const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
-                                    const roman = isSelected ? romanNumerals[orderIndex] : null;
-
-                                    return (
-                                        <TouchableOpacity
-                                            key={opt.key}
-                                            style={[
-                                                styles.mixedChip,
-                                                { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF", borderColor: border },
-                                                isSelected && { backgroundColor: accentColor + "15", borderColor: accentColor },
-                                            ]}
-                                            onPress={() => {
-                                                if (isSelected) {
-                                                    // Don't allow deselecting if only 2 remain
-                                                    if (mixedTypes.length <= 2) {
-                                                        Alert.alert("Minimum Required", "Please select at least 2 test types for a mixed assessment.");
-                                                        return;
-                                                    }
-                                                    setMixedTypes(mixedTypes.filter((k) => k !== opt.key));
-                                                } else {
-                                                    setMixedTypes([...mixedTypes, opt.key]);
-                                                }
-                                            }}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Ionicons
-                                                name={isSelected ? "checkbox" : "square-outline"}
-                                                size={18}
-                                                color={isSelected ? accentColor : textSub}
-                                                style={{ marginRight: 6 }}
-                                            />
-                                            {roman && (
-                                                <View style={[styles.mixedRomanBadge, { backgroundColor: accentColor }]}>
-                                                    <Text style={styles.mixedRomanBadgeText}>{roman}</Text>
-                                                </View>
-                                            )}
-                                            <Text style={[
-                                                styles.mixedChipText,
-                                                { color: isSelected ? accentColor : textMain },
-                                                isSelected && { fontWeight: "700" },
-                                            ]}>
-                                                {opt.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-
-                            {/* Per-Part Item Split Editor (in exact tick order) */}
-                            {mixedTypes.length >= 2 && (
-                                <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: border }}>
-                                    <Text style={{ fontSize: 11, fontWeight: "700", color: textSub, marginBottom: 6 }}>
-                                        ITEMS PER PART (TICK ORDER)
-                                    </Text>
-                                    {mixedTypes.map((key, idx) => {
-                                        const opt = MIXED_TYPE_OPTIONS.find((o) => o.key === key);
-                                        const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
-                                        const countVal = mixedPartCounts[key] ?? 1;
-                                        return (
-                                            <View
-                                                key={`split_${key}`}
-                                                style={{
-                                                    flexDirection: "row",
-                                                    alignItems: "center",
-                                                    justifyContent: "space-between",
-                                                    paddingVertical: 5,
-                                                }}
-                                            >
-                                                <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain }}>
-                                                    Part {romanNumerals[idx]}. {opt?.label || key}
-                                                </Text>
-                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                                    <TouchableOpacity
-                                                        onPress={() => adjustPartCount(key, -1)}
-                                                        style={{
-                                                            width: 24,
-                                                            height: 24,
-                                                            borderRadius: 6,
-                                                            borderWidth: 1,
-                                                            borderColor: border,
-                                                            alignItems: "center",
-                                                            justifyContent: "center",
-                                                            backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                                                        }}
-                                                    >
-                                                        <Ionicons name="remove" size={14} color={textMain} />
-                                                    </TouchableOpacity>
-                                                    <Text style={{ fontSize: 13, fontWeight: "700", color: accentColor, minWidth: 26, textAlign: "center" }}>
-                                                        {countVal}
-                                                    </Text>
-                                                    <TouchableOpacity
-                                                        onPress={() => adjustPartCount(key, 1)}
-                                                        style={{
-                                                            width: 24,
-                                                            height: 24,
-                                                            borderRadius: 6,
-                                                            borderWidth: 1,
-                                                            borderColor: border,
-                                                            alignItems: "center",
-                                                            justifyContent: "center",
-                                                            backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                                                        }}
-                                                    >
-                                                        <Ionicons name="add" size={14} color={textMain} />
-                                                    </TouchableOpacity>
-                                                </View>
-                                            </View>
-                                        );
-                                    })}
-                                </View>
-                            )}
-                        </View>
-                    )}
+                    {questionType === "Mixed Assessment" && renderUnifiedMixedPicker(false)}
 
                     {/* ── Difficulty Level ── */}
                     <Dropdown
@@ -1516,13 +1792,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             </View>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                                 <TouchableOpacity
-                                    onPress={() => {
-                                        setAdjustTargetCount(generatedAssessment?.questions.length || 10);
-                                        setAdjustTargetType(questionType);
-                                        setAdjustTargetDifficulty(difficulty);
-                                        setAdjustTargetGradeLevel(gradeLevel);
-                                        setAdjustSetupModalOpen(true);
-                                    }}
+                                    onPress={handleOpenAdjustSetup}
                                     style={[styles.previewAdjustBtn, { backgroundColor: inputBg, borderColor: border }]}
                                     activeOpacity={0.7}
                                 >
@@ -1530,7 +1800,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     <Text style={[styles.previewAdjustBtnText, { color: darkMode ? "#CBD5E1" : "#0F172A" }]}>Adjust Setup</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    onPress={handleReset}
+                                    onPress={handleConfirmNewQuiz}
                                     style={[styles.previewResetBtn, { backgroundColor: inputBg, borderColor: border }]}
                                     activeOpacity={0.7}
                                 >
@@ -1551,13 +1821,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         <View style={[styles.previewStatsRow, { backgroundColor: inputBg, borderColor: border }]}>
                             <TouchableOpacity
                                 style={styles.previewStatItem}
-                                onPress={() => {
-                                    setAdjustTargetCount(generatedAssessment?.questions.length || 10);
-                                    setAdjustTargetType(questionType);
-                                    setAdjustTargetDifficulty(difficulty);
-                                    setAdjustTargetGradeLevel(gradeLevel);
-                                    setAdjustSetupModalOpen(true);
-                                }}
+                                onPress={handleOpenAdjustSetup}
                                 activeOpacity={0.7}
                             >
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
@@ -1578,13 +1842,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <TouchableOpacity
                                 style={styles.previewStatItem}
-                                onPress={() => {
-                                    setAdjustTargetCount(generatedAssessment?.questions.length || 10);
-                                    setAdjustTargetType(questionType);
-                                    setAdjustTargetDifficulty(difficulty);
-                                    setAdjustTargetGradeLevel(gradeLevel);
-                                    setAdjustSetupModalOpen(true);
-                                }}
+                                onPress={handleOpenAdjustSetup}
                                 activeOpacity={0.7}
                             >
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
@@ -1598,13 +1856,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <TouchableOpacity
                                 style={styles.previewStatItem}
-                                onPress={() => {
-                                    setAdjustTargetCount(generatedAssessment?.questions.length || 10);
-                                    setAdjustTargetType(questionType);
-                                    setAdjustTargetDifficulty(difficulty);
-                                    setAdjustTargetGradeLevel(gradeLevel);
-                                    setAdjustSetupModalOpen(true);
-                                }}
+                                onPress={handleOpenAdjustSetup}
                                 activeOpacity={0.7}
                             >
                                 <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
@@ -1618,301 +1870,317 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         </View>
                     </View>
 
-                    {/* ── Scannable Question Cards ── */}
-                    {generatedAssessment?.questions.map((q) => {
-                        const answerObj = generatedAssessment.answerKey.find((k) => k.questionNumber === q.questionNumber);
-                        const correctAnswer = answerObj ? answerObj.correctAnswer : "";
-                        const points = answerObj ? answerObj.points : 1;
-                        const hasOptions = Boolean(q.options && q.options.length > 0);
+                    {/* ── Scannable Question Cards Grouped by Section ── */}
+                    {assessmentSections.map((section) => {
+                        const showSectionHeader = questionType === "Mixed Assessment" || assessmentSections.length > 1;
+                        const isWordBoxSection = section.type === "word_box";
+                        const sharedWords = isWordBoxSection
+                            ? Array.from(
+                                new Set(
+                                    section.questions
+                                        .flatMap((q) => q.options || [])
+                                        .map((w) => w.trim())
+                                        .filter(Boolean)
+                                )
+                            )
+                            : [];
 
                         return (
-                            <View key={q.questionNumber} style={[styles.questionCard, { backgroundColor: cardBg, borderColor: border }]}>
-                                {/* Row 1 — Dedicated Card Header Bar */}
-                                <View style={styles.questionHeader}>
-                                    <View style={styles.questionHeaderLeft}>
-                                        <View style={[styles.questionNumber, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
-                                            <Text style={[styles.questionNumberText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
-                                                Q{q.questionNumber}
-                                            </Text>
-                                        </View>
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.typeSelectorChip,
-                                                {
-                                                    backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                                },
-                                            ]}
-                                            onPress={() => {
-                                                setSelectedQForTypeChange(q);
-                                                setSelectedNewType(q.type);
-                                                setChangeTypeModalOpen(true);
-                                            }}
-                                            activeOpacity={0.7}
-                                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                                        >
-                                            <Text style={[styles.typeSelectorChipText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>
-                                                {formatTypeLabel(q.type)}
-                                            </Text>
-                                            <Ionicons name="chevron-down" size={11} color={darkMode ? "#94A3B8" : "#64748B"} />
-                                        </TouchableOpacity>
-                                        <Text style={[styles.questionPointsLabel, { color: darkMode ? textSub : "#64748B" }]}>
-                                            {points} {points === 1 ? "pt" : "pts"}
+                            <View key={`sec_${section.roman}_${section.type}`}>
+                                {showSectionHeader && (
+                                    <View style={styles.sectionHeaderRow}>
+                                        <Text style={[styles.sectionHeaderTitle, { color: darkMode ? "#CBD5E1" : "#475569" }]}>
+                                            {section.title}
+                                        </Text>
+                                        <Text style={[styles.sectionHeaderMeta, { color: darkMode ? textSub : "#64748B" }]}>
+                                            {section.startNum === section.endNum
+                                                ? `Item ${section.startNum} (${section.totalPoints} ${section.totalPoints === 1 ? "pt" : "pts"})`
+                                                : `Items ${section.startNum}–${section.endNum} (${section.totalPoints} pts)`}
                                         </Text>
                                     </View>
-
-                                    <View style={styles.questionHeaderToolbar}>
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.regenerateGhostPill,
-                                                {
-                                                    backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                                },
-                                            ]}
-                                            onPress={() => handleRegenerateQuestion(q.questionNumber)}
-                                            disabled={regeneratingQNum !== null}
-                                            activeOpacity={0.7}
-                                        >
-                                            {regeneratingQNum === q.questionNumber ? (
-                                                <>
-                                                    <ActivityIndicator size="small" color={darkMode ? "#CBD5E1" : "#334155"} style={{ marginRight: 5, transform: [{ scale: 0.75 }] }} />
-                                                    <Text style={[styles.regenerateGhostPillText, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
-                                                        Regenerating...
-                                                    </Text>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Ionicons name="refresh" size={13} color={darkMode ? "#CBD5E1" : "#334155"} style={{ marginRight: 4 }} />
-                                                    <Text style={[styles.regenerateGhostPillText, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
-                                                        Regenerate
-                                                    </Text>
-                                                </>
-                                            )}
-                                        </TouchableOpacity>
-
-                                        {/* Edit question text button */}
-                                        <TouchableOpacity
-                                            onPress={() => {
-                                                if (editingQuestionQNum === q.questionNumber) {
-                                                    setEditingQuestionQNum(null);
-                                                } else {
-                                                    setEditingQuestionQNum(q.questionNumber);
-                                                    setEditingQuestionText(q.questionText);
-                                                }
-                                            }}
-                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                            style={styles.actionIconBtn}
-                                        >
-                                            <Ionicons
-                                                name={editingQuestionQNum === q.questionNumber ? "close" : "pencil-outline"}
-                                                size={18}
-                                                color={darkMode ? textSub : "#64748B"}
-                                            />
-                                        </TouchableOpacity>
-
-                                        {/* Delete question button */}
-                                        <TouchableOpacity
-                                            onPress={() => handleDeleteQuestion(q.questionNumber)}
-                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                            style={styles.deleteQBtn}
-                                        >
-                                            <Ionicons name="trash-outline" size={18} color={darkMode ? textSub : "#64748B"} />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                {/* Row 2 — Full-Width Question Prompt */}
-                                {editingQuestionQNum === q.questionNumber ? (
-                                    <View style={{ marginBottom: 12 }}>
-                                        <TextInput
-                                            style={[
-                                                styles.questionEditInput,
-                                                {
-                                                    backgroundColor: inputBg,
-                                                    borderColor: accentColor,
-                                                    color: textMain,
-                                                },
-                                            ]}
-                                            value={editingQuestionText}
-                                            onChangeText={setEditingQuestionText}
-                                            multiline
-                                            autoFocus
-                                        />
-                                        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-                                            <TouchableOpacity
-                                                onPress={() => setEditingQuestionQNum(null)}
-                                                style={[styles.smallCancelBtn, { borderColor: border }]}
-                                            >
-                                                <Text style={{ fontSize: 12, fontWeight: "600", color: textSub }}>Cancel</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                onPress={() => handleSaveQuestionTextEdit(q.questionNumber)}
-                                                style={[styles.smallSaveBtn, { backgroundColor: accentColor }]}
-                                            >
-                                                <Text style={{ fontSize: 12, fontWeight: "600", color: "#FFFFFF" }}>Save Question</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-                                ) : (
-                                    <Text style={[styles.questionText, { color: darkMode ? textMain : "#0F172A" }]}>
-                                        {q.questionText}
-                                    </Text>
                                 )}
 
-                                {/* Word Bank display for word_box questions */}
-                                {q.type === "word_box" && q.options && q.options.length > 0 && (
-                                    <View style={[styles.wordBankContainer, { backgroundColor: inputBg, borderColor: border }]}>
-                                        <View style={styles.wordBankHeader}>
-                                            <Ionicons name="grid" size={13} color={textSub} />
-                                            <Text style={[styles.wordBankTitle, { color: textSub }]}>WORD BANK</Text>
+                                {isWordBoxSection && sharedWords.length > 0 && (
+                                    <View style={[styles.sharedWordBankCard, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF", borderColor: border }]}>
+                                        <View style={styles.sharedWordBankHeader}>
+                                            <Ionicons name="grid-outline" size={14} color={accentColor} />
+                                            <Text style={[styles.sharedWordBankTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                                                Word Bank for Part {section.roman}
+                                            </Text>
                                         </View>
-                                        <View style={styles.wordBankChipsWrap}>
-                                            {q.options.map((opt, cIdx) => {
-                                                const isCorrect = opt.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
-                                                return (
-                                                    <View
-                                                        key={`wb_${cIdx}`}
-                                                        style={[
-                                                            styles.wordBankChip,
-                                                            { backgroundColor: darkMode ? "#374151" : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" },
-                                                            isCorrect && { backgroundColor: "#F0FDF4", borderColor: "#16A34A" },
-                                                        ]}
-                                                    >
-                                                        <Text style={[
-                                                            styles.wordBankChipText,
-                                                            { color: darkMode ? textMain : "#334155" },
-                                                            isCorrect && { color: "#15803D", fontWeight: "600" },
-                                                        ]}>
-                                                            {opt}
+                                        <View style={styles.sharedWordBankChipsWrap}>
+                                            {sharedWords.map((word, wIdx) => (
+                                                <View
+                                                    key={`swb_${wIdx}`}
+                                                    style={[
+                                                        styles.sharedWordChip,
+                                                        { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: darkMode ? border : "#E2E8F0" },
+                                                    ]}
+                                                >
+                                                    <Text style={[styles.sharedWordChipText, { color: darkMode ? textMain : "#334155" }]}>
+                                                        {word}
+                                                    </Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {section.questions.map((q) => {
+                                    const answerObj = generatedAssessment?.answerKey.find((k) => k.questionNumber === q.questionNumber);
+                                    const correctAnswer = answerObj ? answerObj.correctAnswer : "";
+                                    const points = answerObj ? answerObj.points : 1;
+                                    const hasOptions = Boolean(q.options && q.options.length > 0 && q.type !== "word_box");
+
+                                    return (
+                                        <View key={q.questionNumber} style={[styles.questionCard, { backgroundColor: cardBg, borderColor: border }]}>
+                                            {/* Row 1 — Dedicated Card Header Bar */}
+                                            <View style={styles.questionHeader}>
+                                                <View style={styles.questionHeaderLeft}>
+                                                    <View style={[styles.questionNumber, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                                                        <Text style={[styles.questionNumberText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                                            Q{q.questionNumber}
                                                         </Text>
-                                                        {isCorrect && (
-                                                            <Ionicons name="checkmark" size={14} color="#16A34A" />
+                                                    </View>
+                                                    <TouchableOpacity
+                                                        style={[
+                                                            styles.typeSelectorChip,
+                                                            {
+                                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                                                borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                                            },
+                                                        ]}
+                                                        onPress={() => {
+                                                            setSelectedQForTypeChange(q);
+                                                            setSelectedNewType(q.type);
+                                                            setChangeTypeModalOpen(true);
+                                                        }}
+                                                        activeOpacity={0.7}
+                                                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                                    >
+                                                        <Text style={[styles.typeSelectorChipText, { color: darkMode ? "#CBD5E1" : "#475569" }]} numberOfLines={1}>
+                                                            {formatTypeLabel(q.type)}
+                                                        </Text>
+                                                        <Ionicons name="chevron-down" size={11} color={darkMode ? "#94A3B8" : "#64748B"} />
+                                                    </TouchableOpacity>
+                                                    <Text style={[styles.questionPointsLabel, { color: darkMode ? textSub : "#64748B" }]}>
+                                                        {points} {points === 1 ? "pt" : "pts"}
+                                                    </Text>
+                                                </View>
+
+                                                <View style={styles.questionHeaderToolbar}>
+                                                    <TouchableOpacity
+                                                        style={[
+                                                            styles.regenerateIconBtn,
+                                                            {
+                                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                                                borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                                            },
+                                                        ]}
+                                                        onPress={() => handleRegenerateQuestion(q.questionNumber)}
+                                                        disabled={regeneratingQNum !== null}
+                                                        activeOpacity={0.7}
+                                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                    >
+                                                        {regeneratingQNum === q.questionNumber ? (
+                                                            <ActivityIndicator size="small" color={darkMode ? "#CBD5E1" : "#334155"} style={{ transform: [{ scale: 0.75 }] }} />
+                                                        ) : (
+                                                            <Ionicons name="refresh" size={14} color={darkMode ? "#CBD5E1" : "#334155"} />
+                                                        )}
+                                                    </TouchableOpacity>
+
+                                                    {/* Edit question text button */}
+                                                    <TouchableOpacity
+                                                        onPress={() => {
+                                                            if (editingQuestionQNum === q.questionNumber) {
+                                                                setEditingQuestionQNum(null);
+                                                            } else {
+                                                                setEditingQuestionQNum(q.questionNumber);
+                                                                setEditingQuestionText(q.questionText);
+                                                            }
+                                                        }}
+                                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                                        style={styles.actionIconBtn}
+                                                    >
+                                                        <Ionicons
+                                                            name={editingQuestionQNum === q.questionNumber ? "close" : "pencil-outline"}
+                                                            size={18}
+                                                            color={darkMode ? textSub : "#64748B"}
+                                                        />
+                                                    </TouchableOpacity>
+
+                                                    {/* Delete question button */}
+                                                    <TouchableOpacity
+                                                        onPress={() => handleDeleteQuestion(q.questionNumber)}
+                                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                                        style={styles.deleteQBtn}
+                                                    >
+                                                        <Ionicons name="trash-outline" size={18} color={darkMode ? textSub : "#64748B"} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+
+                                            {/* Row 2 — Full-Width Question Prompt */}
+                                            {editingQuestionQNum === q.questionNumber ? (
+                                                <View style={{ marginBottom: 12 }}>
+                                                    <TextInput
+                                                        style={[
+                                                            styles.questionEditInput,
+                                                            {
+                                                                backgroundColor: inputBg,
+                                                                borderColor: accentColor,
+                                                                color: textMain,
+                                                            },
+                                                        ]}
+                                                        value={editingQuestionText}
+                                                        onChangeText={setEditingQuestionText}
+                                                        multiline
+                                                        autoFocus
+                                                    />
+                                                    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                                                        <TouchableOpacity
+                                                            onPress={() => setEditingQuestionQNum(null)}
+                                                            style={[styles.smallCancelBtn, { borderColor: border }]}
+                                                        >
+                                                            <Text style={{ fontSize: 12, fontWeight: "600", color: textSub }}>Cancel</Text>
+                                                        </TouchableOpacity>
+                                                        <TouchableOpacity
+                                                            onPress={() => handleSaveQuestionTextEdit(q.questionNumber)}
+                                                            style={[styles.smallSaveBtn, { backgroundColor: accentColor }]}
+                                                        >
+                                                            <Text style={{ fontSize: 12, fontWeight: "600", color: "#FFFFFF" }}>Save Question</Text>
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                </View>
+                                            ) : (
+                                                <Text style={[styles.questionText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                                    {q.questionText}
+                                                </Text>
+                                            )}
+
+                                            {/* Row 3 — Options List for Multiple Choice / True False */}
+                                            {hasOptions && (
+                                                <View style={styles.choicesWrap}>
+                                                    {q.options.map((opt, cIdx) => {
+                                                        const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
+                                                        return (
+                                                            <View
+                                                                key={`${opt}_${cIdx}`}
+                                                                style={[
+                                                                    styles.choiceItem,
+                                                                    {
+                                                                        backgroundColor: darkMode ? inputBg : "#FFFFFF",
+                                                                        borderColor: darkMode ? border : "#E2E8F0",
+                                                                    },
+                                                                    isCorrect && {
+                                                                        backgroundColor: "#F0FDF4",
+                                                                        borderColor: "#16A34A",
+                                                                    },
+                                                                ]}
+                                                            >
+                                                                <Text
+                                                                    style={[
+                                                                        styles.choiceText,
+                                                                        { color: darkMode ? textMain : "#334155" },
+                                                                        isCorrect && { color: "#15803D", fontWeight: "600" },
+                                                                    ]}
+                                                                >
+                                                                    {opt}
+                                                                </Text>
+                                                                {isCorrect && (
+                                                                    <Ionicons name="checkmark" size={16} color="#16A34A" style={{ marginLeft: 8 }} />
+                                                                )}
+                                                            </View>
+                                                        );
+                                                    })}
+                                                </View>
+                                            )}
+
+                                            {/* Compact Answer Key Row for non-MC questions */}
+                                            {(!hasOptions || q.type === "word_box") && (() => {
+                                                const isShortAnswerType =
+                                                    q.type === "identification" ||
+                                                    q.type === "fill_blank" ||
+                                                    q.type === "enumeration" ||
+                                                    q.type === "word_box";
+                                                const subItems = q.type === "enumeration"
+                                                    ? correctAnswer.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)
+                                                    : [correctAnswer.trim()];
+                                                const isTooLong =
+                                                    isShortAnswerType &&
+                                                    subItems.some(
+                                                        (item) =>
+                                                            item.length > 25 ||
+                                                            item.split(/\s+/).filter(Boolean).length > 3
+                                                    );
+                                                const isEditingThis = editingAnswerQNum === q.questionNumber;
+
+                                                return (
+                                                    <View style={[styles.answerWrap, { borderLeftColor: isTooLong ? "#D97706" : "#16A34A", marginTop: 4 }]}>
+                                                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                                                            <Text style={styles.answerLabel}>Answer Key</Text>
+                                                            {isShortAnswerType && !isEditingThis && (
+                                                                <TouchableOpacity
+                                                                    onPress={() => {
+                                                                        setEditingAnswerQNum(q.questionNumber);
+                                                                        setEditingAnswerText(correctAnswer);
+                                                                    }}
+                                                                >
+                                                                    <Text style={{ fontSize: 12, fontWeight: "600", color: isTooLong ? "#D97706" : "#475569" }}>
+                                                                        Edit Answer
+                                                                    </Text>
+                                                                </TouchableOpacity>
+                                                            )}
+                                                        </View>
+
+                                                        {isEditingThis ? (
+                                                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
+                                                                <TextInput
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        borderWidth: 1,
+                                                                        borderColor: "#CBD5E1",
+                                                                        borderRadius: 8,
+                                                                        paddingHorizontal: 10,
+                                                                        paddingVertical: 6,
+                                                                        fontSize: 13,
+                                                                        color: textMain,
+                                                                        backgroundColor: inputBg,
+                                                                    }}
+                                                                    value={editingAnswerText}
+                                                                    onChangeText={setEditingAnswerText}
+                                                                    placeholder="1–3 words, max 25 chars"
+                                                                    placeholderTextColor={textSub}
+                                                                />
+                                                                <TouchableOpacity
+                                                                    onPress={() => handleSaveInlineAnswerEdit(q.questionNumber)}
+                                                                    style={{
+                                                                        backgroundColor: "#0F172A",
+                                                                        paddingHorizontal: 12,
+                                                                        paddingVertical: 7,
+                                                                        borderRadius: 8,
+                                                                    }}
+                                                                >
+                                                                    <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "600" }}>Save</Text>
+                                                                </TouchableOpacity>
+                                                            </View>
+                                                        ) : (
+                                                            <Text style={[styles.answerText, { color: isTooLong ? "#D97706" : "#15803D" }]}>
+                                                                {correctAnswer}
+                                                            </Text>
+                                                        )}
+
+                                                        {isTooLong && (
+                                                            <Text style={{ fontSize: 11, fontWeight: "600", color: "#D97706", marginTop: 4 }}>
+                                                                Exceeds 25 chars / 3 words — shorten so it fits inside the scannable answer box.
+                                                            </Text>
                                                         )}
                                                     </View>
                                                 );
-                                            })}
-                                        </View>
-                                    </View>
-                                )}
-
-                                {/* Row 3 — Options List with Emerald Green Correct Key */}
-                                {q.type !== "word_box" && q.options && q.options.length > 0 && (
-                                    <View style={styles.choicesWrap}>
-                                        {q.options.map((opt, cIdx) => {
-                                            const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
-                                            return (
-                                                <View
-                                                    key={`${opt}_${cIdx}`}
-                                                    style={[
-                                                        styles.choiceItem,
-                                                        {
-                                                            backgroundColor: darkMode ? inputBg : "#FFFFFF",
-                                                            borderColor: darkMode ? border : "#E2E8F0",
-                                                        },
-                                                        isCorrect && {
-                                                            backgroundColor: "#F0FDF4",
-                                                            borderColor: "#16A34A",
-                                                        },
-                                                    ]}
-                                                >
-                                                    <Text style={[
-                                                        styles.choiceText,
-                                                        { color: darkMode ? textMain : "#334155" },
-                                                        isCorrect && { color: "#15803D", fontWeight: "600" },
-                                                    ]}>
-                                                        {opt}
-                                                    </Text>
-                                                    {isCorrect && (
-                                                        <Ionicons name="checkmark" size={16} color="#16A34A" style={{ marginLeft: 8 }} />
-                                                    )}
-                                                </View>
-                                            );
-                                        })}
-                                    </View>
-                                )}
-
-                                {/* Compact Answer Key Row only for non-option question types (Identification, Fill-in-Blank, Enumeration) */}
-                                {!hasOptions && (() => {
-                                    const isShortAnswerType =
-                                        q.type === "identification" ||
-                                        q.type === "fill_blank" ||
-                                        q.type === "enumeration";
-                                    const subItems = q.type === "enumeration"
-                                        ? correctAnswer.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)
-                                        : [correctAnswer.trim()];
-                                    const isTooLong =
-                                        isShortAnswerType &&
-                                        subItems.some(
-                                            (item) =>
-                                                item.length > 25 ||
-                                                item.split(/\s+/).filter(Boolean).length > 3
-                                        );
-                                    const isEditingThis = editingAnswerQNum === q.questionNumber;
-
-                                    return (
-                                        <View style={[styles.answerWrap, { borderLeftColor: isTooLong ? "#D97706" : "#16A34A", marginTop: 4 }]}>
-                                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                                                <Text style={styles.answerLabel}>Answer Key</Text>
-                                                {isShortAnswerType && !isEditingThis && (
-                                                    <TouchableOpacity
-                                                        onPress={() => {
-                                                            setEditingAnswerQNum(q.questionNumber);
-                                                            setEditingAnswerText(correctAnswer);
-                                                        }}
-                                                    >
-                                                        <Text style={{ fontSize: 12, fontWeight: "600", color: isTooLong ? "#D97706" : "#475569" }}>
-                                                            Edit Answer
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                )}
-                                            </View>
-
-                                            {isEditingThis ? (
-                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
-                                                    <TextInput
-                                                        style={{
-                                                            flex: 1,
-                                                            borderWidth: 1,
-                                                            borderColor: "#CBD5E1",
-                                                            borderRadius: 8,
-                                                            paddingHorizontal: 10,
-                                                            paddingVertical: 6,
-                                                            fontSize: 13,
-                                                            color: textMain,
-                                                            backgroundColor: inputBg,
-                                                        }}
-                                                        value={editingAnswerText}
-                                                        onChangeText={setEditingAnswerText}
-                                                        placeholder="1–3 words, max 25 chars"
-                                                        placeholderTextColor={textSub}
-                                                    />
-                                                    <TouchableOpacity
-                                                        onPress={() => handleSaveInlineAnswerEdit(q.questionNumber)}
-                                                        style={{
-                                                            backgroundColor: "#0F172A",
-                                                            paddingHorizontal: 12,
-                                                            paddingVertical: 7,
-                                                            borderRadius: 8,
-                                                        }}
-                                                    >
-                                                        <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "600" }}>Save</Text>
-                                                    </TouchableOpacity>
-                                                </View>
-                                            ) : (
-                                                <Text style={[styles.answerText, { color: isTooLong ? "#D97706" : "#15803D" }]}>
-                                                    {correctAnswer}
-                                                </Text>
-                                            )}
-
-                                            {isTooLong && (
-                                                <Text style={{ fontSize: 11, fontWeight: "600", color: "#D97706", marginTop: 4 }}>
-                                                    Exceeds 25 chars / 3 words — shorten so it fits inside the scannable answer box.
-                                                </Text>
-                                            )}
+                                            })()}
                                         </View>
                                     );
-                                })()}
+                                })}
                             </View>
                         );
                     })}
@@ -2779,8 +3047,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                         ) : (
                                                             <>
                                                                 <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                                                                <Text style={{ fontSize: 12.5, fontWeight: "700", color: "#FFFFFF" }}>
-                                                                    Generate +{diff} with AI
+                                                                <Text style={{ fontSize: 13, fontWeight: "600", color: "#FFFFFF" }}>
+                                                                    Generate +{diff} Questions
                                                                 </Text>
                                                             </>
                                                         )}
@@ -2812,9 +3080,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 );
                             })()}
 
-                            {/* Question Type Selection */}
+                            {/* Assessment Format Selection */}
                             <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 16 }]}>
-                                DEFAULT QUESTION TYPE
+                                Assessment format
                             </Text>
                             <Dropdown
                                 label="Question type"
@@ -2823,6 +3091,11 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                 onSelect={setAdjustTargetType}
                                 accentColor={accentColor}
                             />
+                            {adjustTargetType === "Mixed Assessment" && (
+                                <View style={{ marginTop: 10 }}>
+                                    {renderUnifiedMixedPicker(true)}
+                                </View>
+                            )}
                             <Text style={{ fontSize: 11.5, color: textSub, marginTop: 4, lineHeight: 16 }}>
                                 Individual question types can also be changed directly on each question card below.
                             </Text>
@@ -2915,60 +3188,63 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569" }]}>
-                            SELECT NEW QUESTION TYPE
-                        </Text>
+                        {/* Scrollable Compact Options List */}
+                        <ScrollView
+                            style={{ maxHeight: 330 }}
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={{ paddingVertical: 4 }}
+                        >
+                            <View style={styles.typeOptionsList}>
+                                {([
+                                    { key: "multiple_choice" as QuestionType, label: "Multiple Choice", desc: "4 options (A, B, C, D) with 1 answer box", icon: "list" as const },
+                                    { key: "true_false" as QuestionType, label: "True / False", desc: "Binary choices (A) True, B) False)", icon: "checkmark-done" as const },
+                                    { key: "identification" as QuestionType, label: "Identification", desc: "Short concept/term (1–3 words, max 25 chars)", icon: "text" as const },
+                                    { key: "fill_blank" as QuestionType, label: "Fill in the Blank", desc: "Sentence with blank to fill in (1–3 words)", icon: "pencil" as const },
+                                    { key: "enumeration" as QuestionType, label: "Enumeration", desc: "List 2–4 sequential items across boxes", icon: "reorder-three" as const },
+                                    { key: "word_box" as QuestionType, label: "Word Box", desc: "Fill in blank using a randomized word bank", icon: "grid" as const },
+                                ]).map((opt) => {
+                                    const isSelected = selectedNewType === opt.key;
+                                    return (
+                                        <TouchableOpacity
+                                            key={opt.key}
+                                            style={[
+                                                styles.typeOptionRow,
+                                                {
+                                                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                                },
+                                                isSelected && {
+                                                    borderColor: "#0F172A",
+                                                    backgroundColor: darkMode ? "#334155" : "#F8FAFC",
+                                                },
+                                            ]}
+                                            onPress={() => setSelectedNewType(opt.key)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={[styles.typeOptionIcon, isSelected && { backgroundColor: "#0F172A" }]}>
+                                                <Ionicons name={opt.icon} size={15} color={isSelected ? "#FFFFFF" : textSub} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={[styles.typeOptionTitle, { color: darkMode ? textMain : "#0F172A" }, isSelected && { fontWeight: "700" }]}>
+                                                    {opt.label}
+                                                </Text>
+                                                <Text style={[styles.typeOptionDesc, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>
+                                                    {opt.desc}
+                                                </Text>
+                                            </View>
+                                            <Ionicons
+                                                name={isSelected ? "radio-button-on" : "radio-button-off"}
+                                                size={18}
+                                                color={isSelected ? "#0F172A" : textSub}
+                                            />
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </ScrollView>
 
-                        <View style={styles.typeOptionsList}>
-                            {([
-                                { key: "multiple_choice" as QuestionType, label: "Multiple Choice", desc: "4 options (A, B, C, D) with 1 answer box", icon: "list" as const },
-                                { key: "true_false" as QuestionType, label: "True / False", desc: "Binary choices (A) True, B) False)", icon: "checkmark-done" as const },
-                                { key: "identification" as QuestionType, label: "Identification", desc: "Short concept/term (1–3 words, max 25 chars)", icon: "text" as const },
-                                { key: "fill_blank" as QuestionType, label: "Fill in the Blank", desc: "Sentence with blank to fill in (1–3 words)", icon: "pencil" as const },
-                                { key: "enumeration" as QuestionType, label: "Enumeration", desc: "List 2–4 sequential items across boxes", icon: "reorder-three" as const },
-                                { key: "word_box" as QuestionType, label: "Word Box", desc: "Fill in blank using a randomized word bank", icon: "grid" as const },
-                            ]).map((opt) => {
-                                const isSelected = selectedNewType === opt.key;
-                                return (
-                                    <TouchableOpacity
-                                        key={opt.key}
-                                        style={[
-                                            styles.typeOptionRow,
-                                            {
-                                                backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                                                borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                            },
-                                            isSelected && {
-                                                borderColor: "#0F172A",
-                                                backgroundColor: darkMode ? "#334155" : "#F8FAFC",
-                                            },
-                                        ]}
-                                        onPress={() => setSelectedNewType(opt.key)}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View style={[styles.typeOptionIcon, isSelected && { backgroundColor: "#0F172A" }]}>
-                                            <Ionicons name={opt.icon} size={16} color={isSelected ? "#FFFFFF" : textSub} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={[styles.typeOptionTitle, { color: darkMode ? textMain : "#0F172A" }, isSelected && { fontWeight: "700" }]}>
-                                                {opt.label}
-                                            </Text>
-                                            <Text style={[styles.typeOptionDesc, { color: darkMode ? textSub : "#64748B" }]}>
-                                                {opt.desc}
-                                            </Text>
-                                        </View>
-                                        <Ionicons
-                                            name={isSelected ? "radio-button-on" : "radio-button-off"}
-                                            size={18}
-                                            color={isSelected ? "#0F172A" : textSub}
-                                        />
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-
-                        {/* Actions */}
-                        <View style={{ marginTop: 14, gap: 8 }}>
+                        {/* Sticky Action Footer */}
+                        <View style={[styles.typeModalFooter, { borderTopColor: darkMode ? "#374151" : "#E2E8F0", paddingBottom: insets.bottom + 16 }]}>
                             <TouchableOpacity
                                 style={styles.typeRegenAiBtn}
                                 onPress={() => {
@@ -3336,7 +3612,24 @@ const styles = StyleSheet.create({
         borderRadius: 6,
     },
     actionIconBtn: {
-        padding: 4,
+        width: 28,
+        height: 28,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    deleteQBtn: {
+        width: 28,
+        height: 28,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    regenerateIconBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 6,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
     },
 
     /* Results */
@@ -3347,6 +3640,58 @@ const styles = StyleSheet.create({
     },
     resultsBannerTitle: { fontSize: 15, fontWeight: "700" },
     resultsBannerSub: { fontSize: 11, color: "#6B7280", marginTop: 2 },
+
+    /* Section Headers */
+    sectionHeaderRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginTop: 18,
+        marginBottom: 8,
+        paddingHorizontal: 4,
+    },
+    sectionHeaderTitle: {
+        fontSize: 12,
+        fontWeight: "700",
+        letterSpacing: 0.5,
+    },
+    sectionHeaderMeta: {
+        fontSize: 12,
+        fontWeight: "500",
+    },
+
+    /* Shared Word Bank Card */
+    sharedWordBankCard: {
+        borderRadius: 12,
+        borderWidth: 1,
+        padding: 14,
+        marginBottom: 12,
+    },
+    sharedWordBankHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 10,
+    },
+    sharedWordBankTitle: {
+        fontSize: 13,
+        fontWeight: "700",
+    },
+    sharedWordBankChipsWrap: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 6,
+    },
+    sharedWordChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 1,
+    },
+    sharedWordChipText: {
+        fontSize: 12.5,
+        fontWeight: "600",
+    },
 
     questionCard: {
         backgroundColor: "#FFFFFF", borderRadius: 12, padding: 16,
@@ -3361,7 +3706,9 @@ const styles = StyleSheet.create({
     questionHeaderLeft: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 8,
+        gap: 6,
+        flex: 1,
+        minWidth: 0,
     },
     typeSelectorChip: {
         flexDirection: "row",
@@ -3371,15 +3718,17 @@ const styles = StyleSheet.create({
         paddingVertical: 3,
         borderRadius: 6,
         borderWidth: 1,
+        maxWidth: 130,
     },
     typeSelectorChipText: {
-        fontSize: 11,
+        fontSize: 11.5,
         fontWeight: "600",
     },
     questionHeaderToolbar: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 8,
+        gap: 6,
+        flexShrink: 0,
     },
     questionNumber: {
         minWidth: 26,
@@ -3697,11 +4046,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: "#9CA3AF",
         fontWeight: "500",
-    },
-
-    /* ── Delete Question Button ── */
-    deleteQBtn: {
-        padding: 4,
     },
 
     /* ── Add Question Button ── */
@@ -4141,14 +4485,16 @@ const styles = StyleSheet.create({
     typeOptionRow: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 12,
-        padding: 12,
+        gap: 10,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
         borderRadius: 10,
         borderWidth: 1,
+        marginBottom: 6,
     },
     typeOptionIcon: {
-        width: 32,
-        height: 32,
+        width: 30,
+        height: 30,
         borderRadius: 8,
         alignItems: "center",
         justifyContent: "center",
@@ -4162,6 +4508,12 @@ const styles = StyleSheet.create({
         fontSize: 11.5,
         lineHeight: 15,
         marginTop: 1,
+    },
+    typeModalFooter: {
+        marginTop: 10,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        gap: 8,
     },
     typeRegenAiBtn: {
         flexDirection: "row",
@@ -4189,5 +4541,87 @@ const styles = StyleSheet.create({
     typeConvertManualBtnText: {
         fontSize: 13,
         fontWeight: "600",
+    },
+
+    /* Unified Mixed Assessment Picker */
+    unifiedMixedCard: {
+        borderRadius: 12,
+        borderWidth: 1,
+        padding: 14,
+        marginTop: 6,
+        marginBottom: 10,
+    },
+    unifiedMixedHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+    },
+    unifiedMixedTitle: {
+        fontSize: 14,
+        fontWeight: "700",
+    },
+    unifiedMixedSub: {
+        fontSize: 12,
+        marginTop: 2,
+    },
+    unifiedSummaryPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 999,
+    },
+    unifiedSummaryPillText: {
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    unifiedRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        height: 48,
+        paddingHorizontal: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        marginBottom: 6,
+    },
+    unifiedRowLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        flex: 1,
+        marginRight: 8,
+    },
+    unifiedRomanBadge: {
+        width: 22,
+        height: 22,
+        borderRadius: 6,
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: 8,
+    },
+    unifiedRomanBadgeText: {
+        fontSize: 11,
+        fontWeight: "800",
+    },
+    unifiedRowLabel: {
+        fontSize: 13.5,
+    },
+    unifiedStepper: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    unifiedStepBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 6,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    unifiedStepCount: {
+        fontSize: 14,
+        fontWeight: "700",
+        minWidth: 24,
+        textAlign: "center",
     },
 });
