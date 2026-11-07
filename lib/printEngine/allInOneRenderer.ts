@@ -219,18 +219,29 @@ function drawAllInOneHeader(
         color: rgb(0.1, 0.1, 0.1),
     });
 
-    // Student information line
-    const infoY = startY - 62;
-    page.drawText('Last Name: ____________, First Name: ____________, Middle Name: _________   Date: _________   Section: _______', {
+    // Student information lines
+    // Row 1: Last Name, First Name, Middle Name
+    const nameY = startY - 60;
+    page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left,
-        y: infoY,
+        y: nameY,
+        size: 8.0,
+        font: fontBold,
+        color: rgb(0.15, 0.15, 0.15),
+    });
+
+    // Row 2: Date, Section
+    const dateY = nameY - 11;
+    page.drawText('Date: ___________________________________, Section: ___________________________________', {
+        x: MARGINS.left,
+        y: dateY,
         size: 8.0,
         font: fontBold,
         color: rgb(0.15, 0.15, 0.15),
     });
 
     // Instruction strip
-    const instY = infoY - 14;
+    const instY = dateY - 13;
     page.drawRectangle({
         x: MARGINS.left,
         y: instY - 2,
@@ -247,7 +258,7 @@ function drawAllInOneHeader(
         color: rgb(0.15, 0.15, 0.15),
     });
 
-    return { cursorY: instY - 14, qr };
+    return { cursorY: instY - 12, qr };
 }
 
 function drawAllInOneColumns(

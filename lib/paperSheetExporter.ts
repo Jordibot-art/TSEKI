@@ -325,11 +325,10 @@ export function buildPaperSheetHtml({
       color: #000000;
     }
 
-    /* Student info line */
+    /* Student info lines */
     .student-fields-row {
-      display: grid;
-      grid-template-columns: 2.5fr 1fr 1fr;
-      gap: 12px;
+      display: flex;
+      gap: 14px;
       margin-top: 4px;
       font-size: 9.5px;
     }
@@ -522,11 +521,11 @@ export function buildPaperSheetHtml({
     </div>
 
     <div class="student-fields-row">
-      <div class="field-pair" style="flex: 1.3;">
+      <div class="field-pair" style="flex: 1.2;">
         <strong>Last Name:</strong>
         <div class="field-underline"></div>
       </div>
-      <div class="field-pair" style="flex: 1.3;">
+      <div class="field-pair" style="flex: 1.2;">
         <strong>First Name:</strong>
         <div class="field-underline"></div>
       </div>
@@ -534,11 +533,13 @@ export function buildPaperSheetHtml({
         <strong>Middle Name:</strong>
         <div class="field-underline"></div>
       </div>
-      <div class="field-pair" style="flex: 0.8;">
+    </div>
+    <div class="student-fields-row" style="margin-top: 3px;">
+      <div class="field-pair" style="flex: 1;">
         <strong>Date:</strong>
         <div class="field-underline" style="padding-left: 4px;">${currentDate}</div>
       </div>
-      <div class="field-pair" style="flex: 0.8;">
+      <div class="field-pair" style="flex: 1;">
         <strong>Section:</strong>
         <div class="field-underline"></div>
       </div>

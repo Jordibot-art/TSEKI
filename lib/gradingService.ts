@@ -145,7 +145,7 @@ export async function gradeStudentTest(
 ${JSON.stringify(keyArray, null, 2)}
 ${layoutPromptSection}
 INSTRUCTIONS:
-1. Extract the student's name from the top "Last Name:", "First Name:", "Middle Name:" (or "Name:") line (fields: "lastName", "firstName", "middleName", and combined "studentName" formatted as "Last Name, First Name Middle Name").
+1. Extract the student's name from the top "Last Name:", "First Name:", "Middle Name:" line (above "Date:", "Section:") (fields: "lastName", "firstName", "middleName", and combined "studentName" formatted as "Last Name, First Name Middle Name").
 2. Read the student's handwritten answers inside the numbered square answer boxes (1, 2, 3...) or shaded bubbles on the paper.
 3. CRITICAL — MANDATORY LOW-CONFIDENCE & AMBIGUITY FLAGGING FOR TEACHER REVIEW:
    Teachers rely on you to flag ANY messy, scribbled, overwritten, crossed-out, or double-marked box so they can manually inspect and fix it on the "Flagged Answers Review" screen. NEVER assign high confidence (>= 0.75) to a messy, scribbled, or overwritten box!

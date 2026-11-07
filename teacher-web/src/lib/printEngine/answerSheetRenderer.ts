@@ -233,18 +233,29 @@ function drawAnswerSheetHeader(
         color: rgb(0.1, 0.1, 0.1),
     });
 
-    // Student Information line (below 56pt QR code)
-    const infoY = startY - 64;
-    page.drawText('Last Name: ____________, First Name: ____________, Middle Name: _________   Date: _________   Section: _______', {
+    // Student Information lines (below 56pt QR code)
+    // Row 1: Last Name, First Name, Middle Name
+    const nameY = startY - 62;
+    page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left,
-        y: infoY,
+        y: nameY,
+        size: 8.0,
+        font: fontBold,
+        color: rgb(0.15, 0.15, 0.15),
+    });
+
+    // Row 2: Date, Section
+    const dateY = nameY - 11;
+    page.drawText('Date: ___________________________________, Section: ___________________________________', {
+        x: MARGINS.left,
+        y: dateY,
         size: 8.0,
         font: fontBold,
         color: rgb(0.15, 0.15, 0.15),
     });
 
     // Dark ink instructions
-    const instY = infoY - 14;
+    const instY = dateY - 11;
     page.drawText(
         'Use DARK INK and CAPITAL LETTERS. One answer per box, kept inside the box. Do not fold this sheet or cover the black squares in the corners.',
         {
@@ -258,13 +269,13 @@ function drawAnswerSheetHeader(
 
     // Thin separator line
     page.drawLine({
-        start: { x: MARGINS.left, y: instY - 8 },
-        end: { x: width - MARGINS.right, y: instY - 8 },
+        start: { x: MARGINS.left, y: instY - 6 },
+        end: { x: width - MARGINS.right, y: instY - 6 },
         thickness: 0.5,
         color: rgb(0.85, 0.85, 0.85),
     });
 
-    return instY - 16;
+    return instY - 12;
 }
 
 function drawContinuationSheetHeader(
@@ -290,7 +301,7 @@ function drawContinuationSheetHeader(
         color: rgb(0.1, 0.12, 0.16),
     });
 
-    page.drawText('Last Name: ____________, First Name: ____________, Middle Name: _________', {
+    page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left + 24,
         y: startY - 44,
         size: 8.0,
