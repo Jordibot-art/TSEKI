@@ -1795,8 +1795,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         )}
 
                         <AssessmentGeneratingAnimation
-                            topicOrSubject={lessonTitle || subject || "Assessment"}
-                            questionCount={`${questionCount} Items`}
+                            topicOrSubject={subject || classTitle || "Assessment"}
+                            questionCount={typeof questionCount === "string" ? questionCount : `${questionCount} Items`}
                             difficulty={difficulty}
                             questionType={questionType}
                             isAiBusy={isAiBusy}
