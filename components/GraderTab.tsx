@@ -929,71 +929,61 @@ export default function GraderTab({
                                 gradingResult.photoQuality.warnings.length > 0 && (
                                     <View
                                         style={[
-                                            styles.reviewAlertBanner,
+                                            styles.compactAlertBanner,
                                             {
-                                                backgroundColor: darkMode ? "#7F1D1D30" : "#FEF2F2",
+                                                backgroundColor: darkMode ? "#450A0A30" : "#FEF2F2",
                                                 borderColor: "#EF4444",
-                                                flexDirection: "column",
-                                                alignItems: "stretch",
-                                                marginBottom: 14,
                                             },
                                         ]}
                                     >
-                                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-                                                <Ionicons name="warning" size={20} color="#EF4444" />
-                                                <Text
-                                                    style={[
-                                                        styles.reviewAlertTitle,
-                                                        { color: darkMode ? "#FCA5A5" : "#991B1B", flex: 1 },
-                                                    ]}
-                                                >
-                                                    Photo Scan Quality Alert
-                                                </Text>
-                                            </View>
-                                            <TouchableOpacity
-                                                style={[styles.reviewAlertBtn, { backgroundColor: "#EF4444" }]}
-                                                onPress={handleOpenCamera}
-                                                activeOpacity={0.8}
-                                            >
-                                                <Ionicons name="camera-outline" size={14} color="#FFF" style={{ marginRight: 4 }} />
-                                                <Text style={styles.reviewAlertBtnText}>Retake Photo</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                        {gradingResult.photoQuality.warnings.map((warningText, wIdx) => (
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                                            <Ionicons name="warning" size={16} color="#DC2626" />
                                             <Text
-                                                key={wIdx}
                                                 style={[
-                                                    styles.reviewAlertSub,
-                                                    {
-                                                        color: darkMode ? "#FECACA" : "#B91C1C",
-                                                        marginTop: 3,
-                                                        lineHeight: 18,
-                                                    },
+                                                    styles.compactAlertText,
+                                                    { color: darkMode ? "#FCA5A5" : "#991B1B" },
                                                 ]}
+                                                numberOfLines={1}
                                             >
-                                                • {warningText}
+                                                Photo Quality: {gradingResult.photoQuality.warnings[0] || "Markers not aligned"}
                                             </Text>
-                                        ))}
+                                        </View>
+                                        <TouchableOpacity
+                                            style={[styles.compactAlertBtn, { backgroundColor: "#EF4444" }]}
+                                            onPress={handleOpenCamera}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Ionicons name="camera-outline" size={13} color="#FFF" style={{ marginRight: 4 }} />
+                                            <Text style={styles.compactAlertBtnText}>Retake</Text>
+                                        </TouchableOpacity>
                                     </View>
                                 )}
 
                             {/* ── Flagged Items Banner ── */}
                             {flaggedCount > 0 && (
-                                <View style={[styles.reviewAlertBanner, { backgroundColor: darkMode ? "#78350F25" : "#FFFBEB", borderColor: "#F59E0B" }]}>
-                                    <View style={styles.reviewAlertIconBg}>
-                                        <Ionicons name="alert-circle" size={22} color="#D97706" />
-                                    </View>
-                                    <View style={{ flex: 1, marginHorizontal: 10 }}>
-                                        <Text style={[styles.reviewAlertTitle, { color: darkMode ? "#FDE68A" : "#92400E" }]}>
-                                            {flaggedCount} Answer{flaggedCount > 1 ? "s" : ""} Need Your Review
-                                        </Text>
-                                        <Text style={[styles.reviewAlertSub, { color: darkMode ? "#FCD34D" : "#B45309" }]}>
-                                            Double-shaded bubbles or low confidence marks detected.
+                                <View
+                                    style={[
+                                        styles.compactAlertBanner,
+                                        {
+                                            backgroundColor: darkMode ? "#78350F25" : "#FFFBEB",
+                                            borderColor: "#F59E0B",
+                                        },
+                                    ]}
+                                >
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                                        <Ionicons name="alert-circle" size={16} color="#D97706" />
+                                        <Text
+                                            style={[
+                                                styles.compactAlertText,
+                                                { color: darkMode ? "#FDE68A" : "#92400E" },
+                                            ]}
+                                            numberOfLines={1}
+                                        >
+                                            {flaggedCount} {flaggedCount === 1 ? "answer needs" : "answers need"} your review
                                         </Text>
                                     </View>
                                     <TouchableOpacity
-                                        style={[styles.reviewAlertBtn, { backgroundColor: "#F59E0B" }]}
+                                        style={[styles.compactAlertBtn, { backgroundColor: "#F59E0B" }]}
                                         onPress={() => {
                                             const firstFlagged = gradingResult?.results?.find(
                                                 (r) =>
@@ -1009,182 +999,155 @@ export default function GraderTab({
                                         }}
                                         activeOpacity={0.8}
                                     >
-                                        <Text style={styles.reviewAlertBtnText}>Review</Text>
-                                        <Ionicons name="chevron-forward" size={14} color="#FFF" style={{ marginLeft: 2 }} />
+                                        <Text style={styles.compactAlertBtnText}>Review →</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
 
-                            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                                <Text style={[styles.gradingLogTitle, { color: textSub, marginBottom: 0 }]}>INTERACTIVE GRADING LOG</Text>
+                            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10, marginTop: 4 }}>
+                                <Text style={[styles.gradingLogTitle, { color: textSub, marginBottom: 0 }]}>
+                                    Interactive Grading Log
+                                </Text>
                                 {flaggedCount > 0 && (
-                                    <TouchableOpacity
-                                        style={[styles.miniReviewChip, { backgroundColor: darkMode ? "#78350F40" : "#FEF3C7", borderColor: "#F59E0B" }]}
-                                        onPress={() => {
-                                            const firstFlagged = gradingResult?.results?.find(
-                                                (r) =>
-                                                    (r.flaggedForReview ||
-                                                        r.flagReason === "double_mark" ||
-                                                        r.flagReason === "unclear" ||
-                                                        r.flagReason === "low_confidence" ||
-                                                        (r.confidence !== undefined && r.confidence < 0.75)) &&
-                                                    !r.isOverridden
-                                            );
-                                            setReviewInitialQNum(firstFlagged ? firstFlagged.questionNumber : undefined);
-                                            setReviewModalOpen(true);
-                                        }}
+                                    <View
+                                        style={[
+                                            styles.miniReviewChip,
+                                            { backgroundColor: darkMode ? "#78350F40" : "#FEF3C7", borderColor: "#F59E0B" },
+                                        ]}
                                     >
-                                        <Ionicons name="alert-circle" size={13} color="#D97706" style={{ marginRight: 4 }} />
+                                        <Ionicons name="alert-circle" size={12} color="#D97706" style={{ marginRight: 4 }} />
                                         <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706" }}>
                                             {flaggedCount} Flagged
                                         </Text>
-                                    </TouchableOpacity>
+                                    </View>
                                 )}
                             </View>
 
-                            {/* List of Questions */}
-                            {gradingResult.results.map((item) => {
-                                const isFlagged = Boolean(
-                                    (item.flaggedForReview ||
-                                        item.flagReason === "double_mark" ||
-                                        item.flagReason === "unclear" ||
-                                        item.flagReason === "low_confidence" ||
-                                        (item.confidence !== undefined && item.confidence < 0.75)) &&
-                                        !item.isOverridden
-                                );
-                                const isDouble = item.flagReason === "double_mark";
-                                const isUnclear = item.flagReason === "unclear" || item.flagReason === "low_confidence";
-                                const isOverridden = Boolean(item.isOverridden);
+                            {/* Single Clean Table Container for Q1–Q10 */}
+                            <View
+                                style={[
+                                    styles.gradingTableCard,
+                                    {
+                                        backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                                        borderColor: border,
+                                    },
+                                ]}
+                            >
+                                {gradingResult.results.map((item, idx) => {
+                                    const isFlagged = Boolean(
+                                        (item.flaggedForReview ||
+                                            item.flagReason === "double_mark" ||
+                                            item.flagReason === "unclear" ||
+                                            item.flagReason === "low_confidence" ||
+                                            (item.confidence !== undefined && item.confidence < 0.75)) &&
+                                            !item.isOverridden
+                                    );
+                                    const isOverridden = Boolean(item.isOverridden);
+                                    const isLast = idx === gradingResult.results.length - 1;
 
-                                return (
-                                    <TouchableOpacity
-                                        key={item.questionNumber}
-                                        style={[
-                                            styles.logCard,
-                                            item.isCorrect
-                                                ? (darkMode ? { backgroundColor: "#064E3B20", borderColor: "#05966960" } : styles.logCardCorrect)
-                                                : (darkMode ? { backgroundColor: "#7F1D1D20", borderColor: "#DC262660" } : styles.logCardWrong),
-                                            isFlagged && {
-                                                backgroundColor: darkMode ? "#78350F35" : "#FEF3C7",
-                                                borderColor: "#F59E0B",
-                                                borderWidth: 1.5,
-                                            },
-                                            isOverridden && {
-                                                borderColor: "#10B981",
-                                            },
-                                        ]}
-                                        onPress={() => {
-                                            if (isFlagged) {
-                                                setReviewInitialQNum(item.questionNumber);
-                                                setReviewModalOpen(true);
-                                            } else {
-                                                handleToggleQuestion(item.questionNumber);
-                                            }
-                                        }}
-                                        activeOpacity={0.7}
-                                    >
-                                        {/* Question Number Badge */}
-                                        <View
+                                    let flagBadge = "";
+                                    if (isFlagged) {
+                                        if (item.flagReason === "double_mark") flagBadge = "Double-mark";
+                                        else if (item.confidence) flagBadge = `Unclear (${Math.round(item.confidence * 100)}%)`;
+                                        else flagBadge = "Unclear (35%)";
+                                    }
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={item.questionNumber}
                                             style={[
-                                                styles.qBadge,
-                                                item.isCorrect
-                                                    ? (darkMode ? { backgroundColor: "#064E3B60" } : styles.qBadgeCorrect)
-                                                    : (darkMode ? { backgroundColor: "#7F1D1D60" } : styles.qBadgeWrong),
+                                                styles.tableRow,
+                                                !isLast && {
+                                                    borderBottomWidth: 1,
+                                                    borderBottomColor: darkMode ? "#334155" : "#F1F5F9",
+                                                },
                                                 isFlagged && {
-                                                    backgroundColor: "#F59E0B",
+                                                    backgroundColor: darkMode ? "#78350F18" : "#FFFDF5",
+                                                    borderLeftWidth: 3,
+                                                    borderLeftColor: "#F59E0B",
                                                 },
                                             ]}
+                                            onPress={() => {
+                                                if (isFlagged) {
+                                                    setReviewInitialQNum(item.questionNumber);
+                                                    setReviewModalOpen(true);
+                                                } else {
+                                                    handleToggleQuestion(item.questionNumber);
+                                                }
+                                            }}
+                                            activeOpacity={0.7}
                                         >
-                                            <Text
-                                                style={[
-                                                    styles.qBadgeText,
-                                                    item.isCorrect
-                                                        ? (darkMode ? { color: "#6EE7B7" } : styles.qBadgeTextCorrect)
-                                                        : (darkMode ? { color: "#FCA5A5" } : styles.qBadgeTextWrong),
-                                                    isFlagged && {
-                                                        color: "#FFFFFF",
-                                                        fontWeight: "900",
-                                                    },
-                                                ]}
-                                            >
+                                            {/* Left: Q1 */}
+                                            <Text style={[styles.tableQNum, { color: textMain }]}>
                                                 Q{item.questionNumber}
                                             </Text>
-                                        </View>
 
-                                        {/* Information */}
-                                        <View style={styles.logCardInfo}>
-                                            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                                <Text style={[styles.logAnswerText, { color: textMain }]}>
-                                                    Answer:{" "}
+                                            {/* Middle: Student: B · Key: B */}
+                                            <View style={styles.tableRowMiddle}>
+                                                <Text style={[styles.tableAnswerText, { color: textSub }]}>
+                                                    Student:{" "}
                                                     <Text
                                                         style={{
-                                                            fontWeight: "800",
-                                                            color: item.isCorrect ? "#059669" : "#DC2626",
+                                                            fontWeight: "700",
+                                                            color: item.isCorrect ? "#15803D" : "#DC2626",
                                                         }}
                                                     >
-                                                        {item.studentAnswer || "(Empty)"}
+                                                        {item.studentAnswer || "—"}
+                                                    </Text>
+                                                    {"  ·  "}
+                                                    Key:{" "}
+                                                    <Text style={{ fontWeight: "700", color: textMain }}>
+                                                        {item.correctAnswer}
                                                     </Text>
                                                 </Text>
-                                                {isOverridden && (
-                                                    <View style={[styles.miniStatusBadge, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
-                                                        <Text style={{ fontSize: 10, color: "#059669", fontWeight: "700" }}>✓ Verified</Text>
+                                                {isFlagged ? (
+                                                    <View style={styles.tableFlagPill}>
+                                                        <Text style={styles.tableFlagPillText}>{flagBadge}</Text>
                                                     </View>
-                                                )}
+                                                ) : isOverridden ? (
+                                                    <View style={styles.tableVerifiedPill}>
+                                                        <Text style={styles.tableVerifiedPillText}>✓ Verified</Text>
+                                                    </View>
+                                                ) : null}
                                             </View>
 
-                                            <Text style={[styles.logKeyText, { color: textSub }]}>
-                                                Key:{" "}
-                                                <Text style={{ fontWeight: "700", color: textMain }}>
-                                                    {item.correctAnswer}
-                                                </Text>
-                                            </Text>
-
-                                            {/* Flagged Issue Details */}
-                                            {isFlagged && (
-                                                <View style={styles.logFlagNotice}>
-                                                    <Ionicons name="alert-circle" size={13} color="#D97706" style={{ marginRight: 4 }} />
-                                                    <Text style={styles.logFlagNoticeText}>
-                                                        {isDouble
-                                                            ? `Double-shaded bubbles (${item.studentAnswer || "A, C"}) — tap to fix`
-                                                            : isUnclear
-                                                            ? `Faint/unclear mark (${item.confidence ? Math.round(item.confidence * 100) : 55}%) — tap to fix`
-                                                            : "Low confidence mark — tap to review"}
-                                                    </Text>
-                                                </View>
+                                            {/* Right: Check / Cross / Review button */}
+                                            {isFlagged ? (
+                                                <TouchableOpacity
+                                                    style={styles.tableReviewBtn}
+                                                    onPress={() => {
+                                                        setReviewInitialQNum(item.questionNumber);
+                                                        setReviewModalOpen(true);
+                                                    }}
+                                                >
+                                                    <Text style={styles.tableReviewBtnText}>Review</Text>
+                                                </TouchableOpacity>
+                                            ) : item.isCorrect ? (
+                                                <Ionicons name="checkmark" size={18} color="#16A34A" />
+                                            ) : (
+                                                <Ionicons name="close" size={18} color="#DC2626" />
                                             )}
-                                        </View>
-
-                                        {/* Right Action */}
-                                        {isFlagged ? (
-                                            <View style={styles.logFixBtn}>
-                                                <Text style={styles.logFixBtnText}>Fix</Text>
-                                                <Ionicons name="create-outline" size={16} color="#D97706" style={{ marginLeft: 2 }} />
-                                            </View>
-                                        ) : (
-                                            <Ionicons
-                                                name={item.isCorrect ? "checkmark" : "close"}
-                                                size={22}
-                                                color={item.isCorrect ? "#34D399" : "#EF4444"}
-                                            />
-                                        )}
-                                    </TouchableOpacity>
-                                );
-                            })}
-
-                            {/* Tseki Approved Scan Banner */}
-                            <View style={[styles.approvedScanCard, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border }]}>
-                                <Image
-                                    source={require("../assets/images/logo.png")}
-                                    style={styles.approvedScanMascot}
-                                    resizeMode="contain"
-                                />
-                                <View style={styles.approvedScanInfo}>
-                                    <Text style={[styles.approvedScanTitle, { color: textMain }]}>Tseki Approved Scan</Text>
-                                    <Text style={[styles.approvedScanSub, { color: textSub }]}>
-                                        This answer sheet has been verified against the standard {currentQuizValue || "assessment"}. Ready for class record update.
-                                    </Text>
-                                </View>
+                                        </TouchableOpacity>
+                                    );
+                                })}
                             </View>
+
+                            {/* Tseki Approved Scan Banner (Only shown when all flags are resolved) */}
+                            {flaggedCount === 0 && (
+                                <View style={[styles.approvedScanCard, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border }]}>
+                                    <Image
+                                        source={require("../assets/images/logo.png")}
+                                        style={styles.approvedScanMascot}
+                                        resizeMode="contain"
+                                    />
+                                    <View style={styles.approvedScanInfo}>
+                                        <Text style={[styles.approvedScanTitle, { color: textMain }]}>Tseki Approved Scan</Text>
+                                        <Text style={[styles.approvedScanSub, { color: textSub }]}>
+                                            This answer sheet has been verified against the standard {currentQuizValue || "assessment"}. Ready for class record update.
+                                        </Text>
+                                    </View>
+                                </View>
+                            )}
                         </View>
                     </View>
                 </View>
@@ -1546,7 +1509,37 @@ const styles = StyleSheet.create({
         width: "100%",
     },
 
-    /* Review Alert Banner */
+    /* Compact Alert Banner */
+    compactAlertBanner: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+        borderWidth: 1,
+        marginBottom: 10,
+    },
+    compactAlertText: {
+        fontSize: 12.5,
+        fontWeight: "600",
+        flex: 1,
+        marginRight: 8,
+    },
+    compactAlertBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
+    },
+    compactAlertBtnText: {
+        color: "#FFFFFF",
+        fontSize: 11.5,
+        fontWeight: "700",
+    },
+
+    /* Review Alert Banner (legacy fallback) */
     reviewAlertBanner: {
         flexDirection: "row",
         alignItems: "center",
@@ -1770,6 +1763,73 @@ const styles = StyleSheet.create({
         color: "#64748B",
         letterSpacing: 0.8,
         marginBottom: 14,
+    },
+
+    /* ── Single Clean Grading Table ── */
+    gradingTableCard: {
+        borderRadius: 12,
+        borderWidth: 1,
+        overflow: "hidden",
+        marginBottom: 14,
+    },
+    tableRow: {
+        height: 52,
+        paddingHorizontal: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+    tableQNum: {
+        fontSize: 14,
+        fontWeight: "700",
+        width: 38,
+    },
+    tableRowMiddle: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginHorizontal: 8,
+    },
+    tableAnswerText: {
+        fontSize: 13,
+    },
+    tableFlagPill: {
+        backgroundColor: "#FFFBEB",
+        borderWidth: 1,
+        borderColor: "#FDE68A",
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    tableFlagPillText: {
+        color: "#B45309",
+        fontSize: 11,
+        fontWeight: "600",
+    },
+    tableVerifiedPill: {
+        backgroundColor: "#F0FDF4",
+        borderWidth: 1,
+        borderColor: "#BBF7D0",
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    tableVerifiedPillText: {
+        color: "#16A34A",
+        fontSize: 10.5,
+        fontWeight: "700",
+    },
+    tableReviewBtn: {
+        backgroundColor: "#F59E0B",
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 6,
+    },
+    tableReviewBtnText: {
+        color: "#FFFFFF",
+        fontSize: 11.5,
+        fontWeight: "700",
     },
 
     /* Log Question Item */

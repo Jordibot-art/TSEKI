@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
     Modal,
     View,
@@ -8,14 +8,12 @@ import {
     ScrollView,
     Image,
     TextInput,
-    Animated,
-    Dimensions,
+    Pressable,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { GradingResultItem, GradingResponse, isAnswerAccepted } from "../lib/gradingService";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export interface LowConfidenceReviewModalProps {
     visible: boolean;
@@ -33,19 +31,22 @@ export function LowConfidenceReviewModal({
     onClose,
     gradingResult,
     scannedImageUri,
-    accentColor = "#F97316",
+    accentColor = "#EA580C",
     initialQuestionNumber,
     initialFilterOnlyFlagged,
     onSaveReviewedResults,
 }: LowConfidenceReviewModalProps) {
     const { darkMode } = useTheme();
+    const insets = useSafeAreaInsets();
 
-    // Local working copy of items so teacher can fix without committing until "Save & Apply"
     const [workingResults, setWorkingResults] = useState<GradingResultItem[]>([]);
-    const [selectedQNum, setSelectedQNum] = useState<number>(1);
     const [filterOnlyFlagged, setFilterOnlyFlagged] = useState<boolean>(true);
     const [imagePreviewOpen, setImagePreviewOpen] = useState<boolean>(false);
-    const [customAnswerInput, setCustomAnswerInput] = useState<string>("");
+    const [activeAnchorQNum, setActiveAnchorQNum] = useState<number>(1);
+    const [customInputs, setCustomInputs] = useState<{ [key: number]: string }>({});
+
+    const mainScrollRef = useRef<ScrollView>(null);
+    const cardLayouts = useRef<{ [key: number]: number }>({});
 
     // Helper to determine if an item was flagged by AI for manual review
     const isItemFlaggedByAi = (r: GradingResultItem) =>
@@ -71,38 +72,48 @@ export function LowConfidenceReviewModal({
             }
 
             // Determine first question to focus on
+            let startQ = 1;
             if (initialQuestionNumber) {
-                setSelectedQNum(initialQuestionNumber);
+                startQ = initialQuestionNumber;
             } else if (initialFilterOnlyFlagged === false) {
-                setSelectedQNum(1);
+                startQ = 1;
             } else {
-                const firstUnresolvedFlagged = deepCopy.find((r) => isItemFlaggedByAi(r) && !r.isOverridden);
-                const firstFlagged = firstUnresolvedFlagged || deepCopy.find(isItemFlaggedByAi);
-                setSelectedQNum(firstFlagged ? firstFlagged.questionNumber : 1);
+                const firstUnresolved = deepCopy.find((r) => isItemFlaggedByAi(r) && !r.isOverridden);
+                const firstFlagged = firstUnresolved || deepCopy.find(isItemFlaggedByAi);
+                startQ = firstFlagged ? firstFlagged.questionNumber : 1;
             }
+            setActiveAnchorQNum(startQ);
+
+            // Populate custom inputs
+            const initialInputs: { [key: number]: string } = {};
+            deepCopy.forEach((r) => {
+                initialInputs[r.questionNumber] = r.studentAnswer || "";
+            });
+            setCustomInputs(initialInputs);
         }
     }, [visible, gradingResult, initialQuestionNumber]);
 
-    // Active item being inspected
-    const activeItem = useMemo(() => {
-        return workingResults.find((r) => r.questionNumber === selectedQNum) || workingResults[0];
-    }, [workingResults, selectedQNum]);
-
-    // Sync custom text input when active item changes
+    // Scroll to initial question once card layouts are ready
     useEffect(() => {
-        if (activeItem) {
-            setCustomAnswerInput(activeItem.studentAnswer || "");
+        if (visible && initialQuestionNumber) {
+            const timer = setTimeout(() => {
+                const targetY = cardLayouts.current[initialQuestionNumber];
+                if (typeof targetY === "number" && mainScrollRef.current) {
+                    mainScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: true });
+                }
+            }, 250);
+            return () => clearTimeout(timer);
         }
-    }, [activeItem?.questionNumber]);
+    }, [visible, initialQuestionNumber]);
 
-    // Compute flagged items (keep resolved items in list so teacher sees progress e.g. "1 item flagged • 1 resolved")
+    // Compute flagged items
     const flaggedItems = useMemo(() => {
         return workingResults.filter(isItemFlaggedByAi);
     }, [workingResults]);
 
     const flaggedCount = flaggedItems.length;
 
-    // Filtered list for tabs
+    // Filtered list to render in continuous scroll
     const displayItems = useMemo(() => {
         if (filterOnlyFlagged && flaggedItems.length > 0) {
             return flaggedItems;
@@ -119,36 +130,32 @@ export function LowConfidenceReviewModal({
         return flaggedItems.filter((r) => r.isOverridden).length;
     }, [flaggedItems]);
 
-    // ── Update active item answer ───────────────────────────────────────────────
-    function handleSelectAnswer(choice: string) {
-        if (!activeItem) return;
+    // ── Update answers ─────────────────────────────────────────────────────────
+    function handleSelectAnswerForItem(qNum: number, choice: string) {
         const normalizedChoice = choice.trim();
-        const official = activeItem.correctAnswer.trim();
-        const isMatch = isAnswerAccepted(normalizedChoice, official);
-        const itemPoints = 1; // standard point
-
-        setCustomAnswerInput(normalizedChoice);
         setWorkingResults((prev) =>
             prev.map((r) => {
-                if (r.questionNumber === activeItem.questionNumber) {
+                if (r.questionNumber === qNum) {
+                    const official = r.correctAnswer.trim();
+                    const isMatch = normalizedChoice !== "" && isAnswerAccepted(normalizedChoice, official);
                     return {
                         ...r,
                         studentAnswer: normalizedChoice,
                         isCorrect: isMatch,
-                        pointsAwarded: isMatch ? itemPoints : 0,
+                        pointsAwarded: isMatch ? 1 : 0,
                         isOverridden: true,
                     };
                 }
                 return r;
             })
         );
+        setCustomInputs((prev) => ({ ...prev, [qNum]: normalizedChoice }));
     }
 
-    function handleTogglePoints(award: boolean) {
-        if (!activeItem) return;
+    function handleTogglePointsForItem(qNum: number, award: boolean) {
         setWorkingResults((prev) =>
             prev.map((r) => {
-                if (r.questionNumber === activeItem.questionNumber) {
+                if (r.questionNumber === qNum) {
                     return {
                         ...r,
                         isCorrect: award,
@@ -161,14 +168,12 @@ export function LowConfidenceReviewModal({
         );
     }
 
-    function handleResetToAi() {
-        if (!activeItem) return;
-        const orig = activeItem.originalStudentAnswer ?? "";
-        const isMatch = isAnswerAccepted(orig, activeItem.correctAnswer);
-        setCustomAnswerInput(orig);
+    function handleResetToAiForItem(qNum: number) {
         setWorkingResults((prev) =>
             prev.map((r) => {
-                if (r.questionNumber === activeItem.questionNumber) {
+                if (r.questionNumber === qNum) {
+                    const orig = r.originalStudentAnswer ?? "";
+                    const isMatch = isAnswerAccepted(orig, r.correctAnswer);
                     return {
                         ...r,
                         studentAnswer: orig,
@@ -181,20 +186,18 @@ export function LowConfidenceReviewModal({
                 return r;
             })
         );
-    }
-
-    // Navigation
-    function handlePrev() {
-        const curIdx = displayItems.findIndex((r) => r.questionNumber === selectedQNum);
-        if (curIdx > 0) {
-            setSelectedQNum(displayItems[curIdx - 1].questionNumber);
+        const item = workingResults.find((r) => r.questionNumber === qNum);
+        if (item) {
+            setCustomInputs((prev) => ({ ...prev, [qNum]: item.originalStudentAnswer ?? "" }));
         }
     }
 
-    function handleNext() {
-        const curIdx = displayItems.findIndex((r) => r.questionNumber === selectedQNum);
-        if (curIdx < displayItems.length - 1) {
-            setSelectedQNum(displayItems[curIdx + 1].questionNumber);
+    // Smooth-scroll to question
+    function handleScrollToQuestion(qNum: number) {
+        setActiveAnchorQNum(qNum);
+        const targetY = cardLayouts.current[qNum];
+        if (typeof targetY === "number" && mainScrollRef.current) {
+            mainScrollRef.current.scrollTo({ y: Math.max(0, targetY - 8), animated: true });
         }
     }
 
@@ -207,512 +210,513 @@ export function LowConfidenceReviewModal({
     if (!visible || !gradingResult) return null;
 
     // Theme tokens
-    const bg = darkMode ? "#111827" : "#FFFFFF";
-    const cardBg = darkMode ? "#1F2937" : "#F8FAFC";
-    const border = darkMode ? "#374151" : "#E2E8F0";
-    const textMain = darkMode ? "#F9FAFB" : "#0F172A";
-    const textSub = darkMode ? "#9CA3AF" : "#64748B";
-
-    const isCurrentFlagged = activeItem ? isItemFlaggedByAi(activeItem) : false;
-
-    const isMC = Boolean(
-        activeItem &&
-        (["A", "B", "C", "D"].includes(activeItem.correctAnswer.trim().toUpperCase()) ||
-            /^[A-D](?:\s*[,/&]\s*[A-D])*$/i.test((activeItem.studentAnswer || "").trim()) ||
-            (activeItem.detectedOptions && activeItem.detectedOptions.some((o) => ["A", "B", "C", "D"].includes(o.toUpperCase()))))
-    );
-    const isTF = Boolean(
-        activeItem && ["T", "F", "TRUE", "FALSE"].includes(activeItem.correctAnswer.trim().toUpperCase())
-    );
+    const bg = darkMode ? "#0F172A" : "#FFFFFF";
+    const cardBg = darkMode ? "#1E293B" : "#FFFFFF";
+    const border = darkMode ? "#334155" : "#E2E8F0";
+    const textMain = darkMode ? "#F8FAFC" : "#0F172A";
+    const textSub = darkMode ? "#94A3B8" : "#64748B";
 
     return (
-        <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-            <View style={[styles.container, { backgroundColor: bg }]}>
-                {/* ── TOP NAV HEADER ───────────────────────────────────────────── */}
-                <View style={[styles.header, { borderBottomColor: border }]}>
-                    <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-                        <Ionicons name="close" size={24} color={textMain} />
-                    </TouchableOpacity>
+        <Modal
+            visible={visible}
+            animationType="slide"
+            transparent={true}
+            statusBarTranslucent={true}
+            onRequestClose={onClose}
+        >
+            <View style={styles.modalRoot}>
+                {/* Full-screen Dimmed Backdrop */}
+                <Pressable style={styles.modalBackdrop} onPress={onClose} />
 
-                    <View style={styles.headerCenter}>
-                        <View style={styles.headerTitleRow}>
-                            <Ionicons name="shield-checkmark" size={20} color="#F59E0B" style={{ marginRight: 6 }} />
-                            <Text style={[styles.headerTitle, { color: textMain }]}>Flagged Answers Review</Text>
-                        </View>
-                        <Text style={[styles.headerSubtitle, { color: textSub }]}>
-                            {flaggedCount > 0
-                                ? `${flaggedCount} item${flaggedCount > 1 ? "s" : ""} flagged • ${resolvedCount} resolved`
-                                : "All items cleanly verified"}
-                        </Text>
-                    </View>
+                {/* Bottom Sheet Container */}
+                <View
+                    style={[
+                        styles.sheetContainer,
+                        {
+                            backgroundColor: bg,
+                            paddingBottom: Math.max(insets.bottom, 12),
+                        },
+                    ]}
+                >
+                    {/* Centered Drag Pill */}
+                    <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
 
-                    <TouchableOpacity
-                        style={[styles.saveHeaderBtn, { backgroundColor: accentColor }]}
-                        onPress={handleApplyChanges}
-                    >
-                        <Text style={styles.saveHeaderBtnText}>Done</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* ── PROGRESS BAR ─────────────────────────────────────────────── */}
-                {flaggedCount > 0 && (
-                    <View style={[styles.progressBarTrack, { backgroundColor: darkMode ? "#374151" : "#E2E8F0" }]}>
-                        <View
-                            style={[
-                                styles.progressBarFill,
-                                {
-                                    width: `${Math.round((resolvedCount / Math.max(1, flaggedCount)) * 100)}%`,
-                                    backgroundColor: resolvedCount === flaggedCount ? "#10B981" : "#F59E0B",
-                                },
-                            ]}
-                        />
-                    </View>
-                )}
-
-                {/* ── QUESTION SELECTOR TABS ───────────────────────────────────── */}
-                <View style={[styles.tabsBar, { borderBottomColor: border }]}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
-                        {displayItems.map((item) => {
-                            const isCur = item.questionNumber === selectedQNum;
-                            const isFlagged = isItemFlaggedByAi(item);
-                            const isDone = item.isOverridden;
-
-                            let pillBg = darkMode ? "#1F2937" : "#F1F5F9";
-                            let pillBorder = border;
-                            let badgeColor = textSub;
-
-                            if (isCur) {
-                                pillBg = darkMode ? "#374151" : "#FFFFFF";
-                                pillBorder = accentColor;
-                            }
-
-                            if (isFlagged && !isDone) {
-                                pillBg = darkMode ? "#78350F30" : "#FEF3C7";
-                                pillBorder = "#F59E0B";
-                                badgeColor = "#D97706";
-                            } else if (isDone) {
-                                pillBg = darkMode ? "#064E3B30" : "#ECFDF5";
-                                pillBorder = "#10B981";
-                                badgeColor = "#059669";
-                            }
-
-                            return (
-                                <TouchableOpacity
-                                    key={item.questionNumber}
-                                    style={[styles.tabPill, { backgroundColor: pillBg, borderColor: pillBorder }]}
-                                    onPress={() => setSelectedQNum(item.questionNumber)}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={[styles.tabPillText, { color: isCur ? textMain : textSub, fontWeight: isCur ? "800" : "600" }]}>
-                                        Q{item.questionNumber}
-                                    </Text>
-                                    {isFlagged && !isDone && (
-                                        <Ionicons name="alert-circle" size={14} color="#D97706" style={{ marginLeft: 4 }} />
-                                    )}
-                                    {isDone && (
-                                        <Ionicons name="checkmark-circle" size={14} color="#059669" style={{ marginLeft: 4 }} />
-                                    )}
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
-
-                    {/* Filter Toggle */}
-                    {workingResults.length > flaggedItems.length && flaggedItems.length > 0 && (
-                        <TouchableOpacity
-                            style={[
-                                styles.filterToggleBtn,
-                                { backgroundColor: filterOnlyFlagged ? (darkMode ? "#374151" : "#E2E8F0") : "transparent" },
-                            ]}
-                            onPress={() => setFilterOnlyFlagged(!filterOnlyFlagged)}
-                        >
-                            <Ionicons
-                                name={filterOnlyFlagged ? "filter" : "list"}
-                                size={14}
-                                color={textSub}
-                                style={{ marginRight: 4 }}
-                            />
-                            <Text style={[styles.filterToggleText, { color: textSub }]}>
-                                {filterOnlyFlagged ? "Flagged Only" : "All Items"}
+                    {/* ── HEADER ─────────────────────────────────────────────────── */}
+                    <View style={[styles.header, { borderBottomColor: border }]}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.headerTitle, { color: textMain }]}>
+                                Review Flagged Answers
                             </Text>
+                            <Text style={[styles.headerSubtitle, { color: textSub }]}>
+                                {flaggedCount > 0
+                                    ? `${flaggedCount} flagged · ${resolvedCount} resolved`
+                                    : "All items cleanly verified"}
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                            onPress={onClose}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
                         </TouchableOpacity>
-                    )}
-                </View>
+                    </View>
 
-                {/* ── MAIN REVIEW CARD ─────────────────────────────────────────── */}
-                <ScrollView style={styles.bodyScroll} contentContainerStyle={styles.bodyContent}>
-                    {activeItem ? (
-                        <View style={[styles.activeCard, { backgroundColor: cardBg, borderColor: border }]}>
-                            {/* Card Header with Question & Status Badge */}
-                            <View style={styles.cardTopRow}>
-                                <View style={styles.qBadgeContainer}>
-                                    <View style={[styles.bigQBadge, { backgroundColor: accentColor }]}>
-                                        <Text style={styles.bigQBadgeText}>Q{activeItem.questionNumber}</Text>
-                                    </View>
-                                    <View style={{ marginLeft: 12 }}>
-                                        <Text style={[styles.qHeaderLabel, { color: textSub }]}>
-                                            Question #{activeItem.questionNumber}
-                                        </Text>
-                                        <Text style={[styles.studentScoreStatus, { color: activeItem.isCorrect ? "#10B981" : "#EF4444" }]}>
-                                            {activeItem.isCorrect ? "✓ 1 / 1 Point Awarded" : "✗ 0 / 1 Point Awarded"}
-                                        </Text>
-                                    </View>
-                                </View>
+                    {/* ── STICKY ANCHOR BAR (HORIZONTAL CHIPS) ────────────────────── */}
+                    <View style={[styles.anchorBar, { borderBottomColor: border }]}>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.anchorScroll}
+                        >
+                            {displayItems.map((item) => {
+                                const isCurrentInView = item.questionNumber === activeAnchorQNum;
+                                const isFlagged = isItemFlaggedByAi(item);
+                                const isResolved = item.isOverridden;
 
-                                {/* Issue Tag */}
-                                <View style={styles.issueTagContainer}>
-                                    {activeItem.flagReason === "double_mark" && (
-                                        <View style={[styles.issueTag, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5" }]}>
-                                            <Ionicons name="copy" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                                            <Text style={[styles.issueTagText, { color: "#DC2626" }]}>Double-Shaded</Text>
-                                        </View>
-                                    )}
-                                    {activeItem.flagReason === "unclear" && (
-                                        <View style={[styles.issueTag, { backgroundColor: "#FEF3C7", borderColor: "#FCD34D" }]}>
-                                            <Ionicons name="help-circle" size={12} color="#D97706" style={{ marginRight: 4 }} />
-                                            <Text style={[styles.issueTagText, { color: "#D97706" }]}>Faint / Unclear</Text>
-                                        </View>
-                                    )}
-                                    {activeItem.flagReason === "low_confidence" && (
-                                        <View style={[styles.issueTag, { backgroundColor: "#FEF3C7", borderColor: "#FCD34D" }]}>
-                                            <Ionicons name="eye-outline" size={12} color="#D97706" style={{ marginRight: 4 }} />
-                                            <Text style={[styles.issueTagText, { color: "#D97706" }]}>
-                                                {activeItem.confidence ? `${Math.round(activeItem.confidence * 100)}% Confidence` : "Low Confidence"}
-                                            </Text>
-                                        </View>
-                                    )}
-                                    {activeItem.isOverridden && (
-                                        <View style={[styles.issueTag, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0", marginTop: 4 }]}>
-                                            <Ionicons name="checkmark-done" size={12} color="#059669" style={{ marginRight: 4 }} />
-                                            <Text style={[styles.issueTagText, { color: "#059669" }]}>Teacher Verified</Text>
-                                        </View>
-                                    )}
-                                </View>
-                            </View>
+                                let chipBg = darkMode ? "#1E293B" : "#F8FAFC";
+                                let chipBorder = darkMode ? "#334155" : "#E2E8F0";
+                                let chipColor = textSub;
 
-                            {/* Details description */}
-                            {activeItem.flagDetails ? (
-                                <View style={[styles.flagAlertBox, { backgroundColor: darkMode ? "#78350F25" : "#FFFBEB", borderColor: "#FDE68A" }]}>
-                                    <Ionicons name="information-circle" size={18} color="#D97706" style={{ marginRight: 8, marginTop: 1 }} />
-                                    <Text style={[styles.flagAlertText, { color: darkMode ? "#FDE68A" : "#92400E" }]}>
-                                        {activeItem.flagDetails}
-                                    </Text>
-                                </View>
-                            ) : null}
+                                if (isResolved) {
+                                    chipBg = darkMode ? "#064E3B30" : "#F0FDF4";
+                                    chipBorder = "#10B981";
+                                    chipColor = "#16A34A";
+                                } else if (isFlagged) {
+                                    chipBg = darkMode ? "#78350F30" : "#FFFBEB";
+                                    chipBorder = "#F59E0B";
+                                    chipColor = "#D97706";
+                                }
 
-                            {/* Comparison Section (Answer Key vs AI Detected) */}
-                            <View style={[styles.comparisonGrid, { backgroundColor: darkMode ? "#111827" : "#FFFFFF", borderColor: border }]}>
-                                <View style={styles.comparisonCol}>
-                                    <Text style={[styles.compLabel, { color: textSub }]}>OFFICIAL ANSWER KEY</Text>
-                                    <View style={styles.keyBadge}>
-                                        <Text style={styles.keyBadgeText}>{activeItem.correctAnswer}</Text>
-                                    </View>
-                                    <Text style={[styles.compSub, { color: textSub }]}>Standard ground truth</Text>
-                                </View>
-
-                                <View style={[styles.compDivider, { backgroundColor: border }]} />
-
-                                <View style={styles.comparisonCol}>
-                                    <Text style={[styles.compLabel, { color: textSub }]}>CURRENT DETECTED</Text>
-                                    <View
+                                return (
+                                    <TouchableOpacity
+                                        key={item.questionNumber}
                                         style={[
-                                            styles.studentBadge,
+                                            styles.anchorChip,
                                             {
-                                                backgroundColor: activeItem.isCorrect
-                                                    ? (darkMode ? "#064E3B40" : "#D1FAE5")
-                                                    : (darkMode ? "#7F1D1D40" : "#FEE2E2"),
-                                                borderColor: activeItem.isCorrect ? "#10B981" : "#EF4444",
+                                                backgroundColor: chipBg,
+                                                borderColor: isCurrentInView ? (darkMode ? "#F8FAFC" : "#0F172A") : chipBorder,
+                                                borderWidth: isCurrentInView ? 2 : 1,
                                             },
                                         ]}
+                                        onPress={() => handleScrollToQuestion(item.questionNumber)}
+                                        activeOpacity={0.7}
                                     >
-                                        <Text
-                                            style={[
-                                                styles.studentBadgeText,
-                                                { color: activeItem.isCorrect ? "#059669" : "#DC2626" },
-                                            ]}
-                                        >
-                                            {activeItem.studentAnswer || "(Blank)"}
+                                        <Text style={[styles.anchorChipText, { color: chipColor }]}>
+                                            Q{item.questionNumber}
                                         </Text>
-                                    </View>
-                                    <Text style={[styles.compSub, { color: textSub }]}>
-                                        {activeItem.isOverridden ? "Manually adjusted" : "Raw AI read"}
-                                    </Text>
-                                </View>
-                            </View>
-
-                            {/* ── PHOTO SNIPPET PREVIEW (If captured sheet exists) ── */}
-                            {scannedImageUri && (
-                                <View style={styles.imageSection}>
-                                    <TouchableOpacity
-                                        style={[styles.imageThumbBtn, { borderColor: border }]}
-                                        onPress={() => setImagePreviewOpen(true)}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Image source={{ uri: scannedImageUri }} style={styles.imageThumb} resizeMode="cover" />
-                                        <View style={styles.imageOverlayBadge}>
-                                            <Ionicons name="expand" size={14} color="#FFF" style={{ marginRight: 4 }} />
-                                            <Text style={styles.imageOverlayText}>View Captured Test Sheet</Text>
-                                        </View>
+                                        {isResolved ? (
+                                            <Ionicons name="checkmark" size={12} color="#16A34A" style={{ marginLeft: 3 }} />
+                                        ) : isFlagged ? (
+                                            <View style={styles.amberDot} />
+                                        ) : null}
                                     </TouchableOpacity>
-                                </View>
-                            )}
+                                );
+                            })}
+                        </ScrollView>
 
-                            {/* ── QUICK-FIX BUBBLE SELECTOR ────────────────────────── */}
-                            <View style={styles.fixSection}>
-                                <Text style={[styles.sectionTitle, { color: textMain }]}>
-                                    Select Correct Student Mark:
+                        {/* Filter Toggle */}
+                        {workingResults.length > flaggedItems.length && flaggedItems.length > 0 && (
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterBtn,
+                                    {
+                                        backgroundColor: filterOnlyFlagged
+                                            ? (darkMode ? "#334155" : "#E2E8F0")
+                                            : "transparent",
+                                        borderColor: border,
+                                    },
+                                ]}
+                                onPress={() => setFilterOnlyFlagged(!filterOnlyFlagged)}
+                                activeOpacity={0.7}
+                            >
+                                <Ionicons
+                                    name={filterOnlyFlagged ? "filter" : "list"}
+                                    size={13}
+                                    color={textSub}
+                                    style={{ marginRight: 4 }}
+                                />
+                                <Text style={[styles.filterBtnText, { color: textSub }]}>
+                                    {filterOnlyFlagged ? "Flagged Only" : "All Items"}
                                 </Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
 
-                                {/* Multiple Choice (A, B, C, D) */}
-                                {isMC && (
-                                    <View style={styles.bubbleRow}>
-                                        {["A", "B", "C", "D"].map((letter) => {
-                                            const isSelected = (activeItem.studentAnswer || "").toUpperCase() === letter;
-                                            const isKey = activeItem.correctAnswer.toUpperCase() === letter;
-                                            const isDetectedCandidate =
-                                                activeItem.detectedOptions?.includes(letter) ||
-                                                (activeItem.originalStudentAnswer || "").includes(letter);
+                    {/* ── CONTINUOUS SCROLL VIEW OF QUESTION CARDS ───────────────── */}
+                    <ScrollView
+                        ref={mainScrollRef}
+                        style={styles.mainScrollView}
+                        contentContainerStyle={styles.mainScrollContent}
+                        showsVerticalScrollIndicator={true}
+                        scrollEventThrottle={16}
+                        onScroll={(e) => {
+                            const scrollY = e.nativeEvent.contentOffset.y;
+                            const entries = Object.entries(cardLayouts.current);
+                            if (entries.length > 0) {
+                                entries.sort((a, b) => a[1] - b[1]);
+                                let current = Number(entries[0][0]);
+                                for (const [qNumStr, yPos] of entries) {
+                                    if (scrollY >= yPos - 60) {
+                                        current = Number(qNumStr);
+                                    }
+                                }
+                                if (current !== activeAnchorQNum) {
+                                    setActiveAnchorQNum(current);
+                                }
+                            }
+                        }}
+                    >
+                        {displayItems.length > 0 ? (
+                            displayItems.map((item) => {
+                                const isFlagged = isItemFlaggedByAi(item);
+                                const isMC = Boolean(
+                                    ["A", "B", "C", "D"].includes(item.correctAnswer.trim().toUpperCase()) ||
+                                    /^[A-D](?:\s*[,/&]\s*[A-D])*$/i.test((item.studentAnswer || "").trim())
+                                );
+                                const isTF = Boolean(
+                                    ["T", "F", "TRUE", "FALSE"].includes(item.correctAnswer.trim().toUpperCase())
+                                );
 
-                                            let btnBg = darkMode ? "#1F2937" : "#FFFFFF";
-                                            let btnBorder = border;
-                                            let letterColor = textMain;
+                                let flagReasonLabel = "Needs review";
+                                if (item.flagReason === "double_mark") flagReasonLabel = "Double-shaded";
+                                else if (item.flagReason === "unclear") {
+                                    flagReasonLabel = `Faint mark / Scribble (${item.confidence ? Math.round(item.confidence * 100) : 35}%)`;
+                                } else if (item.flagReason === "low_confidence") {
+                                    flagReasonLabel = `Low confidence (${item.confidence ? Math.round(item.confidence * 100) : 50}%)`;
+                                }
 
-                                            if (isSelected) {
-                                                btnBg = isKey ? "#10B981" : "#EF4444";
-                                                btnBorder = isKey ? "#059669" : "#DC2626";
-                                                letterColor = "#FFFFFF";
-                                            } else if (isDetectedCandidate) {
-                                                btnBg = darkMode ? "#78350F30" : "#FEF3C7";
-                                                btnBorder = "#F59E0B";
-                                                letterColor = "#D97706";
-                                            }
+                                const cleanStudentAnswer = (item.studentAnswer || "").trim().toUpperCase();
+                                const cleanKey = item.correctAnswer.trim().toUpperCase();
 
-                                            return (
+                                return (
+                                    <View
+                                        key={item.questionNumber}
+                                        style={[
+                                            styles.compactQuestionCard,
+                                            {
+                                                backgroundColor: cardBg,
+                                                borderColor: isFlagged && !item.isOverridden
+                                                    ? "#F59E0B"
+                                                    : border,
+                                            },
+                                        ]}
+                                        onLayout={(e) => {
+                                            cardLayouts.current[item.questionNumber] = e.nativeEvent.layout.y;
+                                        }}
+                                    >
+                                        {/* Row 1: Compact Header */}
+                                        <View style={styles.cardHeaderRow}>
+                                            <View style={styles.cardHeaderLeft}>
+                                                <View style={[styles.qSquareBadge, { backgroundColor: darkMode ? "#334155" : "#0F172A" }]}>
+                                                    <Text style={styles.qSquareBadgeText}>Q{item.questionNumber}</Text>
+                                                </View>
+                                                <Text style={[styles.qTitleText, { color: textMain }]}>
+                                                    Question {item.questionNumber}
+                                                </Text>
+                                            </View>
+
+                                            {item.isOverridden ? (
+                                                <View style={styles.verifiedBadge}>
+                                                    <Ionicons name="checkmark-circle" size={12} color="#16A34A" />
+                                                    <Text style={styles.verifiedBadgeText}>Reviewed</Text>
+                                                </View>
+                                            ) : isFlagged ? (
+                                                <View style={styles.flagReasonPill}>
+                                                    <Text style={styles.flagReasonPillText}>{flagReasonLabel}</Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+
+                                        {/* Row 2: Cropped Scan Thumbnail */}
+                                        {scannedImageUri && (
+                                            <View style={styles.thumbnailWrap}>
+                                                <Image
+                                                    source={{ uri: scannedImageUri }}
+                                                    style={styles.thumbnailImg}
+                                                    resizeMode="cover"
+                                                />
                                                 <TouchableOpacity
-                                                    key={letter}
-                                                    style={[styles.bubbleBtn, { backgroundColor: btnBg, borderColor: btnBorder }]}
-                                                    onPress={() => handleSelectAnswer(letter)}
-                                                    activeOpacity={0.7}
+                                                    style={styles.expandThumbBtn}
+                                                    onPress={() => setImagePreviewOpen(true)}
+                                                    activeOpacity={0.8}
                                                 >
-                                                    <Text style={[styles.bubbleBtnText, { color: letterColor }]}>{letter}</Text>
-                                                    {isKey && !isSelected && (
-                                                        <View style={styles.keyDot} />
-                                                    )}
+                                                    <Text style={styles.expandThumbText}>Expand sheet ↗</Text>
                                                 </TouchableOpacity>
-                                            );
-                                        })}
-                                    </View>
-                                )}
+                                            </View>
+                                        )}
 
-                                {/* True / False (T, F) */}
-                                {isTF && (
-                                    <View style={styles.bubbleRow}>
-                                        {["T", "F"].map((choice) => {
-                                            const isSelected = (activeItem.studentAnswer || "").toUpperCase().startsWith(choice);
-                                            const isKey = activeItem.correctAnswer.toUpperCase().startsWith(choice);
+                                        {/* Row 3: Inline Answer Key & AI Read (Single-line strip) */}
+                                        <View style={styles.metaStripRow}>
+                                            <Text style={styles.metaStripText}>
+                                                Correct Key:{" "}
+                                                <Text style={{ fontWeight: "700", color: "#15803D" }}>
+                                                    {item.correctAnswer}
+                                                </Text>
+                                                {"  ·  "}
+                                                AI Detected:{" "}
+                                                <Text style={{ fontWeight: "700", color: "#B91C1C" }}>
+                                                    {item.originalStudentAnswer || item.studentAnswer || "(Blank)"}
+                                                </Text>
+                                                {item.isOverridden ? (
+                                                    <Text style={{ fontWeight: "600", color: item.isCorrect ? "#15803D" : "#B91C1C" }}>
+                                                        {`  ·  Set: [${item.studentAnswer || "Blank"}]`}
+                                                    </Text>
+                                                ) : null}
+                                            </Text>
+                                        </View>
 
-                                            return (
+                                        {/* Row 4: One-Tap Bubble Selector */}
+                                        {isMC ? (
+                                            <View style={styles.bubbleRow}>
+                                                {["A", "B", "C", "D"].map((letter) => {
+                                                    const isSelected = cleanStudentAnswer === letter;
+                                                    const isKey = cleanKey === letter;
+
+                                                    let btnBg = darkMode ? "#1E293B" : "#FFFFFF";
+                                                    let btnBorder = darkMode ? "#334155" : "#CBD5E1";
+                                                    let letterColor = textMain;
+
+                                                    if (isSelected) {
+                                                        btnBg = isKey ? "#10B981" : "#EF4444";
+                                                        btnBorder = isKey ? "#059669" : "#DC2626";
+                                                        letterColor = "#FFFFFF";
+                                                    }
+
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={letter}
+                                                            style={[
+                                                                styles.bubbleBtn,
+                                                                { backgroundColor: btnBg, borderColor: btnBorder },
+                                                            ]}
+                                                            onPress={() => handleSelectAnswerForItem(item.questionNumber, letter)}
+                                                            activeOpacity={0.7}
+                                                        >
+                                                            <Text style={[styles.bubbleBtnText, { color: letterColor }]}>
+                                                                {letter}
+                                                            </Text>
+                                                            {isKey && !isSelected && (
+                                                                <View style={styles.keyDot} />
+                                                            )}
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+
+                                                {/* Compact Blank Button */}
                                                 <TouchableOpacity
-                                                    key={choice}
                                                     style={[
                                                         styles.bubbleBtn,
-                                                        styles.tfBtn,
+                                                        styles.blankBtn,
                                                         {
-                                                            backgroundColor: isSelected
-                                                                ? (isKey ? "#10B981" : "#EF4444")
-                                                                : (darkMode ? "#1F2937" : "#FFFFFF"),
-                                                            borderColor: isSelected ? (isKey ? "#059669" : "#DC2626") : border,
+                                                            backgroundColor: cleanStudentAnswer === ""
+                                                                ? (darkMode ? "#334155" : "#0F172A")
+                                                                : (darkMode ? "#1E293B" : "#FFFFFF"),
+                                                            borderColor: cleanStudentAnswer === ""
+                                                                ? (darkMode ? "#475569" : "#0F172A")
+                                                                : (darkMode ? "#334155" : "#CBD5E1"),
                                                         },
                                                     ]}
-                                                    onPress={() => handleSelectAnswer(choice)}
+                                                    onPress={() => handleSelectAnswerForItem(item.questionNumber, "")}
+                                                    activeOpacity={0.7}
                                                 >
                                                     <Text
                                                         style={[
-                                                            styles.bubbleBtnText,
-                                                            { color: isSelected ? "#FFFFFF" : textMain },
+                                                            styles.blankBtnText,
+                                                            { color: cleanStudentAnswer === "" ? "#FFFFFF" : textSub },
                                                         ]}
                                                     >
-                                                        {choice === "T" ? "T (True)" : "F (False)"}
+                                                        Blank
                                                     </Text>
                                                 </TouchableOpacity>
-                                            );
-                                        })}
+                                            </View>
+                                        ) : isTF ? (
+                                            <View style={styles.bubbleRow}>
+                                                {["T", "F"].map((opt) => {
+                                                    const isSelected = cleanStudentAnswer.startsWith(opt);
+                                                    const isKey = cleanKey.startsWith(opt);
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={opt}
+                                                            style={[
+                                                                styles.bubbleBtn,
+                                                                {
+                                                                    backgroundColor: isSelected
+                                                                        ? (isKey ? "#10B981" : "#EF4444")
+                                                                        : (darkMode ? "#1E293B" : "#FFFFFF"),
+                                                                    borderColor: isSelected
+                                                                        ? (isKey ? "#059669" : "#DC2626")
+                                                                        : border,
+                                                                },
+                                                            ]}
+                                                            onPress={() => handleSelectAnswerForItem(item.questionNumber, opt)}
+                                                        >
+                                                            <Text
+                                                                style={[
+                                                                    styles.bubbleBtnText,
+                                                                    { color: isSelected ? "#FFFFFF" : textMain },
+                                                                ]}
+                                                            >
+                                                                {opt === "T" ? "True" : "False"}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.bubbleBtn,
+                                                        styles.blankBtn,
+                                                        {
+                                                            backgroundColor: cleanStudentAnswer === ""
+                                                                ? (darkMode ? "#334155" : "#0F172A")
+                                                                : (darkMode ? "#1E293B" : "#FFFFFF"),
+                                                            borderColor: border,
+                                                        },
+                                                    ]}
+                                                    onPress={() => handleSelectAnswerForItem(item.questionNumber, "")}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.blankBtnText,
+                                                            { color: cleanStudentAnswer === "" ? "#FFFFFF" : textSub },
+                                                        ]}
+                                                    >
+                                                        Blank
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        ) : (
+                                            <View style={styles.writtenRow}>
+                                                <TextInput
+                                                    style={[
+                                                        styles.writtenInput,
+                                                        {
+                                                            backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                                                            color: textMain,
+                                                            borderColor: border,
+                                                        },
+                                                    ]}
+                                                    placeholder="Type student's handwritten answer..."
+                                                    placeholderTextColor={textSub}
+                                                    value={customInputs[item.questionNumber] ?? item.studentAnswer ?? ""}
+                                                    onChangeText={(val) =>
+                                                        setCustomInputs((prev) => ({ ...prev, [item.questionNumber]: val }))
+                                                    }
+                                                />
+                                                <TouchableOpacity
+                                                    style={[styles.writtenSetBtn, { backgroundColor: accentColor }]}
+                                                    onPress={() =>
+                                                        handleSelectAnswerForItem(
+                                                            item.questionNumber,
+                                                            customInputs[item.questionNumber] || ""
+                                                        )
+                                                    }
+                                                >
+                                                    <Text style={styles.writtenSetBtnText}>Set</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.bubbleBtn,
+                                                        styles.blankBtn,
+                                                        {
+                                                            width: 64,
+                                                            backgroundColor: cleanStudentAnswer === ""
+                                                                ? (darkMode ? "#334155" : "#0F172A")
+                                                                : (darkMode ? "#1E293B" : "#FFFFFF"),
+                                                            borderColor: border,
+                                                        },
+                                                    ]}
+                                                    onPress={() => handleSelectAnswerForItem(item.questionNumber, "")}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.blankBtnText,
+                                                            { color: cleanStudentAnswer === "" ? "#FFFFFF" : textSub },
+                                                        ]}
+                                                    >
+                                                        Blank
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+
+                                        {/* Subtle manual override toggle link */}
+                                        <View style={styles.overrideLinkRow}>
+                                            {item.isOverridden && (
+                                                <TouchableOpacity
+                                                    onPress={() => handleResetToAiForItem(item.questionNumber)}
+                                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                                >
+                                                    <Text style={styles.revertLinkText}>Revert to AI</Text>
+                                                </TouchableOpacity>
+                                            )}
+                                            <TouchableOpacity
+                                                onPress={() => handleTogglePointsForItem(item.questionNumber, !item.isCorrect)}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                            >
+                                                <Text style={styles.overrideLinkText}>
+                                                    {item.isCorrect ? "Mark 0 pt" : "+1 pt override (Defective item)"}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
                                     </View>
-                                )}
-
-                                {/* Written / Custom text input (Identification / Fill-blank or custom override) */}
-                                {!["A", "B", "C", "D"].includes(activeItem.correctAnswer.trim().toUpperCase()) && !isTF && (
-                                    <View style={[styles.customInputRow, isMC && { marginTop: 10 }]}>
-                                        <TextInput
-                                            style={[
-                                                styles.customInput,
-                                                { backgroundColor: darkMode ? "#111827" : "#FFFFFF", color: textMain, borderColor: border },
-                                            ]}
-                                            placeholder="Type student's handwritten answer..."
-                                            placeholderTextColor={textSub}
-                                            value={customAnswerInput}
-                                            onChangeText={setCustomAnswerInput}
-                                            autoCapitalize="characters"
-                                        />
-                                        <TouchableOpacity
-                                            style={[styles.applyInputBtn, { backgroundColor: accentColor }]}
-                                            onPress={() => handleSelectAnswer(customAnswerInput)}
-                                        >
-                                            <Text style={styles.applyInputBtnText}>Set</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-
-                                {/* Blank / Empty Mark Option */}
-                                <View style={styles.secondaryFixRow}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.secondaryFixBtn,
-                                            {
-                                                backgroundColor: darkMode ? "#1F2937" : "#F1F5F9",
-                                                borderColor: border,
-                                            },
-                                        ]}
-                                        onPress={() => handleSelectAnswer("")}
-                                    >
-                                        <Ionicons name="ellipse-outline" size={14} color={textSub} style={{ marginRight: 6 }} />
-                                        <Text style={[styles.secondaryFixText, { color: textSub }]}>Mark as Blank (No Answer)</Text>
-                                    </TouchableOpacity>
-
-                                    {activeItem.isOverridden && (
-                                        <TouchableOpacity
-                                            style={[styles.secondaryFixBtn, { backgroundColor: "transparent", borderColor: "transparent" }]}
-                                            onPress={handleResetToAi}
-                                        >
-                                            <Ionicons name="refresh" size={14} color={textSub} style={{ marginRight: 4 }} />
-                                            <Text style={[styles.secondaryFixText, { color: textSub }]}>Revert to AI</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
+                                );
+                            })
+                        ) : (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="checkmark-done-circle" size={48} color="#10B981" />
+                                <Text style={[styles.emptyTitle, { color: textMain }]}>
+                                    All Flagged Items Resolved
+                                </Text>
+                                <Text style={[styles.emptySubtitle, { color: textSub }]}>
+                                    No questions currently require manual teacher review.
+                                </Text>
                             </View>
+                        )}
+                    </ScrollView>
 
-                            {/* ── POINT OVERRIDE TOGGLES ───────────────────────────── */}
-                            <View style={[styles.pointOverrideBox, { borderTopColor: border }]}>
-                                <Text style={[styles.pointOverrideLabel, { color: textSub }]}>Direct Point Override:</Text>
-                                <View style={styles.overrideButtonsRow}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.pointOverrideBtn,
-                                            {
-                                                backgroundColor: activeItem.isCorrect ? "#10B981" : (darkMode ? "#1F2937" : "#F1F5F9"),
-                                                borderColor: activeItem.isCorrect ? "#059669" : border,
-                                            },
-                                        ]}
-                                        onPress={() => handleTogglePoints(true)}
-                                    >
-                                        <Ionicons
-                                            name="checkmark-circle"
-                                            size={16}
-                                            color={activeItem.isCorrect ? "#FFF" : "#10B981"}
-                                            style={{ marginRight: 6 }}
-                                        />
-                                        <Text style={[styles.pointOverrideText, { color: activeItem.isCorrect ? "#FFF" : textMain }]}>
-                                            Award +1 Point (Correct)
-                                        </Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.pointOverrideBtn,
-                                            {
-                                                backgroundColor: !activeItem.isCorrect ? "#EF4444" : (darkMode ? "#1F2937" : "#F1F5F9"),
-                                                borderColor: !activeItem.isCorrect ? "#DC2626" : border,
-                                            },
-                                        ]}
-                                        onPress={() => handleTogglePoints(false)}
-                                    >
-                                        <Ionicons
-                                            name="close-circle"
-                                            size={16}
-                                            color={!activeItem.isCorrect ? "#FFF" : "#EF4444"}
-                                            style={{ marginRight: 6 }}
-                                        />
-                                        <Text style={[styles.pointOverrideText, { color: !activeItem.isCorrect ? "#FFF" : textMain }]}>
-                                            0 Points (Incorrect)
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        </View>
-                    ) : (
-                        <View style={styles.emptyContainer}>
-                            <Ionicons name="checkmark-done-circle" size={60} color="#10B981" />
-                            <Text style={[styles.emptyTitle, { color: textMain }]}>All Questions Cleanly Verified</Text>
-                            <Text style={[styles.emptySubtitle, { color: textSub }]}>
-                                No double-shaded bubbles or low-confidence readings require manual fixing.
+                    {/* ── STICKY FOOTER ─────────────────────────────────────────── */}
+                    <View style={[styles.stickyFooter, { borderTopColor: border }]}>
+                        <View>
+                            <Text style={[styles.footerScoreLabel, { color: textSub }]}>Updated Score</Text>
+                            <Text style={[styles.footerScoreValue, { color: textMain }]}>
+                                {computedTotalScore}{" "}
+                                <Text style={{ fontSize: 13, fontWeight: "500", color: textSub }}>
+                                    / {gradingResult.maxScore}
+                                </Text>
                             </Text>
                         </View>
-                    )}
-                </ScrollView>
-
-                {/* ── FOOTER NAVIGATION BAR ─────────────────────────────────────── */}
-                <View style={[styles.footerBar, { backgroundColor: bg, borderTopColor: border }]}>
-                    <View style={styles.footerNavRow}>
-                        <TouchableOpacity
-                            style={[
-                                styles.navArrowBtn,
-                                {
-                                    backgroundColor: darkMode ? "#1F2937" : "#F1F5F9",
-                                    borderColor: border,
-                                    opacity: displayItems.findIndex((r) => r.questionNumber === selectedQNum) === 0 ? 0.4 : 1,
-                                },
-                            ]}
-                            onPress={handlePrev}
-                            disabled={displayItems.findIndex((r) => r.questionNumber === selectedQNum) === 0}
-                        >
-                            <Ionicons name="chevron-back" size={20} color={textMain} />
-                            <Text style={[styles.navArrowText, { color: textMain, marginLeft: 4 }]}>Prev</Text>
-                        </TouchableOpacity>
-
-                        <View style={styles.footerScoreContainer}>
-                            <Text style={[styles.footerScoreTitle, { color: textSub }]}>Total Score</Text>
-                            <Text style={[styles.footerScoreValue, { color: accentColor }]}>
-                                {computedTotalScore} / {gradingResult.maxScore}
-                            </Text>
-                        </View>
 
                         <TouchableOpacity
-                            style={[
-                                styles.navArrowBtn,
-                                {
-                                    backgroundColor: darkMode ? "#1F2937" : "#F1F5F9",
-                                    borderColor: border,
-                                    opacity: displayItems.findIndex((r) => r.questionNumber === selectedQNum) === displayItems.length - 1 ? 0.4 : 1,
-                                },
-                            ]}
-                            onPress={handleNext}
-                            disabled={displayItems.findIndex((r) => r.questionNumber === selectedQNum) === displayItems.length - 1}
+                            style={[styles.saveReviewBtn, { backgroundColor: accentColor }]}
+                            onPress={handleApplyChanges}
+                            activeOpacity={0.8}
                         >
-                            <Text style={[styles.navArrowText, { color: textMain, marginRight: 4 }]}>Next</Text>
-                            <Ionicons name="chevron-forward" size={20} color={textMain} />
+                            <Text style={styles.saveReviewBtnText}>Save Review</Text>
                         </TouchableOpacity>
                     </View>
-
-                    <TouchableOpacity
-                        style={[styles.applyFooterBtn, { backgroundColor: accentColor }]}
-                        onPress={handleApplyChanges}
-                        activeOpacity={0.8}
-                    >
-                        <Ionicons name="save" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                        <Text style={styles.applyFooterBtnText}>
-                            Save & Update Score ({computedTotalScore}/{gradingResult.maxScore})
-                        </Text>
-                    </TouchableOpacity>
                 </View>
 
                 {/* ── FULL IMAGE PREVIEW MODAL ─────────────────────────────────── */}
                 {scannedImageUri && (
-                    <Modal visible={imagePreviewOpen} transparent animationType="fade" onRequestClose={() => setImagePreviewOpen(false)}>
+                    <Modal
+                        visible={imagePreviewOpen}
+                        transparent
+                        animationType="fade"
+                        onRequestClose={() => setImagePreviewOpen(false)}
+                    >
                         <View style={styles.fullImageOverlay}>
-                            <TouchableOpacity style={styles.fullImageCloseBtn} onPress={() => setImagePreviewOpen(false)}>
-                                <Ionicons name="close" size={26} color="#FFFFFF" />
+                            <TouchableOpacity
+                                style={styles.fullImageCloseBtn}
+                                onPress={() => setImagePreviewOpen(false)}
+                            >
+                                <Ionicons name="close" size={24} color="#FFFFFF" />
                             </TouchableOpacity>
-                            <Image source={{ uri: scannedImageUri }} style={styles.fullImage} resizeMode="contain" />
+                            <Image
+                                source={{ uri: scannedImageUri }}
+                                style={styles.fullImage}
+                                resizeMode="contain"
+                            />
                         </View>
                     </Modal>
                 )}
@@ -722,433 +726,349 @@ export function LowConfidenceReviewModal({
 }
 
 const styles = StyleSheet.create({
-    container: {
+    modalRoot: {
         flex: 1,
+        justifyContent: "flex-end",
+    },
+    modalBackdrop: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: "rgba(15, 23, 42, 0.45)",
+    },
+    sheetContainer: {
+        height: "92%",
+        width: "100%",
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        overflow: "hidden",
+    },
+    dragPill: {
+        width: 36,
+        height: 4,
+        borderRadius: 999,
+        alignSelf: "center",
+        marginTop: 10,
+        marginBottom: 8,
     },
     header: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: 16,
-        paddingTop: 52,
-        paddingBottom: 14,
+        paddingBottom: 12,
         borderBottomWidth: 1,
-    },
-    closeBtn: {
-        padding: 6,
-    },
-    headerCenter: {
-        flex: 1,
-        alignItems: "center",
-    },
-    headerTitleRow: {
-        flexDirection: "row",
-        alignItems: "center",
     },
     headerTitle: {
         fontSize: 16,
-        fontWeight: "800",
+        fontWeight: "700",
     },
     headerSubtitle: {
         fontSize: 12,
-        fontWeight: "500",
         marginTop: 2,
     },
-    saveHeaderBtn: {
-        paddingHorizontal: 14,
-        paddingVertical: 7,
-        borderRadius: 20,
-    },
-    saveHeaderBtnText: {
-        color: "#FFFFFF",
-        fontWeight: "700",
-        fontSize: 13,
-    },
-    progressBarTrack: {
-        height: 4,
-        width: "100%",
-    },
-    progressBarFill: {
-        height: "100%",
-    },
-    tabsBar: {
-        flexDirection: "row",
+    closeIconBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
         alignItems: "center",
-        paddingVertical: 8,
-        borderBottomWidth: 1,
+        justifyContent: "center",
     },
-    tabsScroll: {
-        paddingHorizontal: 16,
-        gap: 8,
-    },
-    tabPill: {
+
+    /* ── Sticky Anchor Bar ── */
+    anchorBar: {
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-        borderWidth: 1.5,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        gap: 8,
     },
-    tabPillText: {
-        fontSize: 12,
+    anchorScroll: {
+        gap: 6,
+        paddingRight: 6,
     },
-    filterToggleBtn: {
+    anchorChip: {
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 10,
         paddingVertical: 5,
-        borderRadius: 14,
-        marginRight: 12,
+        borderRadius: 16,
     },
-    filterToggleText: {
-        fontSize: 11,
-        fontWeight: "600",
-    },
-    bodyScroll: {
-        flex: 1,
-    },
-    bodyContent: {
-        padding: 16,
-        paddingBottom: 40,
-    },
-    activeCard: {
-        borderRadius: 18,
-        borderWidth: 1,
-        padding: 16,
-    },
-    cardTopRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "flex-start",
-    },
-    qBadgeContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    bigQBadge: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    bigQBadgeText: {
-        color: "#FFFFFF",
-        fontSize: 18,
-        fontWeight: "900",
-    },
-    qHeaderLabel: {
-        fontSize: 11,
+    anchorChipText: {
+        fontSize: 12,
         fontWeight: "700",
-        textTransform: "uppercase",
-        letterSpacing: 0.5,
     },
-    studentScoreStatus: {
-        fontSize: 13,
-        fontWeight: "700",
-        marginTop: 2,
+    amberDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: "#F59E0B",
+        marginLeft: 4,
     },
-    issueTagContainer: {
-        alignItems: "flex-end",
-    },
-    issueTag: {
+    filterBtn: {
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
+        paddingVertical: 5,
+        borderRadius: 8,
         borderWidth: 1,
     },
-    issueTagText: {
-        fontSize: 10.5,
+    filterBtnText: {
+        fontSize: 11,
+        fontWeight: "600",
+    },
+
+    /* ── Continuous Scroll ── */
+    mainScrollView: {
+        flex: 1,
+    },
+    mainScrollContent: {
+        padding: 16,
+        gap: 14,
+    },
+
+    /* ── Compact Question Card ── */
+    compactQuestionCard: {
+        borderRadius: 12,
+        borderWidth: 1,
+        padding: 12,
+        gap: 8,
+    },
+    cardHeaderRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+    cardHeaderLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    qSquareBadge: {
+        width: 28,
+        height: 28,
+        borderRadius: 6,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    qSquareBadgeText: {
+        color: "#FFFFFF",
+        fontSize: 12,
+        fontWeight: "800",
+    },
+    qTitleText: {
+        fontSize: 15,
+        fontWeight: "600",
+    },
+    flagReasonPill: {
+        backgroundColor: "#FFFBEB",
+        borderWidth: 1,
+        borderColor: "#FDE68A",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    flagReasonPillText: {
+        color: "#B45309",
+        fontSize: 11,
+        fontWeight: "600",
+    },
+    verifiedBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: "#F0FDF4",
+        borderWidth: 1,
+        borderColor: "#BBF7D0",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    verifiedBadgeText: {
+        color: "#16A34A",
+        fontSize: 11,
         fontWeight: "700",
     },
-    flagAlertBox: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        padding: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-        marginTop: 14,
-    },
-    flagAlertText: {
-        flex: 1,
-        fontSize: 12,
-        fontWeight: "600",
-        lineHeight: 17,
-    },
-    comparisonGrid: {
-        flexDirection: "row",
-        borderRadius: 14,
-        borderWidth: 1,
-        padding: 12,
-        marginTop: 14,
-    },
-    comparisonCol: {
-        flex: 1,
-        alignItems: "center",
-    },
-    compLabel: {
-        fontSize: 10,
-        fontWeight: "800",
-        letterSpacing: 0.5,
-        marginBottom: 6,
-    },
-    keyBadge: {
-        backgroundColor: "#10B981",
-        minWidth: 42,
-        minHeight: 42,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 10,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    keyBadgeText: {
-        color: "#FFFFFF",
-        fontSize: 16,
-        fontWeight: "900",
-        textAlign: "center",
-    },
-    studentBadge: {
-        minWidth: 42,
-        minHeight: 42,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 10,
-        borderWidth: 1.5,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    studentBadgeText: {
-        fontSize: 16,
-        fontWeight: "900",
-        textAlign: "center",
-    },
-    compSub: {
-        fontSize: 10.5,
-        marginTop: 6,
-    },
-    compDivider: {
-        width: 1,
-        marginHorizontal: 12,
-    },
-    imageSection: {
-        marginTop: 14,
-    },
-    imageThumbBtn: {
-        height: 90,
-        borderRadius: 12,
+
+    /* ── Thumbnail ── */
+    thumbnailWrap: {
+        height: 84,
+        borderRadius: 8,
         overflow: "hidden",
-        borderWidth: 1,
+        backgroundColor: "#F1F5F9",
         position: "relative",
     },
-    imageThumb: {
+    thumbnailImg: {
         width: "100%",
         height: "100%",
     },
-    imageOverlayBadge: {
+    expandThumbBtn: {
         position: "absolute",
-        bottom: 6,
-        right: 8,
-        backgroundColor: "rgba(0,0,0,0.75)",
-        flexDirection: "row",
-        alignItems: "center",
+        top: 6,
+        right: 6,
+        backgroundColor: "rgba(15, 23, 42, 0.7)",
         paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 10,
+        paddingVertical: 3,
+        borderRadius: 6,
     },
-    imageOverlayText: {
+    expandThumbText: {
         color: "#FFFFFF",
-        fontSize: 11,
+        fontSize: 10.5,
         fontWeight: "600",
     },
-    fixSection: {
-        marginTop: 18,
+
+    /* ── Single-Line Metadata Strip ── */
+    metaStripRow: {
+        paddingVertical: 2,
     },
-    sectionTitle: {
-        fontSize: 13,
-        fontWeight: "800",
-        marginBottom: 10,
+    metaStripText: {
+        fontSize: 12,
+        color: "#64748B",
     },
+
+    /* ── One-Tap Bubble Selector ── */
     bubbleRow: {
         flexDirection: "row",
-        gap: 12,
+        gap: 8,
     },
     bubbleBtn: {
         flex: 1,
-        height: 52,
-        borderRadius: 14,
-        borderWidth: 2,
+        height: 44,
+        borderRadius: 10,
+        borderWidth: 1,
         alignItems: "center",
         justifyContent: "center",
         position: "relative",
     },
-    tfBtn: {
-        flex: 1,
-    },
     bubbleBtnText: {
-        fontSize: 20,
-        fontWeight: "900",
+        fontSize: 15,
+        fontWeight: "700",
     },
     keyDot: {
         position: "absolute",
-        top: 6,
-        right: 6,
-        width: 7,
-        height: 7,
-        borderRadius: 3.5,
+        top: 4,
+        right: 4,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
         backgroundColor: "#10B981",
     },
-    customInputRow: {
-        flexDirection: "row",
-        gap: 8,
+    blankBtn: {
+        flex: 1.1,
     },
-    customInput: {
-        flex: 1,
-        height: 48,
-        borderRadius: 12,
-        borderWidth: 1,
-        paddingHorizontal: 14,
-        fontSize: 15,
-        fontWeight: "700",
-    },
-    applyInputBtn: {
-        paddingHorizontal: 18,
-        borderRadius: 12,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    applyInputBtnText: {
-        color: "#FFFFFF",
-        fontWeight: "800",
-        fontSize: 14,
-    },
-    secondaryFixRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginTop: 12,
-    },
-    secondaryFixBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 12,
-        borderWidth: 1,
-    },
-    secondaryFixText: {
-        fontSize: 11.5,
+    blankBtnText: {
+        fontSize: 12.5,
         fontWeight: "600",
     },
-    pointOverrideBox: {
-        marginTop: 18,
-        paddingTop: 14,
-        borderTopWidth: 1,
-    },
-    pointOverrideLabel: {
-        fontSize: 11,
-        fontWeight: "700",
-        marginBottom: 8,
-    },
-    overrideButtonsRow: {
+    writtenRow: {
         flexDirection: "row",
         gap: 8,
+        alignItems: "center",
     },
-    pointOverrideBtn: {
+    writtenInput: {
         flex: 1,
-        flexDirection: "row",
+        height: 44,
+        borderRadius: 10,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        fontSize: 13,
+    },
+    writtenSetBtn: {
+        height: 44,
+        paddingHorizontal: 14,
+        borderRadius: 10,
         alignItems: "center",
         justifyContent: "center",
-        paddingVertical: 9,
-        borderRadius: 12,
-        borderWidth: 1.5,
     },
-    pointOverrideText: {
-        fontSize: 12,
+    writtenSetBtnText: {
+        color: "#FFFFFF",
+        fontSize: 13,
         fontWeight: "700",
     },
+    overrideLinkRow: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        gap: 12,
+        marginTop: 2,
+    },
+    overrideLinkText: {
+        fontSize: 11,
+        color: "#64748B",
+    },
+    revertLinkText: {
+        fontSize: 11,
+        color: "#2563EB",
+        fontWeight: "600",
+    },
+
+    /* ── Empty State ── */
     emptyContainer: {
         alignItems: "center",
         justifyContent: "center",
-        paddingVertical: 60,
+        paddingVertical: 40,
+        gap: 8,
     },
     emptyTitle: {
-        fontSize: 18,
-        fontWeight: "800",
-        marginTop: 14,
+        fontSize: 15,
+        fontWeight: "700",
     },
     emptySubtitle: {
-        fontSize: 13,
+        fontSize: 12,
         textAlign: "center",
-        marginTop: 6,
-        paddingHorizontal: 30,
-        lineHeight: 18,
+        paddingHorizontal: 20,
     },
-    footerBar: {
-        paddingHorizontal: 16,
-        paddingTop: 12,
-        paddingBottom: 28,
-        borderTopWidth: 1,
-    },
-    footerNavRow: {
+
+    /* ── Sticky Footer ── */
+    stickyFooter: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        marginBottom: 10,
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        borderTopWidth: 1,
     },
-    navArrowBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 14,
-        borderWidth: 1,
-    },
-    navArrowText: {
-        fontSize: 13,
-        fontWeight: "700",
-    },
-    footerScoreContainer: {
-        alignItems: "center",
-    },
-    footerScoreTitle: {
-        fontSize: 10.5,
-        fontWeight: "700",
-        textTransform: "uppercase",
+    footerScoreLabel: {
+        fontSize: 11,
+        fontWeight: "500",
     },
     footerScoreValue: {
         fontSize: 18,
-        fontWeight: "900",
-    },
-    applyFooterBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        height: 50,
-        borderRadius: 14,
-    },
-    applyFooterBtnText: {
-        color: "#FFFFFF",
-        fontSize: 15,
         fontWeight: "800",
     },
+    saveReviewBtn: {
+        height: 44,
+        borderRadius: 10,
+        paddingHorizontal: 22,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    saveReviewBtnText: {
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "700",
+    },
+
+    /* ── Full Image Preview ── */
     fullImageOverlay: {
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.92)",
+        backgroundColor: "rgba(0, 0, 0, 0.9)",
         justifyContent: "center",
         alignItems: "center",
     },
     fullImageCloseBtn: {
         position: "absolute",
-        top: 50,
+        top: 48,
         right: 20,
         zIndex: 10,
         padding: 8,
     },
     fullImage: {
-        width: SCREEN_WIDTH * 0.95,
+        width: "92%",
         height: "80%",
     },
 });
