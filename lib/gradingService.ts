@@ -351,10 +351,13 @@ You MUST return the final result as a strict, valid JSON object with this exact 
 
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // Primary Gemini models ordered by vision accuracy and speed:
-        // gemini-2.5-flash and gemini-2.0-flash provide the sharpest OCR on handwritten ink blobs and scribbles,
-        // followed by gemini-1.5-flash
+        // Primary Gemini models for TSEKI Vision Grader:
+        // gemini-3.5-flash-lite, gemini-3.6-flash, and gemini-3.8-flash are the active supported models,
+        // followed by gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash
         const candidateModels = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-1.5-flash",
@@ -456,10 +459,21 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         }
     }
 
-    // Failover to backup vision AI if Gemini was exhausted or failed
+    // Failover to backup vision AI ONLY if Gemini was completely exhausted or failed
     if (!parsed) {
-        console.warn("[Grading] Gemini vision unavailable. Failing over to backup vision AI provider...");
-        parsed = await gradeWithBackupVisionAI(cleanBase64, mimeType, systemInstruction, lastError);
+        console.warn("[Grading] Gemini vision unavailable. Attempting backup vision AI provider...");
+        try {
+            parsed = await gradeWithBackupVisionAI(cleanBase64, mimeType, systemInstruction, lastError);
+        } catch (backupErr: any) {
+            console.error("[Grading] Backup vision AI also failed:", backupErr);
+            const geminiMsg = (lastError?.message || "").toLowerCase();
+            if (geminiMsg.includes("503") || geminiMsg.includes("high demand") || geminiMsg.includes("busy") || geminiMsg.includes("overloaded")) {
+                throw new Error("Gemini AI is currently experiencing high demand. Please wait a moment and try scanning again.");
+            }
+            throw new Error(
+                `Gemini Vision failed to grade the paper (${lastError?.message?.slice(0, 100) || "Service unavailable"}). Please ensure proper lighting and try scanning again.`
+            );
+        }
     }
 
     const parsedResults: any[] = Array.isArray(parsed.results) ? parsed.results : [];
