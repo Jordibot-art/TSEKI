@@ -922,8 +922,8 @@ export default function GraderTab({
                             </View>
                         </View>
 
-                        {/* Interactive Grading Log Section */}
-                        <View style={styles.cardBody}>
+                        {/* ── Alerts & Grading Log Header Section ── */}
+                        <View style={styles.cardTopSection}>
                             {/* ── Photo Quality Alert Banner (Single Paper) ── */}
                             {gradingResult.photoQuality?.hasWarnings &&
                                 gradingResult.photoQuality.warnings.length > 0 && (
@@ -1004,136 +1004,130 @@ export default function GraderTab({
                                 </View>
                             )}
 
-                            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10, marginTop: 4 }}>
-                                <Text style={[styles.gradingLogTitle, { color: textSub, marginBottom: 0 }]}>
+                            {/* Section Header: Interactive Grading Log & Total Question Count */}
+                            <View style={styles.gradingLogHeader}>
+                                <Text style={[styles.gradingLogTitle, { color: textSub }]}>
                                     Interactive Grading Log
                                 </Text>
-                                {flaggedCount > 0 && (
-                                    <View
-                                        style={[
-                                            styles.miniReviewChip,
-                                            { backgroundColor: darkMode ? "#78350F40" : "#FEF3C7", borderColor: "#F59E0B" },
-                                        ]}
-                                    >
-                                        <Ionicons name="alert-circle" size={12} color="#D97706" style={{ marginRight: 4 }} />
-                                        <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706" }}>
-                                            {flaggedCount} Flagged
-                                        </Text>
-                                    </View>
-                                )}
+                                <Text style={[styles.gradingLogCount, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                                    {gradingResult.results.length} questions
+                                </Text>
                             </View>
+                        </View>
 
-                            {/* Single Clean Table Container for Q1–Q10 */}
-                            <View
-                                style={[
-                                    styles.gradingTableCard,
-                                    {
-                                        backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                                        borderColor: border,
-                                    },
-                                ]}
-                            >
-                                {gradingResult.results.map((item, idx) => {
-                                    const isFlagged = Boolean(
-                                        (item.flaggedForReview ||
-                                            item.flagReason === "double_mark" ||
-                                            item.flagReason === "unclear" ||
-                                            item.flagReason === "low_confidence" ||
-                                            (item.confidence !== undefined && item.confidence < 0.75)) &&
-                                            !item.isOverridden
-                                    );
-                                    const isOverridden = Boolean(item.isOverridden);
-                                    const isLast = idx === gradingResult.results.length - 1;
+                        {/* Flush Edge-to-Edge Q1–Q10 Table */}
+                        <View
+                            style={[
+                                styles.gradingTableFlush,
+                                {
+                                    borderTopWidth: 1,
+                                    borderTopColor: darkMode ? "#334155" : "#E2E8F0",
+                                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                                },
+                            ]}
+                        >
+                            {gradingResult.results.map((item, idx) => {
+                                const isFlagged = Boolean(
+                                    (item.flaggedForReview ||
+                                        item.flagReason === "double_mark" ||
+                                        item.flagReason === "unclear" ||
+                                        item.flagReason === "low_confidence" ||
+                                        (item.confidence !== undefined && item.confidence < 0.75)) &&
+                                        !item.isOverridden
+                                );
+                                const isLast = idx === gradingResult.results.length - 1;
 
-                                    let flagBadge = "";
-                                    if (isFlagged) {
-                                        if (item.flagReason === "double_mark") flagBadge = "Double-mark";
-                                        else if (item.confidence) flagBadge = `Unclear (${Math.round(item.confidence * 100)}%)`;
-                                        else flagBadge = "Unclear (35%)";
-                                    }
+                                let studentDisplay = item.studentAnswer || "—";
+                                let studentColor = "#475569";
+                                if (isFlagged) {
+                                    studentDisplay = `${item.studentAnswer || "—"}?`;
+                                    studentColor = "#D97706";
+                                } else {
+                                    studentColor = item.isCorrect ? "#16A34A" : "#DC2626";
+                                }
 
-                                    return (
-                                        <TouchableOpacity
-                                            key={item.questionNumber}
-                                            style={[
-                                                styles.tableRow,
-                                                !isLast && {
-                                                    borderBottomWidth: 1,
-                                                    borderBottomColor: darkMode ? "#334155" : "#F1F5F9",
-                                                },
-                                                isFlagged && {
-                                                    backgroundColor: darkMode ? "#78350F18" : "#FFFDF5",
-                                                    borderLeftWidth: 3,
-                                                    borderLeftColor: "#F59E0B",
-                                                },
-                                            ]}
-                                            onPress={() => {
-                                                if (isFlagged) {
-                                                    setReviewInitialQNum(item.questionNumber);
-                                                    setReviewModalOpen(true);
-                                                } else {
-                                                    handleToggleQuestion(item.questionNumber);
-                                                }
-                                            }}
-                                            activeOpacity={0.7}
-                                        >
-                                            {/* Left: Q1 */}
-                                            <Text style={[styles.tableQNum, { color: textMain }]}>
-                                                Q{item.questionNumber}
-                                            </Text>
+                                return (
+                                    <TouchableOpacity
+                                        key={item.questionNumber}
+                                        style={[
+                                            styles.tableRow,
+                                            !isLast && {
+                                                borderBottomWidth: 1,
+                                                borderBottomColor: darkMode ? "#334155" : "#F1F5F9",
+                                            },
+                                            isFlagged && {
+                                                backgroundColor: darkMode ? "#78350F14" : "#FFFDF5",
+                                                borderLeftWidth: 3,
+                                                borderLeftColor: "#F59E0B",
+                                            },
+                                        ]}
+                                        onPress={() => {
+                                            if (isFlagged) {
+                                                setReviewInitialQNum(item.questionNumber);
+                                                setReviewModalOpen(true);
+                                            } else {
+                                                handleToggleQuestion(item.questionNumber);
+                                            }
+                                        }}
+                                        activeOpacity={0.7}
+                                    >
+                                        {/* Left Column (width: 38px): Q1–Q10 */}
+                                        <Text style={[styles.tableQNum, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                            Q{item.questionNumber}
+                                        </Text>
 
-                                            {/* Middle: Student: B · Key: B */}
-                                            <View style={styles.tableRowMiddle}>
-                                                <Text style={[styles.tableAnswerText, { color: textSub }]}>
-                                                    Student:{" "}
-                                                    <Text
-                                                        style={{
-                                                            fontWeight: "700",
-                                                            color: item.isCorrect ? "#15803D" : "#DC2626",
-                                                        }}
-                                                    >
-                                                        {item.studentAnswer || "—"}
-                                                    </Text>
-                                                    {"  ·  "}
-                                                    Key:{" "}
-                                                    <Text style={{ fontWeight: "700", color: textMain }}>
-                                                        {item.correctAnswer}
-                                                    </Text>
-                                                </Text>
-                                                {isFlagged ? (
-                                                    <View style={styles.tableFlagPill}>
-                                                        <Text style={styles.tableFlagPillText}>{flagBadge}</Text>
-                                                    </View>
-                                                ) : isOverridden ? (
-                                                    <View style={styles.tableVerifiedPill}>
-                                                        <Text style={styles.tableVerifiedPillText}>✓ Verified</Text>
-                                                    </View>
-                                                ) : null}
-                                            </View>
-
-                                            {/* Right: Check / Cross / Review button */}
-                                            {isFlagged ? (
-                                                <TouchableOpacity
-                                                    style={styles.tableReviewBtn}
-                                                    onPress={() => {
-                                                        setReviewInitialQNum(item.questionNumber);
-                                                        setReviewModalOpen(true);
+                                        {/* Middle Column (flex: 1): Student: B · Key: B */}
+                                        <View style={styles.tableRowMiddle}>
+                                            <Text style={[styles.tableAnswerText, { color: darkMode ? "#94A3B8" : "#475569" }]}>
+                                                Student:{" "}
+                                                <Text
+                                                    style={{
+                                                        fontWeight: "700",
+                                                        color: studentColor,
                                                     }}
                                                 >
-                                                    <Text style={styles.tableReviewBtnText}>Review</Text>
-                                                </TouchableOpacity>
+                                                    {studentDisplay}
+                                                </Text>
+                                                {"  ·  "}
+                                                Key:{" "}
+                                                <Text style={{ fontWeight: "700", color: darkMode ? "#F8FAFC" : "#0F172A" }}>
+                                                    {item.correctAnswer}
+                                                </Text>
+                                            </Text>
+                                        </View>
+
+                                        {/* Right Column (flexShrink: 0, alignItems: 'flex-end'): Check / Cross / Unclear › pill */}
+                                        <View style={styles.tableRowRight}>
+                                            {isFlagged ? (
+                                                <View
+                                                    style={[
+                                                        styles.unclearGhostPill,
+                                                        darkMode && { backgroundColor: "#78350F30", borderColor: "#92400E" },
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.unclearGhostPillText,
+                                                            darkMode && { color: "#FDE68A" },
+                                                        ]}
+                                                    >
+                                                        Unclear ›
+                                                    </Text>
+                                                </View>
                                             ) : item.isCorrect ? (
                                                 <Ionicons name="checkmark" size={18} color="#16A34A" />
                                             ) : (
                                                 <Ionicons name="close" size={18} color="#DC2626" />
                                             )}
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
 
-                            {/* Tseki Approved Scan Banner (Only shown when all flags are resolved) */}
-                            {flaggedCount === 0 && (
+                        {/* Tseki Approved Scan Banner (Only shown when all flags are resolved) */}
+                        {flaggedCount === 0 && (
+                            <View style={styles.cardBottomSection}>
                                 <View style={[styles.approvedScanCard, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border }]}>
                                     <Image
                                         source={require("../assets/images/logo.png")}
@@ -1147,8 +1141,8 @@ export default function GraderTab({
                                         </Text>
                                     </View>
                                 </View>
-                            )}
-                        </View>
+                            </View>
+                        )}
                     </View>
                 </View>
             ) : (
@@ -1751,26 +1745,31 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
     },
 
-    /* Card Body */
-    cardBody: {
+    /* Card Top Section (Alerts & Section Header) */
+    cardTopSection: {
         paddingHorizontal: 16,
-        paddingTop: 18,
-        paddingBottom: 24,
+        paddingTop: 16,
+        paddingBottom: 12,
+    },
+    gradingLogHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginTop: 4,
     },
     gradingLogTitle: {
-        fontSize: 11.5,
+        fontSize: 12,
         fontWeight: "800",
-        color: "#64748B",
         letterSpacing: 0.8,
-        marginBottom: 14,
+    },
+    gradingLogCount: {
+        fontSize: 12,
+        fontWeight: "500",
     },
 
-    /* ── Single Clean Grading Table ── */
-    gradingTableCard: {
-        borderRadius: 12,
-        borderWidth: 1,
-        overflow: "hidden",
-        marginBottom: 14,
+    /* Flush Edge-to-Edge Table */
+    gradingTableFlush: {
+        width: "100%",
     },
     tableRow: {
         height: 52,
@@ -1788,48 +1787,33 @@ const styles = StyleSheet.create({
         flex: 1,
         flexDirection: "row",
         alignItems: "center",
-        gap: 8,
         marginHorizontal: 8,
     },
     tableAnswerText: {
-        fontSize: 13,
+        fontSize: 14,
     },
-    tableFlagPill: {
-        backgroundColor: "#FFFBEB",
+    tableRowRight: {
+        flexShrink: 0,
+        alignItems: "flex-end",
+        justifyContent: "center",
+    },
+    unclearGhostPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 6,
+        backgroundColor: "#FEF3C7",
         borderWidth: 1,
         borderColor: "#FDE68A",
-        paddingHorizontal: 7,
-        paddingVertical: 2,
-        borderRadius: 6,
     },
-    tableFlagPillText: {
+    unclearGhostPillText: {
         color: "#B45309",
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: "600",
     },
-    tableVerifiedPill: {
-        backgroundColor: "#F0FDF4",
-        borderWidth: 1,
-        borderColor: "#BBF7D0",
-        paddingHorizontal: 7,
-        paddingVertical: 2,
-        borderRadius: 6,
-    },
-    tableVerifiedPillText: {
-        color: "#16A34A",
-        fontSize: 10.5,
-        fontWeight: "700",
-    },
-    tableReviewBtn: {
-        backgroundColor: "#F59E0B",
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 6,
-    },
-    tableReviewBtnText: {
-        color: "#FFFFFF",
-        fontSize: 11.5,
-        fontWeight: "700",
+    cardBottomSection: {
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        paddingBottom: 20,
     },
 
     /* Log Question Item */
