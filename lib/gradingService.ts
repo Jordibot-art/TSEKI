@@ -239,33 +239,41 @@ ${layoutPromptSection}
 INSTRUCTIONS:
 1. Extract the student's name from the top "Last Name:", "First Name:", "Middle Name:" line (above "Date:", "Section:") (fields: "lastName", "firstName", "middleName", and combined "studentName" formatted as "Last Name, First Name Middle Name").
 2. Read the student's handwritten answers inside the numbered square answer boxes (1, 2, 3...) or shaded bubbles on the paper.
-3. CRITICAL — MANDATORY LOW-CONFIDENCE & AMBIGUITY FLAGGING FOR TEACHER REVIEW:
-   Teachers rely on you to flag ANY messy, scribbled, overwritten, crossed-out, or double-marked box so they can manually inspect and fix it on the "Flagged Answers Review" screen. NEVER assign high confidence (>= 0.75) to a messy, scribbled, or overwritten box!
-   For EACH question number, inspect the box or bubble closely:
-   - OVERWRITTEN / DOUBLE-MARKED BOX OR BUBBLES (flagReason: "double_mark"):
-     If a square box contains one letter written/traced on top of another letter (e.g., an A overwritten with B or D, superimposed strokes, heavy correction), two letters written in the same box, or multiple bubbles shaded:
-     * set "studentAnswer" to the comma-separated candidate letters (e.g. "A, D" or "B, C")
-     * set "confidence" to 0.45 (MUST be < 0.70)
-     * set "flagReason" to "double_mark"
-     * set "flagDetails" to "Overwritten or multiple letters/marks detected in box"
-     * set "detectedOptions" to the candidate letters (e.g. ["A", "D"])
-   - SCRIBBLED / CROSSED-OUT / MESSY / FAINT BOX (flagReason: "unclear"):
-     If a box has heavy scribbling, scratch-outs, ink loops spilling outside the box border (like a crossed-out letter with another letter written over or beside it), erasure smudges, or ambiguous handwriting—EVEN IF you can guess a letter:
-     * set "studentAnswer" to your best guess of the letter(s)
-     * set "confidence" to 0.40 (MUST be < 0.70)
-     * set "flagReason" to "unclear"
-     * set "flagDetails" to "Scribbled, crossed-out, or unclear handwritten mark in box"
-     * set "detectedOptions" to any possible letters visible (e.g. ["A", "D"])
-   - CLEAN & CLEAR MARK (flagReason: null):
-     ONLY if the box contains a single, clean, unambiguous letter/word with no scribbles or overwriting:
-     * set "studentAnswer" to the single option letter or text
-     * set "confidence" to 0.92 - 0.99
-     * set "flagReason" to null
-   - BLANK (flagReason: "blank"):
-     If the box is completely empty/unattempted:
-     * set "studentAnswer" to ""
-     * set "confidence" to 0.95
-     * set "flagReason" to "blank"
+3. CRITICAL — MANDATORY PER-BOX VISUAL SCRUTINY FOR SCRIBBLES, CORRECTIONS & OVERWRITING:
+   Teachers rely on TSEKI to ALWAYS flag ANY question box where a student scribbled, corrected, shaded out, scratched out, or overwrote an answer.
+   
+   FOR EACH NUMBERED BOX, YOU MUST FIRST EXAMINE ITS VISUAL MARKS:
+   - "hasScribbleOrCorrection" (boolean):
+     MUST be set to true if the box contains ANY of the following:
+     * A dark circular ink blob, shaded-in patch, or blacked-out mark (e.g. student shading out / scribbling over a previous mistake, like Box #2)
+     * Heavy zig-zag, scratch-outs, cross-outs, horizontal strike-throughs, or slashes drawn through or over a letter (e.g. Box #4)
+     * Overwritten / superimposed strokes (e.g., tracing a C over a B, or writing one letter on top of another)
+     * Two or more letters inside the same box (e.g., "A" and "C" both present)
+     * Messy double strokes, ambiguous loops, or ink spilling outside box borders (e.g. Box #10)
+     * Erasure smudges, ghost marks, or faint ambiguous handwriting.
+     Set to false ONLY if the box contains ONE single, crisp, clean, unambiguous letter with ZERO extra ink blobs, scratches, or corrections.
+
+   - "visualObservations" (string):
+     Briefly describe what you see in the box (e.g. "Clean single letter B", "Dark circular ink blob next to letter C", "Letter A with heavy scratch-out lines", "Double stroke handwriting").
+
+   - "confidence" (number between 0.0 and 1.0):
+     * If hasScribbleOrCorrection is true: Confidence MUST be between 0.25 and 0.45 (NEVER >= 0.70).
+       MANDATORY RULE: Even if you are 100% certain which letter the student intended (for example, you clearly see a 'C' next to the dark scribble in Box #2), you MUST STILL assign confidence <= 0.45 and flag it! The teacher must verify whether the scribble invalidates the answer.
+     * If single clean mark: Confidence is 0.92 - 0.99.
+     * If blank: Confidence is 0.95.
+
+   - "flagReason" ("double_mark" | "unclear" | "blank" | null):
+     * "double_mark": two distinct letters or superimposed letters.
+     * "unclear": scribbled, scratched-out, dark ink blob, erasure, correction, or messy handwriting.
+     * "blank": box completely empty.
+     * null: ONLY if clean, single, unambiguous letter with no scribble or correction.
+
+   - "flagDetails" (string or null):
+     Detailed explanation (e.g. "Dark scribble / scratched-out mark in box #2 with letter C", "Heavy overwriting in box #4").
+
+   - "detectedOptions" (array of string):
+     List all visible letters (e.g. ["C"] or ["A", "C"]).
+
 4. Compare "studentAnswer" directly to the official "correctAnswer":
    - If the answer matches cleanly and is NOT double-marked: set "isCorrect" to true, and "pointsAwarded" to the question's points (usually 1).
    - If the answer does NOT match, is blank, or is double-marked: set "isCorrect" to false, and "pointsAwarded" to 0.
@@ -273,15 +281,15 @@ INSTRUCTIONS:
 6. "maxScore" MUST be ${totalPossiblePoints}.
 7. PHOTO QUALITY & OPTICAL REGISTRATION DIAGNOSTICS ("photoQuality"):
    Inspect the overall photo quality and physical paper capture conditions to alert the teacher if any of these 5 issues occur:
-   - "lighting": set to "too_dark" if the image is dim, underexposed, or has dark shadows obscuring the sheet; set to "too_bright" if there is harsh flash glare, washed-out overexposure, or bright light washing out boxes/text; otherwise set to "ok".
-   - "qrVisible": set to true if the top-right QR code is clearly visible inside the frame and not cropped or unreadable; otherwise false.
-   - "visibleCornerCount": integer (0 to 4) counting how many of the 4 solid black corner registration squares (top-left, top-right, bottom-left, bottom-right) are clearly visible and not cropped out or covered by fingers.
+   - "lighting": set to "too_dark" if dim/underexposed; "too_bright" if harsh glare/washed-out; otherwise "ok".
+   - "qrVisible": set to true if the top-right QR code is clearly visible inside the frame; otherwise false.
+   - "visibleCornerCount": integer (0 to 4) counting how many of the 4 solid black corner registration squares are visible.
    - "cornerMarkersVisible": set to true ONLY if all 4 black corner registration squares are clearly visible (visibleCornerCount === 4); otherwise false.
-   - "paperFlat": set to true if the paper is lying reasonably flat without severe folding, curling, crumpling, or extreme perspective tilt; otherwise false.
-   - "fullEdgesVisible": set to true if the full answer sheet borders/edges are inside the photo frame without cutting off any corner markers or answer boxes; otherwise false.
-   - "isBlurry": set to true if student handwritten answers, letters, bubbles, or lines are blurred, smeared, out of focus, or degraded by motion blur; otherwise false.
+   - "paperFlat": set to true if the paper is lying reasonably flat without severe folding/crumpling; otherwise false.
+   - "fullEdgesVisible": set to true if full answer sheet borders are inside the frame; otherwise false.
+   - "isBlurry": set to true if student handwritten answers, letters, bubbles, or lines are blurred or out of focus; otherwise false.
 
-You MUST return the final result as a strict, valid JSON object with this exact structure (note how clean vs. scribbled/overwritten items are formatted):
+You MUST return the final result as a strict, valid JSON object with this exact structure (note how scribbled/overwritten items MUST be formatted):
 {
   "studentName": "Extracted Student Name",
   "lastName": "Extracted Last Name",
@@ -301,6 +309,8 @@ You MUST return the final result as a strict, valid JSON object with this exact 
   "results": [
     {
       "questionNumber": 1,
+      "hasScribbleOrCorrection": false,
+      "visualObservations": "Single clean letter B",
       "studentAnswer": "B",
       "correctAnswer": "B",
       "isCorrect": true,
@@ -311,15 +321,17 @@ You MUST return the final result as a strict, valid JSON object with this exact 
       "detectedOptions": ["B"]
     },
     {
-      "questionNumber": 10,
-      "studentAnswer": "D",
-      "correctAnswer": "A",
-      "isCorrect": false,
-      "pointsAwarded": 0,
-      "confidence": 0.42,
+      "questionNumber": 2,
+      "hasScribbleOrCorrection": true,
+      "visualObservations": "Dark circular ink blob / scribble next to letter C",
+      "studentAnswer": "C",
+      "correctAnswer": "C",
+      "isCorrect": true,
+      "pointsAwarded": 1,
+      "confidence": 0.35,
       "flagReason": "unclear",
-      "flagDetails": "Heavy scribbling / overwritten letter in box #10",
-      "detectedOptions": ["A", "D"]
+      "flagDetails": "Dark scribble / scratched-out mark in box #2 with letter C",
+      "detectedOptions": ["C"]
     }
   ]
 }`;
@@ -339,12 +351,12 @@ You MUST return the final result as a strict, valid JSON object with this exact 
 
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // Primary models ordered by speed and availability:
-        // gemini-3.5-flash-lite is the fastest and most available, followed by 3.6-flash, 3.8-flash, and 1.5-flash
+        // Primary Gemini models ordered by vision accuracy and speed:
+        // gemini-2.5-flash and gemini-2.0-flash provide the sharpest OCR on handwritten ink blobs and scribbles,
+        // followed by gemini-1.5-flash
         const candidateModels = [
-            "gemini-3.5-flash-lite",
-            "gemini-3.6-flash",
-            "gemini-3.8-flash",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
             "gemini-1.5-flash",
         ];
         const MAX_RETRIES_PER_MODEL = 2;
@@ -359,7 +371,7 @@ You MUST return the final result as a strict, valid JSON object with this exact 
                         model: modelName,
                         generationConfig: {
                             responseMimeType: "application/json",
-                            temperature: 0.1,
+                            temperature: 0.0,
                         },
                     });
 
@@ -481,16 +493,41 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         if ((flagReason as any) === "null" || (flagReason as any) === "none" || (flagReason as any) === "") {
             flagReason = undefined;
         }
-        if ((flagReason as any) === "faint" || (flagReason as any) === "scribbled" || (flagReason as any) === "messy") {
+        if ((flagReason as any) === "faint" || (flagReason as any) === "scribbled" || (flagReason as any) === "messy" || (flagReason as any) === "correction") {
             flagReason = "unclear";
         }
         if ((flagReason as any) === "multiple_answers" || (flagReason as any) === "overwritten") {
             flagReason = "double_mark";
         }
 
-        // Deterministic detection of double-shaded / overwritten / multiple marked boxes
+        // 1. Detect visual evidence of scribble, dark blob, scratch-out, or correction
+        const visualText = [
+            detected.visualObservations,
+            detected.rawMarksDescription,
+            detected.notes,
+            detected.flagDetails,
+            flagDetails,
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        const hasScribbleEvidence = Boolean(
+            detected.hasScribbleOrCorrection === true ||
+            detected.isScribbled === true ||
+            detected.hasCorrection === true ||
+            (detected.scribbleType && detected.scribbleType !== "none") ||
+            /\b(scribble|scribbled|scratch|scratched|crossed|cross-out|blob|shaded|blacked|correction|corrected|smudge|erasure|superimposed|overwritten|messy|double|stray ink)\b/i.test(visualText)
+        );
+
+        if (hasScribbleEvidence) {
+            confidence = Math.min(confidence, 0.38);
+            flagReason = flagReason || (detectedOptions.length >= 2 ? "double_mark" : "unclear");
+            if (!flagDetails) {
+                flagDetails = `Scribble, dark blob, or correction mark detected in box #${qNum}`;
+            }
+        }
+
+        // 2. Deterministic detection of double-shaded / overwritten / multiple marked boxes
         const isSingleChoice = !officialCorrect.includes(",") && (officialCorrect.length === 1 || officialCorrect === "T" || officialCorrect === "F");
-        const multipleMarkRegex = /^([A-D]|[T|F])\s*[,/&+\sor]+\s*([A-D]|[T|F])$/i;
+        const multipleMarkRegex = /^([A-D]|[T|F])\s*[,/&+\sor-]+\s*([A-D]|[T|F])$/i;
         const compactLetters = rawStudentAnswer.replace(/[^A-Za-z0-9]/g, "");
 
         // Even if officialCorrect is longer, if the student wrote multiple single-letter MC choices (e.g. "A, D" or "B/C") or detectedOptions has >= 2 letters
@@ -501,22 +538,22 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         ) {
             flagReason = flagReason || "double_mark";
             flagDetails = flagDetails || `Multiple or overwritten marks detected (${rawStudentAnswer || detectedOptions.join(", ")})`;
-            confidence = Math.min(confidence, 0.50);
+            confidence = Math.min(confidence, 0.40);
             if (detectedOptions.length === 0) {
                 detectedOptions = Array.from(new Set(rawStudentAnswer.toUpperCase().match(/[A-D]/g) || []));
             }
         }
 
-        // Detect uncertainty markers in rawStudentAnswer (e.g., "?", "unclear", "scribble")
-        if (/[?*]|\b(unclear|scribble|illegible|messy)\b/i.test(rawStudentAnswer)) {
+        // 3. Detect uncertainty markers in rawStudentAnswer (e.g., "?", "unclear", "scribble", "blob")
+        if (/[?*]|\b(unclear|scribble|illegible|messy|blob)\b/i.test(rawStudentAnswer)) {
             flagReason = flagReason || "unclear";
             flagDetails = flagDetails || `Unclear or scribbled mark detected inside box #${qNum}`;
-            confidence = Math.min(confidence, 0.45);
+            confidence = Math.min(confidence, 0.38);
         }
 
-        // If AI explicitly flagged reason as double_mark, unclear, or low_confidence, enforce low confidence (< 0.75)
+        // 4. If AI or visual scrutiny flagged double_mark, unclear, or low_confidence, strictly enforce low confidence (< 0.70)
         if (flagReason === "double_mark" || flagReason === "unclear" || flagReason === "low_confidence" || detected.flaggedForReview === true) {
-            confidence = Math.min(confidence, 0.55);
+            confidence = Math.min(confidence, 0.45);
             if (!flagDetails) {
                 flagDetails =
                     flagReason === "double_mark"
@@ -525,7 +562,7 @@ You MUST return the final result as a strict, valid JSON object with this exact 
             }
         }
 
-        // Automatic low confidence threshold (< 0.75)
+        // 5. Automatic low confidence threshold (< 0.75)
         const isLowConfidence = confidence < 0.75;
         if (isLowConfidence && !flagReason) {
             flagReason = "low_confidence";
@@ -533,6 +570,7 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         }
 
         const isFlagged = Boolean(
+            hasScribbleEvidence ||
             detected.flaggedForReview === true ||
             flagReason === "double_mark" ||
             flagReason === "unclear" ||

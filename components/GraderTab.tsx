@@ -347,8 +347,38 @@ export default function GraderTab({
                 }
             }
 
-            // Alert teacher if any of the 5 photo quality conditions failed on this paper
-            if (result.photoQuality?.hasWarnings && result.photoQuality.warnings.length > 0) {
+            // Proactively alert the teacher if any answers were scribbled, overwritten, or have low confidence
+            const flaggedAnswers = (result.results || []).filter(
+                (r) =>
+                    r.flaggedForReview ||
+                    r.flagReason === "double_mark" ||
+                    r.flagReason === "unclear" ||
+                    r.flagReason === "low_confidence" ||
+                    (r.confidence !== undefined && r.confidence < 0.75)
+            );
+
+            if (flaggedAnswers.length > 0) {
+                const qListText = flaggedAnswers.map((f) => `Q#${f.questionNumber}`).join(", ");
+                const firstFlaggedQ = flaggedAnswers[0].questionNumber;
+                Alert.alert(
+                    "⚠️ Answer Review Needed",
+                    `Tseki detected ${flaggedAnswers.length} question${flaggedAnswers.length > 1 ? "s" : ""} (${qListText}) with scribbled, overwritten, or low-confidence marks.\n\nWould you like to review and confirm student intent now?`,
+                    [
+                        {
+                            text: "Review Now",
+                            onPress: () => {
+                                setReviewInitialQNum(firstFlaggedQ);
+                                setReviewModalOpen(true);
+                            },
+                        },
+                        {
+                            text: "Review Later",
+                            style: "cancel",
+                        },
+                    ]
+                );
+            } else if (result.photoQuality?.hasWarnings && result.photoQuality.warnings.length > 0) {
+                // Alert teacher if any of the photo quality conditions failed on this paper
                 Alert.alert(
                     "⚠️ Photo Scan Quality Alert",
                     "Tseki detected the following issues with the captured photo:\n\n" +
@@ -365,8 +395,6 @@ export default function GraderTab({
                     ]
                 );
             }
-
-            // Keep user on the Scanned Student Sheet view first; teacher can tap "Review" on the alert banner when ready
         } catch (error: any) {
             console.error("Grading failed:", error);
             Alert.alert(

@@ -224,26 +224,32 @@ export function BatchScannerModal({
         }
     }, [visible, permission]);
 
-    // Watch batch items for newly graded sheets that have photoQuality warnings
+    // Watch batch items for newly graded sheets that have flagged answers (scribbles/low confidence) or photoQuality warnings
     useEffect(() => {
         if (isSingle || !visible) return;
         for (let idx = items.length - 1; idx >= 0; idx--) {
             const item = items[idx];
-            if (
-                item.photoQuality?.hasWarnings &&
-                item.photoQuality.warnings.length > 0 &&
-                !alertedItemIdsRef.current.has(item.id)
-            ) {
+            const hasReviewIssue = Boolean(
+                (item.flaggedCount && item.flaggedCount > 0) ||
+                (item.photoQuality?.hasWarnings && item.photoQuality.warnings.length > 0)
+            );
+            if (hasReviewIssue && !alertedItemIdsRef.current.has(item.id)) {
                 alertedItemIdsRef.current.add(item.id);
                 const sheetNumber = idx + 1;
                 const label =
                     item.matchedStudentName ||
                     item.studentNameExtracted ||
                     `Sheet #${sheetNumber}`;
+                const combinedWarnings: string[] = [
+                    ...(item.flaggedCount && item.flaggedCount > 0
+                        ? [`${item.flaggedCount} answer(s) have scribbled, overwritten, or low-confidence marks`]
+                        : []),
+                    ...(item.photoQuality?.warnings || []),
+                ];
                 setActiveQualityAlert({
                     itemId: item.id,
                     studentLabel: `Sheet #${sheetNumber} (${label})`,
-                    warnings: item.photoQuality.warnings,
+                    warnings: combinedWarnings,
                 });
                 try {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
