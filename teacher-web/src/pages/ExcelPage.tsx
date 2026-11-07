@@ -122,9 +122,10 @@ export default function ExcelPage() {
       ["Schedule:", "N/A", "", "Teacher:", user?.user_metadata?.full_name || "N/A"],
       ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
       [], // Blank separator row
-      ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
+      ["Item", "Student Name", "Email Address", ...quizHeaders, "Average Scores"],
       ...students.map((s, idx) => {
         const norm = normalizeStudentRecord(s);
+        const mergedStudentName = formatStudentFullName(norm);
         let sumEarned = 0;
         let sumMax = 0;
         let count = 0;
@@ -153,9 +154,7 @@ export default function ExcelPage() {
 
         return [
           idx + 1,
-          norm.last_name || "",
-          norm.first_name || "",
-          norm.middle_name || "",
+          mergedStudentName,
           s.email || "N/A",
           ...quizCells,
           avgDisplay,
@@ -165,9 +164,7 @@ export default function ExcelPage() {
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws["!cols"] = [
       { wch: 8 },  // Item
-      { wch: 22 }, // Last Name
-      { wch: 22 }, // First Name
-      { wch: 18 }, // Middle Name
+      { wch: 34 }, // Student Name
       { wch: 30 }, // Email Address
       ...chronologicalQuizzes.map((q, idx) => ({
         wch: Math.max(formatQuizColumnHeader(q.quizTitle, idx, q.maxScore).length + 4, 16),
@@ -176,7 +173,7 @@ export default function ExcelPage() {
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Classlist");
-    XLSX.writeFile(wb, "TSEKI_Student_Quiz_Scores.xlsx");
+    XLSX.writeFile(wb, "quiz scores.xlsx");
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {

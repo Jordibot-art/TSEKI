@@ -263,7 +263,7 @@ export function ClassroomOnboardingModal({
       const cleanTitle = (classroom.title || "Classroom")
         .replace(/[^a-zA-Z0-9_\-\s]/g, "")
         .replace(/\s+/g, "_");
-      const fileName = `${cleanTitle}_Roster_Scores.xlsx`;
+      const fileName = `${cleanTitle}_quiz_scores.xlsx`;
       const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
@@ -434,7 +434,7 @@ export function ClassroomOnboardingModal({
                       Download Excel Template
                     </Text>
                     <Text style={[styles.cardSubtitle, { color: textSecondary }]}>
-                      Pre-formatted BSIT-4 format (Item, Last Name, First Name, Middle Name, Email)
+                      Pre-formatted BSIT-4 format (Item, Student Name, Email Address)
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={textSecondary} />

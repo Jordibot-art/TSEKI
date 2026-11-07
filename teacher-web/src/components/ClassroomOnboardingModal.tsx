@@ -326,7 +326,7 @@ export function ClassroomOnboardingModal({
         ["Schedule:", classroom.schedule || "N/A", "", "Teacher:", "N/A"],
         ["Export Date:", formattedDate, "", "Total Enrolled:", normalizedStudents.length],
         [], // Blank separator row
-        ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
+        ["Item", "Student Name", "Email Address", ...quizHeaders, "Average Scores"],
       ];
 
       normalizedStudents.forEach((s, idx) => {
@@ -356,11 +356,11 @@ export function ClassroomOnboardingModal({
           avgDisplay = `${Math.round((sumEarned / sumMax) * 100)}%`;
         }
 
+        const mergedStudentName = formatStudentFullName(s);
+
         rows.push([
           idx + 1,
-          s.last_name || "",
-          s.first_name || "",
-          s.middle_name || "",
+          mergedStudentName,
           s.email || "N/A",
           ...quizCells,
           avgDisplay,
@@ -370,9 +370,7 @@ export function ClassroomOnboardingModal({
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"] = [
         { wch: 8 },  // Item
-        { wch: 22 }, // Last Name
-        { wch: 22 }, // First Name
-        { wch: 18 }, // Middle Name
+        { wch: 34 }, // Student Name
         { wch: 30 }, // Email Address
         ...quizHeaders.map((h) => ({ wch: Math.max(16, h.length + 4) })),
         { wch: 18 }, // Average Scores
@@ -382,7 +380,7 @@ export function ClassroomOnboardingModal({
       XLSX.utils.book_append_sheet(wb, ws, "Classlist");
 
       const cleanTitle = classroom.title.replace(/[^a-zA-Z0-9_\-\s]/g, "").replace(/\s+/g, "_");
-      XLSX.writeFile(wb, `${cleanTitle}_Roster_Scores.xlsx`);
+      XLSX.writeFile(wb, `${cleanTitle}_quiz_scores.xlsx`);
 
       setFeedback({
         type: "success",
@@ -546,7 +544,7 @@ export function ClassroomOnboardingModal({
                 <div className={styles.actionText}>
                   <div className={styles.actionTitle}>Download Excel Template</div>
                   <div className={styles.actionSub}>
-                    Pre-formatted BSIT-4 layout (Item, Last Name, First Name, Middle Name, Email Address)
+                    Pre-formatted BSIT-4 layout (Item, Student Name, Email Address)
                   </div>
                 </div>
                 <ChevronRight size={18} className={styles.actionChevron} />

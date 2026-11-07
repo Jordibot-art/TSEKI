@@ -305,7 +305,7 @@ export default function ClassroomDetailPage() {
         day: "numeric",
       });
 
-      // Sheet 1: Student Roster with Individual Quiz Scores & Average Scores (BSIT-4 Layout)
+      // Sheet 1: Student Roster with Merged Student Name ("Last Name, First Name M."), Individual Quiz Scores & Average Scores (BSIT-4 Layout)
       const rosterData = [
         ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
         ["Classroom:", classroom?.title || "Classroom", "", "Subject:", classroom?.subject || "N/A"],
@@ -313,9 +313,10 @@ export default function ClassroomDetailPage() {
         ["Schedule:", classroom?.schedule || "N/A", "", "Teacher:", user?.user_metadata?.full_name || "N/A"],
         ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
         [], // Blank separator row
-        ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
+        ["Item", "Student Name", "Email Address", ...quizHeaders, "Average Scores"],
         ...students.map((s, i) => {
           const norm = normalizeStudentRecord(s);
+          const mergedStudentName = formatStudentFullName(norm);
           let sumEarned = 0;
           let sumMax = 0;
           let count = 0;
@@ -344,9 +345,7 @@ export default function ClassroomDetailPage() {
 
           return [
             i + 1,
-            norm.last_name || "",
-            norm.first_name || "",
-            norm.middle_name || "",
+            mergedStudentName,
             s.email || "N/A",
             ...quizCells,
             avgDisplay,
@@ -356,9 +355,7 @@ export default function ClassroomDetailPage() {
       const rosterSheet = XLSX.utils.aoa_to_sheet(rosterData);
       rosterSheet["!cols"] = [
         { wch: 8 },  // Item
-        { wch: 22 }, // Last Name
-        { wch: 22 }, // First Name
-        { wch: 18 }, // Middle Name
+        { wch: 34 }, // Student Name
         { wch: 30 }, // Email Address
         ...chronologicalQuizzes.map((q, idx) => ({
           wch: Math.max(formatQuizColumnHeader(q.quizTitle, idx, q.maxScore).length + 4, 16),
@@ -480,9 +477,11 @@ export default function ClassroomDetailPage() {
               });
             }
           } else {
-            const rawCol = fullNameIdx !== -1 ? row[fullNameIdx] : row[1] || row[0];
+            const nameColIdx = fullNameIdx !== -1 ? fullNameIdx : 1;
+            const rawCol = row[nameColIdx] !== undefined && String(row[nameColIdx]).trim() ? row[nameColIdx] : row[0];
             const rawName = String(rawCol || "").trim();
-            const email = String(row[emailIdx !== -1 ? emailIdx : 1] || "").trim();
+            const fallbackEmailIdx = emailIdx !== -1 ? emailIdx : nameColIdx + 1;
+            const email = String(row[fallbackEmailIdx] || "").trim();
             if (rawName && !/^(total|subtotal|summary|item)/i.test(rawName)) {
               const parts = splitStudentFullName(rawName);
               preview.push({

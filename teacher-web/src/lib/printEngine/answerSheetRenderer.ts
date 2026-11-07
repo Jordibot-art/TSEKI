@@ -190,7 +190,7 @@ function drawAnswerSheetHeader(
     });
 
     // Subtitle
-    const classInfo = options.classTitle || 'Class Assessment';
+    const classInfo = options.classTitle || 'BSIT-4';
     const subText = `${classInfo}  |  Version ${version}  |  ${totalQuestions} items`;
     page.drawText(subText, {
         x: MARGINS.left + 24,

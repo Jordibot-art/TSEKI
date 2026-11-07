@@ -37,8 +37,166 @@ export interface ParsedClasslistResult {
 // ── Name Formatting & Splitting Helpers ─────────────────────────────────────
 
 /**
+ * Converts a string to Smart Title Case.
+ * e.g. "AYAP, RAMEL JR. M." → "Ayap, Ramel Jr. M."
+ */
+export function toSmartTitleCase(input: string): string {
+  if (!input) return "";
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/(?:^|[\s,.\-/()])[a-z]/g, (match) => match.toUpperCase())
+    .replace(/\b(ii|iii|iv|v)\b/gi, (match) => match.toUpperCase())
+    .replace(/\b(jr|sr)\.?/gi, (match) => {
+      const base = match.replace(/\./g, "").toLowerCase();
+      return base.charAt(0).toUpperCase() + base.slice(1) + ".";
+    });
+}
+
+/**
+ * Formats a middle name or middle initial into a single uppercase initial with period: "M."
+ * Returns "" if empty or N/A.
+ * e.g. "coran" -> "C.", "C." -> "C.", "de la" -> "D."
+ */
+export function formatMiddleInitial(middleName?: string | null): string {
+  if (!middleName) return "";
+  const cleaned = String(middleName)
+    .replace(/\./g, " ")
+    .trim();
+  if (
+    !cleaned ||
+    cleaned.toUpperCase() === "N/A" ||
+    cleaned === "-" ||
+    cleaned === "—" ||
+    cleaned.toUpperCase() === "NONE"
+  ) {
+    return "";
+  }
+  const match = cleaned.match(/[a-zA-Z]/);
+  if (!match) return "";
+  return `${match[0].toUpperCase()}.`;
+}
+
+const SUFFIX_SET = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
+
+const COMMON_SECOND_GIVEN_NAMES = new Set([
+  "ariel",
+  "paul",
+  "paulo",
+  "paolo",
+  "carlo",
+  "carlos",
+  "marie",
+  "mae",
+  "may",
+  "joy",
+  "ann",
+  "anne",
+  "rose",
+  "jane",
+  "grace",
+  "mark",
+  "marc",
+  "john",
+  "jon",
+  "miguel",
+  "gabriel",
+  "louise",
+  "louis",
+  "nichollei",
+  "nicole",
+  "claire",
+  "clara",
+  "jean",
+  "lynn",
+  "lyn",
+  "faye",
+  "faith",
+  "hope",
+  "love",
+  "dawn",
+  "kay",
+  "kaye",
+  "ray",
+  "rey",
+  "roy",
+  "lee",
+  "jay",
+  "jae",
+  "dan",
+  "dean",
+  "neil",
+  "noel",
+  "joel",
+  "kyle",
+  "kent",
+  "kurt",
+  "luke",
+  "jude",
+  "james",
+  "ivan",
+  "ian",
+  "ryan",
+  "bryan",
+  "brian",
+  "kevin",
+  "keith",
+  "ken",
+  "kim",
+  "angel",
+  "angelo",
+  "angela",
+  "therese",
+  "teresa",
+  "sofia",
+  "sophia",
+  "isabel",
+  "isabella",
+  "elizabeth",
+  "victoria",
+  "nicolas",
+  "francis",
+  "francisco",
+  "antonio",
+  "jose",
+  "juan",
+  "maria",
+  "andrea",
+  "andrei",
+  "andre",
+  "patrick",
+  "patricia",
+  "bea",
+  "bianca",
+  "denise",
+  "dennis",
+  "lance",
+  "vince",
+  "vincent",
+  "charles",
+  "christian",
+  "christopher",
+  "michael",
+  "david",
+  "daniel",
+  "matthew",
+  "joshua",
+  "justin",
+  "kenneth",
+  "steven",
+  "stephen",
+  "edward",
+  "anthony",
+  "allen",
+  "allan",
+  "alvin",
+]);
+
+/**
  * Splits a combined full name string into { last_name, first_name, middle_name }.
- * Handles both "Lastname, Firstname [Middlename]" and "Firstname [Middlename] Lastname".
+ * Handles both "Lastname, Firstname [Middlename]" and "Firstname [Middlename] Lastname",
+ * including two-word first names (e.g. "John Ariel C. Ramos", "John Ariel Coran Ramos")
+ * and compound surnames (e.g. "Dela Cruz", "De La Cruz", "De Guzman").
  */
 export function splitStudentFullName(rawName: string): {
   last_name: string;
@@ -50,59 +208,138 @@ export function splitStudentFullName(rawName: string): {
     return { last_name: "", first_name: "", middle_name: null };
   }
 
+  // Case 1: Comma present -> "Last Name, First Name [Middle Name]"
   if (cleaned.includes(",")) {
     const [lastPart, ...restParts] = cleaned.split(",");
-    const last_name = lastPart.trim();
-    const afterComma = restParts.join(",").trim();
+    const last_name = toSmartTitleCase(lastPart.trim());
+    const afterComma = restParts.join(" ").replace(/\s+/g, " ").trim();
     const tokens = afterComma.split(" ").filter(Boolean);
     if (tokens.length === 0) {
       return { last_name, first_name: "", middle_name: null };
     }
     if (tokens.length === 1) {
-      return { last_name, first_name: tokens[0], middle_name: null };
+      return { last_name, first_name: toSmartTitleCase(tokens[0]), middle_name: null };
     }
-    const middle_name = tokens[tokens.length - 1];
-    const first_name = tokens.slice(0, -1).join(" ");
+
+    const lastToken = tokens[tokens.length - 1];
+    // If the last token is a suffix (e.g. "Ramos, John Jr."), keep it with first_name
+    if (SUFFIX_SET.has(lastToken.toLowerCase())) {
+      return {
+        last_name,
+        first_name: toSmartTitleCase(tokens.join(" ")),
+        middle_name: null,
+      };
+    }
+
+    const middle_name = toSmartTitleCase(lastToken);
+    const first_name = toSmartTitleCase(tokens.slice(0, -1).join(" "));
     return { last_name, first_name, middle_name: middle_name || null };
   }
 
+  // Case 2: No comma -> "First Name [Middle Name] Last Name"
   const tokens = cleaned.split(" ").filter(Boolean);
   if (tokens.length === 1) {
-    return { last_name: tokens[0], first_name: "", middle_name: null };
+    return { last_name: toSmartTitleCase(tokens[0]), first_name: "", middle_name: null };
   }
   if (tokens.length === 2) {
-    return { last_name: tokens[1], first_name: tokens[0], middle_name: null };
+    return {
+      last_name: toSmartTitleCase(tokens[1]),
+      first_name: toSmartTitleCase(tokens[0]),
+      middle_name: null,
+    };
   }
 
-  // Check for compound Filipino/Spanish surnames like "Dela Cruz", "De Guzman", "De Los Reyes", "San Jose"
-  const compoundPrefixes = new Set(["dela", "de", "del", "delos", "san", "sta", "sta.", "st", "st."]);
+  // Check for compound Filipino/Spanish surnames at the end:
+  // e.g. "Dela Cruz", "De La Cruz", "De Los Reyes", "Delos Santos", "De Guzman", "Del Rosario", "San Jose", "Sta. Maria"
+  const compoundSinglePrefixes = new Set([
+    "dela",
+    "de",
+    "del",
+    "delos",
+    "delas",
+    "san",
+    "sta",
+    "sta.",
+    "sto",
+    "sto.",
+    "st",
+    "st.",
+  ]);
+  const compoundMiddleParticles = new Set(["la", "los", "las"]);
+
   let lastStartIdx = tokens.length - 1;
-  if (
-    lastStartIdx >= 2 &&
-    compoundPrefixes.has(tokens[lastStartIdx - 1].toLowerCase())
-  ) {
-    lastStartIdx -= 1;
-    if (
-      lastStartIdx >= 2 &&
-      tokens[lastStartIdx - 1].toLowerCase() === "de" &&
-      (tokens[lastStartIdx].toLowerCase() === "la" || tokens[lastStartIdx].toLowerCase() === "los" || tokens[lastStartIdx].toLowerCase() === "las")
-    ) {
+  const prevLower = tokens[lastStartIdx - 1]?.toLowerCase();
+
+  if (lastStartIdx >= 2 && compoundMiddleParticles.has(prevLower)) {
+    // Check if preceded by "de" (e.g. "De La Cruz", "De Los Reyes")
+    if (lastStartIdx >= 3 && tokens[lastStartIdx - 2].toLowerCase() === "de") {
+      lastStartIdx -= 2;
+    } else {
       lastStartIdx -= 1;
     }
+  } else if (lastStartIdx >= 2 && compoundSinglePrefixes.has(prevLower)) {
+    lastStartIdx -= 1;
   }
 
-  const last_name = tokens.slice(lastStartIdx).join(" ");
+  const last_name = toSmartTitleCase(tokens.slice(lastStartIdx).join(" "));
   const beforeLast = tokens.slice(0, lastStartIdx);
-  if (beforeLast.length === 1) {
-    return { last_name, first_name: beforeLast[0], middle_name: null };
+
+  if (beforeLast.length === 0) {
+    return { last_name, first_name: "", middle_name: null };
   }
-  const first_name = beforeLast[0];
-  const middle_name = beforeLast.slice(1).join(" ");
-  return { last_name, first_name, middle_name: middle_name || null };
+  if (beforeLast.length === 1) {
+    return {
+      last_name,
+      first_name: toSmartTitleCase(beforeLast[0]),
+      middle_name: null,
+    };
+  }
+
+  if (beforeLast.length === 2) {
+    const secondToken = beforeLast[1];
+    const secondClean = secondToken.replace(/\./g, "").toLowerCase();
+    const isInitial = secondClean.length === 1;
+
+    if (isInitial) {
+      return {
+        last_name,
+        first_name: toSmartTitleCase(beforeLast[0]),
+        middle_name: toSmartTitleCase(secondToken),
+      };
+    }
+
+    // If the 2nd token is a suffix or a common second given name (e.g. "John Ariel Ramos", "Juan Miguel Dela Cruz"),
+    // keep both tokens as first_name and leave middle_name null.
+    if (SUFFIX_SET.has(secondToken.toLowerCase()) || COMMON_SECOND_GIVEN_NAMES.has(secondClean)) {
+      return {
+        last_name,
+        first_name: toSmartTitleCase(beforeLast.join(" ")),
+        middle_name: null,
+      };
+    }
+
+    return {
+      last_name,
+      first_name: toSmartTitleCase(beforeLast[0]),
+      middle_name: toSmartTitleCase(secondToken),
+    };
+  }
+
+  // 3 or more tokens before surname (e.g., "John Ariel C. Ramos" or "John Ariel Coran Ramos"):
+  // All tokens except the last before surname form first_name; the token right before surname is middle_name.
+  const middleToken = beforeLast[beforeLast.length - 1];
+  const firstTokens = beforeLast.slice(0, -1);
+  return {
+    last_name,
+    first_name: toSmartTitleCase(firstTokens.join(" ")),
+    middle_name: toSmartTitleCase(middleToken) || null,
+  };
 }
 
 /**
- * Formats { last_name, first_name, middle_name } into "Last Name, First Name Middle Name".
+ * Formats { last_name, first_name, middle_name } into "Last Name, First Name M." (Title Case).
+ * Example: { last_name: "ramos", first_name: "john ariel", middle_name: "coran" } -> "Ramos, John Ariel C."
+ * Omits the middle initial if middle_name is empty.
  */
 export function formatStudentFullName(student: {
   last_name?: string | null;
@@ -110,25 +347,38 @@ export function formatStudentFullName(student: {
   middle_name?: string | null;
   full_name?: string | null;
 }): string {
-  const last = (student.last_name || "").trim();
-  const first = (student.first_name || "").trim();
-  const middle = (student.middle_name || "").trim();
+  const last = toSmartTitleCase((student.last_name || "").trim());
+  const first = toSmartTitleCase((student.first_name || "").trim());
+  const middleInitial = formatMiddleInitial(student.middle_name);
 
   if (last && first) {
-    return `${last}, ${first}${middle ? ` ${middle}` : ""}`;
+    return `${last}, ${first}${middleInitial ? ` ${middleInitial}` : ""}`;
   }
   if (last) {
-    return `${last}${middle ? ` ${middle}` : ""}`;
+    return `${last}${middleInitial ? ` ${middleInitial}` : ""}`;
   }
   if (first) {
-    return `${first}${middle ? ` ${middle}` : ""}`;
+    return `${first}${middleInitial ? ` ${middleInitial}` : ""}`;
   }
-  return (student.full_name || "").trim();
+
+  const rawFull = (student.full_name || "").trim();
+  if (!rawFull) return "";
+  const split = splitStudentFullName(rawFull);
+  if (split.last_name || split.first_name) {
+    const sLast = toSmartTitleCase(split.last_name);
+    const sFirst = toSmartTitleCase(split.first_name);
+    const sMid = formatMiddleInitial(split.middle_name);
+    if (sLast && sFirst) {
+      return `${sLast}, ${sFirst}${sMid ? ` ${sMid}` : ""}`;
+    }
+    return [sLast, sFirst, sMid].filter(Boolean).join(" ");
+  }
+  return toSmartTitleCase(rawFull);
 }
 
 /**
  * Normalizes a database student row so that last_name, first_name, middle_name, and full_name
- * are always populated consistently.
+ * are always populated consistently in Title Case with "Last Name, First Name M." format.
  */
 export function normalizeStudentRecord<T extends Record<string, any>>(
   row: T
@@ -144,9 +394,9 @@ export function normalizeStudentRecord<T extends Record<string, any>>(
   );
   const split = hasSplit
     ? {
-        last_name: String(row.last_name || "").trim(),
-        first_name: String(row.first_name || "").trim(),
-        middle_name: row.middle_name ? String(row.middle_name).trim() || null : null,
+        last_name: toSmartTitleCase(String(row.last_name || "").trim()),
+        first_name: toSmartTitleCase(String(row.first_name || "").trim()),
+        middle_name: row.middle_name ? toSmartTitleCase(String(row.middle_name).trim()) || null : null,
       }
     : splitStudentFullName(String(row.full_name || ""));
 
@@ -162,18 +412,6 @@ export function normalizeStudentRecord<T extends Record<string, any>>(
     middle_name: split.middle_name,
     full_name,
   };
-}
-
-/**
- * Converts an all-caps string to Smart Title Case.
- * e.g. "AYAP, RAMEL JR. M." → "Ayap, Ramel Jr. M."
- */
-function toSmartTitleCase(input: string): string {
-  if (!input) return "";
-  return input
-    .toLowerCase()
-    .replace(/(?:^|[\s,.\-/()])[a-z]/g, (match) => match.toUpperCase())
-    .replace(/\b(jr|sr|ii|iii|iv)\b/gi, (match) => match.toUpperCase());
 }
 
 /**
@@ -668,7 +906,7 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
     }
   }
 
-  // Build rows array for SheetJS (BSIT4 layout)
+  // Build rows array for SheetJS (BSIT4 layout with merged Student Name: "Last Name, First Name M.")
   const rows: any[][] = [
     ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
     ["Classroom:", classroomTitle, "", "Subject:", subject || "N/A"],
@@ -676,13 +914,14 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
     ["Schedule:", schedule || "N/A", "", "Teacher:", teacher || "N/A"],
     ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
     [], // Blank separator row
-    ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
+    ["Item", "Student Name", "Email Address", ...quizHeaders, "Average Scores"],
   ];
 
-  // Populate student records with individual quiz scores and calculated average score
+  // Populate student records with merged Student Name ("Last Name, First Name M."), individual quiz scores, and average score
   students.forEach((s, idx) => {
     const norm = normalizeStudentRecord(s);
-    const normFull = (norm.full_name || "").trim().toLowerCase();
+    const mergedStudentName = formatStudentFullName(norm);
+    const normFull = (mergedStudentName || norm.full_name || "").trim().toLowerCase();
     const normSimple = `${norm.first_name} ${norm.last_name}`.trim().toLowerCase();
 
     let earnedTotal = 0;
@@ -720,9 +959,7 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
 
     rows.push([
       idx + 1,
-      norm.last_name,
-      norm.first_name,
-      norm.middle_name || "",
+      mergedStudentName,
       s.email || "N/A",
       ...quizScoreCells,
       averageDisplay,
@@ -734,9 +971,7 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
   // Set standard column widths so text is nicely readable in Excel
   ws["!cols"] = [
     { wch: 8 },  // Item
-    { wch: 22 }, // Last Name
-    { wch: 22 }, // First Name
-    { wch: 18 }, // Middle Name
+    { wch: 34 }, // Student Name
     { wch: 30 }, // Email Address
     ...quizHeaders.map((h) => ({ wch: Math.max(16, h.length + 4) })),
     { wch: 18 }, // Average Scores
@@ -761,7 +996,7 @@ export interface ExcelTemplateOptions {
 
 /**
  * Generates a pre-formatted blank BSIT4 Excel template for teachers with column headers:
- * Item | Last Name | First Name | Middle Name | Email Address
+ * Item | Student Name | Email Address
  * includes sample rows for reference.
  */
 export function generateExcelTemplateBase64(options?: ExcelTemplateOptions): string {
@@ -779,18 +1014,16 @@ export function generateExcelTemplateBase64(options?: ExcelTemplateOptions): str
     ["Schedule:", meta.schedule || "MWF 3:30-4:30", "", "Teacher:", meta.teacher || "N/A"],
     ["Export Date:", formattedDate, "", "Total Enrolled:", 3],
     [], // Blank separator row
-    ["Item", "Last Name", "First Name", "Middle Name", "Email Address"],
-    [1, "Abellanosa", "Reymark", "B.", "reymark.abellanosa@example.com"],
-    [2, "Abuhat", "Louise Paulo", "T.", "louise.abuhat@example.com"],
-    [3, "Aguanta", "Sheme Nichollei John", "A.", "shememyst@gmail.com"],
+    ["Item", "Student Name", "Email Address"],
+    [1, "Abellanosa, Reymark B.", "reymark.abellanosa@example.com"],
+    [2, "Abuhat, Louise Paulo T.", "louise.abuhat@example.com"],
+    [3, "Ramos, John Ariel C.", "johnariel.ramos@example.com"],
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
     { wch: 8 },  // Item
-    { wch: 22 }, // Last Name
-    { wch: 22 }, // First Name
-    { wch: 18 }, // Middle Name
+    { wch: 34 }, // Student Name
     { wch: 32 }, // Email Address
   ];
 
