@@ -5,7 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
 import { BondPaperSize } from "../lib/paperSheetExporter";
 import { generatePrintPackage } from "../lib/printEngine";
@@ -92,6 +95,7 @@ function isChoiceAnswer(choice: string, answer: string, choiceIndex: number): bo
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // ── User info ──────────────────────────────────────────────────────────────
   const [email, setEmail] = useState("");
@@ -106,6 +110,7 @@ export default function SettingsScreen() {
   const [editVisible, setEditVisible] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [nameFocused, setNameFocused] = useState(false);
 
   // ── Change Password modal ──────────────────────────────────────────────────
   const [pwVisible, setPwVisible] = useState(false);
@@ -114,6 +119,8 @@ export default function SettingsScreen() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
+  const [newPwFocused, setNewPwFocused] = useState(false);
+  const [confirmPwFocused, setConfirmPwFocused] = useState(false);
 
   // ── Assessments State (Drafts & Archive) ───────────────────────────────────
   const [drafts, setDrafts] = useState<StoredQuiz[]>([]);
@@ -457,7 +464,7 @@ export default function SettingsScreen() {
           <View style={[styles.avatarCircle, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
             <Text style={[styles.avatarText, { color: darkMode ? "#F8FAFC" : "#334155" }]}>{initials}</Text>
           </View>
-          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Text style={[styles.profileName, { color: textMain }]} numberOfLines={1}>{fullName || "Teacher"}</Text>
               <Ionicons name="checkmark-circle" size={15} color="#0D9488" />
@@ -465,22 +472,14 @@ export default function SettingsScreen() {
             <Text
               style={[styles.profileEmail, { color: "#64748B" }]}
               numberOfLines={1}
-              ellipsizeMode="tail"
             >
               {email}
             </Text>
           </View>
-          <TouchableOpacity
-            style={[styles.editProfileBtn, { backgroundColor: darkMode ? "#334155" : "#F8FAFC", borderColor: darkMode ? "#475569" : "#E2E8F0" }]}
-            onPress={() => { setDraftName(fullName); setEditVisible(true); }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="pencil-outline" size={16} color={darkMode ? "#E2E8F0" : "#475569"} />
-          </TouchableOpacity>
         </View>
 
         {/* ── Account ── */}
-        <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <Text style={styles.sectionLabel}>Account</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <SettingsRow
             icon="person-outline"
@@ -502,7 +501,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Assessments (Drafts & Archive) ── */}
-        <Text style={styles.sectionLabel}>ASSESSMENTS</Text>
+        <Text style={styles.sectionLabel}>Assessments</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           {/* Draft Assessments */}
           <TouchableOpacity
@@ -546,7 +545,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Appearance ── */}
-        <Text style={styles.sectionLabel}>APPEARANCE</Text>
+        <Text style={styles.sectionLabel}>Appearance</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           {/* Dark Mode */}
           <TouchableOpacity
@@ -570,15 +569,12 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-
-
         {/* ── Session ── */}
-        <Text style={styles.sectionLabel}>SESSION</Text>
+        <Text style={styles.sectionLabel}>Session</Text>
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <TouchableOpacity style={styles.rowBase} onPress={handleLogout} activeOpacity={0.7}>
             <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-            <Text style={[styles.rowLabel, { color: "#EF4444" }]}>Log Out</Text>
-            <Ionicons name="chevron-forward" size={18} color="#EF4444" />
+            <Text style={[styles.rowLabel, { color: "#EF4444", fontWeight: "600" }]}>Log Out</Text>
           </TouchableOpacity>
         </View>
 
@@ -586,95 +582,260 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* ── Edit Name Modal ── */}
-      <Modal visible={editVisible} transparent animationType="slide" onRequestClose={() => setEditVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: card }]}>
-            <Text style={[styles.modalTitle, { color: textMain }]}>Edit Display Name</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: inputBg, color: inputText, borderColor: border }]}
-              placeholder="Your full name"
-              placeholderTextColor={textSub}
-              value={draftName}
-              onChangeText={setDraftName}
-              autoFocus
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.cancelBtn, { borderColor: border }]}
-                onPress={() => setEditVisible(false)}
-              >
-                <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: themeColor, opacity: (!draftName.trim() || savingName) ? 0.6 : 1 }]}
-                onPress={handleSaveName}
-                disabled={!draftName.trim() || savingName}
-              >
-                {savingName
-                  ? <ActivityIndicator size="small" color="#FFFFFF" />
-                  : <Text style={styles.saveBtnText}>Save</Text>}
-              </TouchableOpacity>
+      <Modal
+        visible={editVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setEditVisible(false)}
+      >
+        <View style={styles.modalBackdropContainer}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setEditVisible(false)}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalSheetKeyboardWrap}
+          >
+            <View
+              style={[
+                styles.bottomSheet,
+                {
+                  backgroundColor: card,
+                  paddingBottom: Math.max(insets.bottom, 16) + 16,
+                },
+              ]}
+            >
+              {/* Centered Drag Pill */}
+              <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
+
+              {/* Sheet Header */}
+              <View style={styles.sheetHeader}>
+                <Text style={[styles.sheetTitle, { color: textMain }]}>Edit display name</Text>
+                <TouchableOpacity
+                  style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                  onPress={() => setEditVisible(false)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Form Content */}
+              <Text style={[styles.inputLabel, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                Display name
+              </Text>
+              <TextInput
+                style={[
+                  styles.formInput,
+                  {
+                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                    color: textMain,
+                    borderColor: nameFocused ? "#EA580C" : (darkMode ? "#334155" : "#CBD5E1"),
+                  },
+                ]}
+                placeholder="Your full name"
+                placeholderTextColor={textSub}
+                value={draftName}
+                onChangeText={setDraftName}
+                onFocus={() => setNameFocused(true)}
+                onBlur={() => setNameFocused(false)}
+                autoFocus
+              />
+
+              {/* Compact Modal Footer Buttons */}
+              <View style={styles.modalFooterActions}>
+                <TouchableOpacity
+                  style={[
+                    styles.cancelBtnCompact,
+                    {
+                      backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                      borderColor: darkMode ? "#334155" : "#CBD5E1",
+                    },
+                  ]}
+                  onPress={() => setEditVisible(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.cancelBtnTextCompact, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveBtnCompact,
+                    {
+                      backgroundColor: "#EA580C",
+                      opacity: (!draftName.trim() || savingName) ? 0.6 : 1,
+                    },
+                  ]}
+                  onPress={handleSaveName}
+                  disabled={!draftName.trim() || savingName}
+                  activeOpacity={0.8}
+                >
+                  {savingName ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveBtnTextCompact}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
-
-
       {/* ── Change Password Modal ── */}
-      <Modal visible={pwVisible} transparent animationType="slide" onRequestClose={() => setPwVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: card }]}>
-            <Text style={[styles.modalTitle, { color: textMain }]}>Change Password</Text>
+      <Modal
+        visible={pwVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setPwVisible(false)}
+      >
+        <View style={styles.modalBackdropContainer}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setPwVisible(false)}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalSheetKeyboardWrap}
+          >
+            <View
+              style={[
+                styles.bottomSheet,
+                {
+                  backgroundColor: card,
+                  paddingBottom: Math.max(insets.bottom, 16) + 16,
+                },
+              ]}
+            >
+              {/* Centered Drag Pill */}
+              <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
 
-            <Text style={[styles.fieldLabel, { color: textSub }]}>NEW PASSWORD</Text>
-            <View style={[styles.pwRow, { backgroundColor: inputBg, borderColor: border }]}>
-              <TextInput
-                style={[styles.pwInput, { color: inputText }]}
-                placeholder="At least 6 characters"
-                placeholderTextColor={textSub}
-                secureTextEntry={!showNewPw}
-                value={newPw}
-                onChangeText={setNewPw}
-              />
-              <TouchableOpacity onPress={() => setShowNewPw(!showNewPw)}>
-                <Ionicons name={showNewPw ? "eye-off-outline" : "eye-outline"} size={20} color={textSub} />
-              </TouchableOpacity>
-            </View>
+              {/* Sheet Header */}
+              <View style={styles.sheetHeader}>
+                <Text style={[styles.sheetTitle, { color: textMain }]}>Change password</Text>
+                <TouchableOpacity
+                  style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                  onPress={() => setPwVisible(false)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
+                </TouchableOpacity>
+              </View>
 
-            <Text style={[styles.fieldLabel, { color: textSub, marginTop: 16 }]}>CONFIRM PASSWORD</Text>
-            <View style={[styles.pwRow, { backgroundColor: inputBg, borderColor: border }]}>
-              <TextInput
-                style={[styles.pwInput, { color: inputText }]}
-                placeholder="Repeat new password"
-                placeholderTextColor={textSub}
-                secureTextEntry={!showConfirmPw}
-                value={confirmPw}
-                onChangeText={setConfirmPw}
-              />
-              <TouchableOpacity onPress={() => setShowConfirmPw(!showConfirmPw)}>
-                <Ionicons name={showConfirmPw ? "eye-off-outline" : "eye-outline"} size={20} color={textSub} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.modalActions, { marginTop: 28 }]}>
-              <TouchableOpacity
-                style={[styles.cancelBtn, { borderColor: border }]}
-                onPress={() => setPwVisible(false)}
+              {/* New Password */}
+              <Text style={[styles.inputLabel, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                New password
+              </Text>
+              <View
+                style={[
+                  styles.formPwRow,
+                  {
+                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                    borderColor: newPwFocused ? "#EA580C" : (darkMode ? "#334155" : "#CBD5E1"),
+                  },
+                ]}
               >
-                <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: themeColor, opacity: savingPw ? 0.6 : 1 }]}
-                onPress={handleChangePassword}
-                disabled={savingPw}
+                <TextInput
+                  style={[styles.formPwInput, { color: textMain }]}
+                  placeholder="At least 6 characters"
+                  placeholderTextColor={textSub}
+                  secureTextEntry={!showNewPw}
+                  value={newPw}
+                  onChangeText={setNewPw}
+                  onFocus={() => setNewPwFocused(true)}
+                  onBlur={() => setNewPwFocused(false)}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowNewPw(!showNewPw)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name={showNewPw ? "eye-off-outline" : "eye-outline"}
+                    size={18}
+                    color="#64748B"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Confirm Password */}
+              <Text style={[styles.inputLabel, { color: darkMode ? "#CBD5E1" : "#334155", marginTop: 14 }]}>
+                Confirm new password
+              </Text>
+              <View
+                style={[
+                  styles.formPwRow,
+                  {
+                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                    borderColor: confirmPwFocused ? "#EA580C" : (darkMode ? "#334155" : "#CBD5E1"),
+                  },
+                ]}
               >
-                {savingPw
-                  ? <ActivityIndicator size="small" color="#FFFFFF" />
-                  : <Text style={styles.saveBtnText}>Update</Text>}
-              </TouchableOpacity>
+                <TextInput
+                  style={[styles.formPwInput, { color: textMain }]}
+                  placeholder="Repeat new password"
+                  placeholderTextColor={textSub}
+                  secureTextEntry={!showConfirmPw}
+                  value={confirmPw}
+                  onChangeText={setConfirmPw}
+                  onFocus={() => setConfirmPwFocused(true)}
+                  onBlur={() => setConfirmPwFocused(false)}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowConfirmPw(!showConfirmPw)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name={showConfirmPw ? "eye-off-outline" : "eye-outline"}
+                    size={18}
+                    color="#64748B"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Compact Modal Footer Buttons */}
+              <View style={styles.modalFooterActions}>
+                <TouchableOpacity
+                  style={[
+                    styles.cancelBtnCompact,
+                    {
+                      backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                      borderColor: darkMode ? "#334155" : "#CBD5E1",
+                    },
+                  ]}
+                  onPress={() => setPwVisible(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.cancelBtnTextCompact, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveBtnCompact,
+                    {
+                      backgroundColor: "#EA580C",
+                      opacity: (!newPw || !confirmPw || savingPw) ? 0.6 : 1,
+                    },
+                  ]}
+                  onPress={handleChangePassword}
+                  disabled={!newPw || !confirmPw || savingPw}
+                  activeOpacity={0.8}
+                >
+                  {savingPw ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveBtnTextCompact}>Update</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -1454,20 +1615,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
   },
   avatarCircle: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: "#F1F5F9",
     alignItems: "center", justifyContent: "center",
   },
-  avatarText: { fontSize: 17, fontWeight: "700", color: "#334155" },
+  avatarText: { fontSize: 15, fontWeight: "600", color: "#334155" },
   profileName: { fontSize: 16, fontWeight: "700", color: "#0F172A", marginBottom: 2 },
-  profileEmail: { fontSize: 13, color: "#64748B", flexShrink: 1 },
-  editProfileBtn: {
-    width: 34, height: 34, borderRadius: 10,
-    borderWidth: 1,
-    alignItems: "center", justifyContent: "center",
-  },
+  profileEmail: { fontSize: 13, color: "#64748B" },
 
-  sectionLabel: { fontSize: 12, fontWeight: "600", color: "#64748B", letterSpacing: 0.4, marginBottom: 8, marginLeft: 4 },
+  sectionLabel: { fontSize: 12, fontWeight: "600", color: "#64748B", marginBottom: 8, marginLeft: 4 },
 
   card: {
     borderRadius: 14, marginBottom: 22, borderWidth: 1, overflow: "hidden",
@@ -1573,23 +1729,109 @@ const styles = StyleSheet.create({
 
   versionText: { textAlign: "center", fontSize: 12, marginTop: 8 },
 
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  modalCard: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 },
-  modalTitle: { fontSize: 22, fontWeight: "800", marginBottom: 20 },
-
-  input: { height: 54, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 16, fontSize: 16 },
-  fieldLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, marginBottom: 8 },
-  pwRow: { flexDirection: "row", alignItems: "center", height: 54, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 16, gap: 8 },
-  pwInput: { flex: 1, fontSize: 16 },
-
-  modalActions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  cancelBtn: { flex: 1, height: 54, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  cancelBtnText: { fontSize: 16, fontWeight: "600" },
-  saveBtn: {
-    flex: 1, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center",
-    shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+  /* ── Bottom Sheet Modals ── */
+  modalBackdropContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
   },
-  saveBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+  },
+  modalSheetKeyboardWrap: {
+    width: "100%",
+  },
+  bottomSheet: {
+    width: "100%",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  dragPill: {
+    width: 36,
+    height: 4,
+    borderRadius: 999,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  closeIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginBottom: 6,
+  },
+  formInput: {
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 14,
+  },
+  formPwRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+  },
+  formPwInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+  modalFooterActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 24,
+  },
+  cancelBtnCompact: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelBtnTextCompact: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  saveBtnCompact: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveBtnTextCompact: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
 
   /* ── Assessment Hub Modal ── */
   hubContainer: { flex: 1 },
