@@ -156,6 +156,7 @@ export default function GraderTab({
     // ── Batch Scanning States ──────────────────────────────────────────────────
     const [gradingMode, setGradingMode] = useState<"single" | "batch">("single");
     const [batchScannerOpen, setBatchScannerOpen] = useState(false);
+    const [scannerMode, setScannerMode] = useState<"single" | "batch">("single");
     const [batchReviewOpen, setBatchReviewOpen] = useState(false);
     const [batchItems, setBatchItems] = useState<BatchSheetItem[]>([]);
     const batchQueueRef = useRef<BatchGradingQueue | null>(null);
@@ -231,7 +232,7 @@ export default function GraderTab({
     }, [gradingResult]);
 
     // ── Helper to optimize captured test paper for AI Vision ───────────────────
-    async function prepareImageForGrading(asset: ImagePicker.ImagePickerAsset): Promise<{ base64: string; mimeType: "image/jpeg" }> {
+    async function prepareImageForGrading(asset: { uri: string; base64?: string | null }): Promise<{ base64: string; mimeType: "image/jpeg" }> {
         try {
             const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
             // Resize to max 1280px width (preserves legibility while shrinking payload ~50x)
@@ -252,35 +253,34 @@ export default function GraderTab({
         };
     }
 
-    // ── Open Camera ────────────────────────────────────────────────────────────
+    // ── Open Camera (Single Paper with Photo Guidance) ─────────────────────────
     async function handleOpenCamera() {
         setSourceModalOpen(false);
+        const activeQuizTitle = selectedQuiz || currentQuizValue;
+        const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
+        if (!published && publishedQuizzes.length === 0) {
+            Alert.alert(
+                "No Quizzes Available",
+                "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
+            );
+            return;
+        }
+        setScannerMode("single");
+        setBatchScannerOpen(true);
+    }
+
+    // Single sheet capture callback from Camera Grader
+    async function handleCaptureSingleSheet(uri: string) {
         try {
-            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== "granted") {
-                Alert.alert("Permission Required", "Camera permission is required to scan student test papers.");
-                return;
-            }
-
-            const result = await ImagePicker.launchCameraAsync({
-                mediaTypes: ["images"],
-                allowsEditing: false,
-                quality: 0.8,
-                base64: true,
-            });
-
-            if (!result.canceled && result.assets && result.assets.length > 0) {
-                const asset = result.assets[0];
-                setScannedImageUri(asset.uri);
-                const optimized = await prepareImageForGrading(asset);
-                if (optimized.base64) {
-                    processGrading(optimized.base64, optimized.mimeType);
-                } else {
-                    Alert.alert("Image Error", "Could not read camera capture data.");
-                }
+            setScannedImageUri(uri);
+            const optimized = await prepareImageForGrading({ uri });
+            if (optimized.base64) {
+                processGrading(optimized.base64, optimized.mimeType);
+            } else {
+                Alert.alert("Image Error", "Could not read camera capture data.");
             }
         } catch (err: any) {
-            Alert.alert("Camera Error", err.message || "Failed to launch camera.");
+            Alert.alert("Grading Error", err.message || "Failed to process captured test sheet.");
         }
     }
 
@@ -344,6 +344,25 @@ export default function GraderTab({
                 if (match) {
                     setSelectedStudent(`${match.full_name}${match.email ? ` (${match.email})` : ""}`);
                 }
+            }
+
+            // Alert teacher if any of the 5 photo quality conditions failed on this paper
+            if (result.photoQuality?.hasWarnings && result.photoQuality.warnings.length > 0) {
+                Alert.alert(
+                    "⚠️ Photo Scan Quality Alert",
+                    "Tseki detected the following issues with the captured photo:\n\n" +
+                        result.photoQuality.warnings.map((w) => `• ${w}`).join("\n\n"),
+                    [
+                        {
+                            text: "Retake Photo",
+                            onPress: () => handleOpenCamera(),
+                        },
+                        {
+                            text: "Review Anyway",
+                            style: "cancel",
+                        },
+                    ]
+                );
             }
 
             // Keep user on the Scanned Student Sheet view first; teacher can tap "Review" on the alert banner when ready
@@ -574,6 +593,7 @@ export default function GraderTab({
             return;
         }
         getOrCreateBatchQueue();
+        setScannerMode("batch");
         setBatchScannerOpen(true);
     };
 
@@ -590,10 +610,31 @@ export default function GraderTab({
     const handleFinishAndReview = () => {
         setBatchScannerOpen(false);
         setBatchReviewOpen(true);
+
+        const itemsWithWarnings = batchItems.filter(
+            (i) => i.photoQuality?.hasWarnings && i.photoQuality.warnings.length > 0
+        );
+        if (itemsWithWarnings.length > 0) {
+            const summaryLines = itemsWithWarnings.slice(0, 4).map((item, idx) => {
+                const name = item.matchedStudentName || item.studentNameExtracted || `Sheet #${idx + 1}`;
+                return `• ${name}: ${item.photoQuality!.warnings.join(" ")}`;
+            });
+            if (itemsWithWarnings.length > 4) {
+                summaryLines.push(`...and ${itemsWithWarnings.length - 4} more sheet(s).`);
+            }
+            Alert.alert(
+                "⚠️ Batch Scan Photo Quality Alert",
+                `${itemsWithWarnings.length} scanned paper${itemsWithWarnings.length > 1 ? "s have" : " has"} lighting, QR code, 4 corner markers, or paper edge/flatness warnings:\n\n` +
+                    summaryLines.join("\n\n") +
+                    "\n\nPlease inspect flagged sheets in the Batch Review Dashboard.",
+                [{ text: "Review Sheets" }]
+            );
+        }
     };
 
     const handleScanMoreInBatch = () => {
         setBatchReviewOpen(false);
+        setScannerMode("batch");
         setBatchScannerOpen(true);
     };
 
@@ -834,6 +875,60 @@ export default function GraderTab({
 
                         {/* Interactive Grading Log Section */}
                         <View style={styles.cardBody}>
+                            {/* ── Photo Quality Alert Banner (Single Paper) ── */}
+                            {gradingResult.photoQuality?.hasWarnings &&
+                                gradingResult.photoQuality.warnings.length > 0 && (
+                                    <View
+                                        style={[
+                                            styles.reviewAlertBanner,
+                                            {
+                                                backgroundColor: darkMode ? "#7F1D1D30" : "#FEF2F2",
+                                                borderColor: "#EF4444",
+                                                flexDirection: "column",
+                                                alignItems: "stretch",
+                                                marginBottom: 14,
+                                            },
+                                        ]}
+                                    >
+                                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                                                <Ionicons name="warning" size={20} color="#EF4444" />
+                                                <Text
+                                                    style={[
+                                                        styles.reviewAlertTitle,
+                                                        { color: darkMode ? "#FCA5A5" : "#991B1B", flex: 1 },
+                                                    ]}
+                                                >
+                                                    Photo Scan Quality Alert
+                                                </Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                style={[styles.reviewAlertBtn, { backgroundColor: "#EF4444" }]}
+                                                onPress={handleOpenCamera}
+                                                activeOpacity={0.8}
+                                            >
+                                                <Ionicons name="camera-outline" size={14} color="#FFF" style={{ marginRight: 4 }} />
+                                                <Text style={styles.reviewAlertBtnText}>Retake Photo</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        {gradingResult.photoQuality.warnings.map((warningText, wIdx) => (
+                                            <Text
+                                                key={wIdx}
+                                                style={[
+                                                    styles.reviewAlertSub,
+                                                    {
+                                                        color: darkMode ? "#FECACA" : "#B91C1C",
+                                                        marginTop: 3,
+                                                        lineHeight: 18,
+                                                    },
+                                                ]}
+                                            >
+                                                • {warningText}
+                                            </Text>
+                                        ))}
+                                    </View>
+                                )}
+
                             {/* ── Flagged Items Banner ── */}
                             {flaggedCount > 0 && (
                                 <View style={[styles.reviewAlertBanner, { backgroundColor: darkMode ? "#78350F25" : "#FFFBEB", borderColor: "#F59E0B" }]}>
@@ -1355,17 +1450,20 @@ export default function GraderTab({
                 }}
             />
 
-            {/* ── Continuous Batch Scanner Modal ── */}
+            {/* ── Camera Grader Scanner Modal (Single & Batch with Photo Guidance) ── */}
             <BatchScannerModal
                 visible={batchScannerOpen}
                 onClose={() => setBatchScannerOpen(false)}
                 onCaptureSheet={handleBatchCaptureSheet}
                 onBatchImportSheets={handleBatchImportSheets}
                 onFinishAndReview={handleFinishAndReview}
+                onRemoveSheet={handleRemoveBatchItem}
                 items={batchItems}
                 quizTitle={selectedQuiz || currentQuizValue || "Assessment"}
                 classTitle={classTitle || "Classroom"}
                 accentColor={accentColor}
+                mode={scannerMode}
+                onCaptureSingleSheet={handleCaptureSingleSheet}
             />
 
             {/* ── Batch Review & Approval Dashboard ── */}

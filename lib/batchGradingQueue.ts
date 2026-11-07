@@ -3,6 +3,7 @@ import {
     GradingResponse,
     GradingResultItem,
     levenshteinDistance,
+    PhotoQualityDiagnostics,
 } from "./gradingService";
 import { LayoutJSON } from "./printEngine/types";
 
@@ -31,6 +32,7 @@ export interface BatchSheetItem {
     matchedStudentName?: string;
     isAutoMatched: boolean;
     gradingResult?: GradingResponse;
+    photoQuality?: PhotoQualityDiagnostics;
     flaggedCount: number;
     errorMessage?: string;
     isApproved: boolean;
@@ -207,7 +209,13 @@ export class BatchGradingQueue {
 
     public approveAllReady() {
         for (const item of this.items) {
-            if (item.status === "ready" || (item.status === "needs_review" && item.flaggedCount === 0 && item.matchedStudentId)) {
+            if (
+                item.status === "ready" ||
+                (item.status === "needs_review" &&
+                    item.flaggedCount === 0 &&
+                    item.matchedStudentId &&
+                    !item.photoQuality?.hasWarnings)
+            ) {
                 item.isApproved = true;
             }
         }
@@ -298,11 +306,14 @@ export class BatchGradingQueue {
             const match = matchStudentToRoster(gradingResult.studentName, this.options.roster);
 
             const hasMatched = Boolean(match);
-            const needsReview = flaggedCount > 0 || !hasMatched;
+            const photoQuality = gradingResult.photoQuality;
+            const hasPhotoWarnings = Boolean(photoQuality?.hasWarnings);
+            const needsReview = flaggedCount > 0 || !hasMatched || hasPhotoWarnings;
 
             this.updateItem(item.id, {
                 status: needsReview ? "needs_review" : "ready",
                 gradingResult,
+                photoQuality,
                 studentNameExtracted: gradingResult.studentName || "Unknown",
                 matchedStudentId: match?.student.id,
                 matchedStudentName: match?.student.full_name,

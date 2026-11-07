@@ -322,6 +322,44 @@ export function BatchReviewDashboard({
 
                 {/* Student Papers List */}
                 <ScrollView contentContainerStyle={styles.listContent}>
+                    {/* Class-Level Photo Quality Alert Banner */}
+                    {items.some((i) => i.photoQuality?.hasWarnings && i.photoQuality.warnings.length > 0 && !i.isApproved) && (
+                        <View
+                            style={{
+                                backgroundColor: darkMode ? "#7F1D1D35" : "#FEF2F2",
+                                borderWidth: 1.5,
+                                borderColor: "#EF4444",
+                                borderRadius: 12,
+                                padding: 12,
+                                marginBottom: 12,
+                            }}
+                        >
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                <Ionicons name="warning" size={18} color="#EF4444" />
+                                <Text
+                                    style={{
+                                        color: darkMode ? "#FCA5A5" : "#991B1B",
+                                        fontSize: 13.5,
+                                        fontWeight: "800",
+                                        flex: 1,
+                                    }}
+                                >
+                                    Photo Quality Alert ({items.filter((i) => i.photoQuality?.hasWarnings && !i.isApproved).length} Paper
+                                    {items.filter((i) => i.photoQuality?.hasWarnings && !i.isApproved).length > 1 ? "s" : ""})
+                                </Text>
+                            </View>
+                            <Text
+                                style={{
+                                    color: darkMode ? "#FECACA" : "#B91C1C",
+                                    fontSize: 12,
+                                    lineHeight: 17,
+                                }}
+                            >
+                                One or more scanned papers had lighting (too dark/too light), QR code visibility, 4 corner markers, or paper flatness/edge issues. Please inspect or rescan flagged papers below.
+                            </Text>
+                        </View>
+                    )}
+
                     {filteredItems.length === 0 ? (
                         <View style={styles.emptyWrap}>
                             <Ionicons name="documents-outline" size={48} color={textSub} style={{ marginBottom: 12 }} />
@@ -435,6 +473,78 @@ export function BatchReviewDashboard({
                                             </TouchableOpacity>
                                         </View>
                                     </View>
+
+                                    {/* Photo Quality Warning Box (Lighting, QR, 4 Corner Markers, Flatness/Edges) */}
+                                    {item.photoQuality?.hasWarnings &&
+                                        item.photoQuality.warnings.length > 0 &&
+                                        !item.isApproved && (
+                                            <View
+                                                style={{
+                                                    marginTop: 10,
+                                                    padding: 10,
+                                                    borderRadius: 10,
+                                                    backgroundColor: darkMode ? "#7F1D1D30" : "#FEF2F2",
+                                                    borderWidth: 1,
+                                                    borderColor: "#EF4444",
+                                                }}
+                                            >
+                                                <View
+                                                    style={{
+                                                        flexDirection: "row",
+                                                        alignItems: "center",
+                                                        justifyContent: "space-between",
+                                                        marginBottom: 4,
+                                                    }}
+                                                >
+                                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+                                                        <Ionicons name="warning" size={15} color="#EF4444" />
+                                                        <Text
+                                                            style={{
+                                                                color: darkMode ? "#FCA5A5" : "#991B1B",
+                                                                fontSize: 12,
+                                                                fontWeight: "800",
+                                                            }}
+                                                        >
+                                                            Photo Scan Quality Alert
+                                                        </Text>
+                                                    </View>
+                                                    {item.flaggedCount === 0 && Boolean(item.matchedStudentId) && (
+                                                        <TouchableOpacity
+                                                            style={{
+                                                                backgroundColor: "#10B981",
+                                                                paddingHorizontal: 9,
+                                                                paddingVertical: 4,
+                                                                borderRadius: 6,
+                                                            }}
+                                                            onPress={() =>
+                                                                onUpdateItem(item.id, {
+                                                                    status: "ready",
+                                                                    isApproved: true,
+                                                                })
+                                                            }
+                                                            activeOpacity={0.8}
+                                                        >
+                                                            <Text style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}>
+                                                                Approve Anyway
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    )}
+                                                </View>
+                                                {item.photoQuality.warnings.map((w, wIdx) => (
+                                                    <Text
+                                                        key={wIdx}
+                                                        style={{
+                                                            color: darkMode ? "#FECACA" : "#B91C1C",
+                                                            fontSize: 11.5,
+                                                            lineHeight: 16,
+                                                            marginTop: 2,
+                                                        }}
+                                                    >
+                                                        • {w}
+                                                    </Text>
+                                                ))}
+                                            </View>
+                                        )}
 
                                     {/* Flag Alert & Resolve Button for Unclear or Double-Shaded Questions */}
                                     {needsReview && item.flaggedCount > 0 && (

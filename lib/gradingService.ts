@@ -5,6 +5,19 @@ import { LayoutJSON } from "./printEngine/types";
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type ReviewFlagReason = "double_mark" | "unclear" | "faint" | "low_confidence" | "blank" | "multiple_answers";
 
+export type LightingCondition = "ok" | "too_dark" | "too_bright";
+
+export interface PhotoQualityDiagnostics {
+    lighting: LightingCondition;
+    qrVisible: boolean;
+    cornerMarkersVisible: boolean;
+    visibleCornerCount: number;
+    paperFlat: boolean;
+    fullEdgesVisible: boolean;
+    hasWarnings: boolean;
+    warnings: string[];
+}
+
 export interface GradingResultItem {
     questionNumber: number;
     studentAnswer: string;
@@ -28,6 +41,87 @@ export interface GradingResponse {
     totalScore: number;
     maxScore: number;
     results: GradingResultItem[];
+    photoQuality?: PhotoQualityDiagnostics;
+}
+
+/**
+ * Normalizes raw photo quality diagnostics from the AI Vision model and generates
+ * clear teacher-facing warnings for the 5 optical capture conditions:
+ * 1. Room is too dark
+ * 2. Room is too light / glare
+ * 3. QR code is not visible
+ * 4. 4 corner markers not visible
+ * 5. Paper is not flat or full edges not visible
+ */
+export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
+    if (!raw || typeof raw !== "object") {
+        return {
+            lighting: "ok",
+            qrVisible: true,
+            cornerMarkersVisible: true,
+            visibleCornerCount: 4,
+            paperFlat: true,
+            fullEdgesVisible: true,
+            hasWarnings: false,
+            warnings: [],
+        };
+    }
+
+    const rawLighting = String(raw.lighting || "ok").toLowerCase().trim();
+    const lighting: LightingCondition =
+        rawLighting === "too_dark" || rawLighting === "dark" || rawLighting === "underexposed"
+            ? "too_dark"
+            : rawLighting === "too_bright" || rawLighting === "too_light" || rawLighting === "glare" || rawLighting === "overexposed"
+            ? "too_bright"
+            : "ok";
+
+    const qrVisible = raw.qrVisible !== false;
+    const visibleCornerCount =
+        typeof raw.visibleCornerCount === "number"
+            ? Math.max(0, Math.min(4, Math.round(raw.visibleCornerCount)))
+            : raw.cornerMarkersVisible === false
+            ? 0
+            : 4;
+    const cornerMarkersVisible = raw.cornerMarkersVisible !== false && visibleCornerCount >= 4;
+    const paperFlat = raw.paperFlat !== false;
+    const fullEdgesVisible = raw.fullEdgesVisible !== false;
+
+    const warnings: string[] = [];
+
+    if (lighting === "too_dark") {
+        warnings.push("Room is too dark — move to brighter lighting or turn on the camera Torch (⚡).");
+    } else if (lighting === "too_bright") {
+        warnings.push("Room is too light or has harsh glare — avoid direct flash reflection or bright overhead glare on the sheet.");
+    }
+
+    if (!qrVisible) {
+        warnings.push("QR code is not visible — make sure the top-right QR code is inside the frame and not blurry or covered.");
+    }
+
+    if (!cornerMarkersVisible) {
+        warnings.push(
+            `4 corner markers are not all visible (${visibleCornerCount}/4 detected) — ensure all 4 solid black corner squares are inside the frame.`
+        );
+    }
+
+    if (!paperFlat && !fullEdgesVisible) {
+        warnings.push("Paper is not flat and full paper edges are cut off — lay the sheet flat on a desk and fit all 4 edges inside the frame.");
+    } else if (!paperFlat) {
+        warnings.push("Paper is not flat — smooth out folds, curls, or tilted angles and lay the paper flat on a desk.");
+    } else if (!fullEdgesVisible) {
+        warnings.push("Full paper edges are not visible — hold the camera slightly higher so all 4 edges of the bond paper fit inside the frame.");
+    }
+
+    return {
+        lighting,
+        qrVisible,
+        cornerMarkersVisible,
+        visibleCornerCount,
+        paperFlat,
+        fullEdgesVisible,
+        hasWarnings: warnings.length > 0,
+        warnings,
+    };
 }
 
 /**
@@ -179,12 +273,31 @@ INSTRUCTIONS:
    - If the answer does NOT match, is blank, or is double-marked: set "isCorrect" to false, and "pointsAwarded" to 0.
 5. "totalScore" MUST be the EXACT mathematical sum of all "pointsAwarded" across the results array.
 6. "maxScore" MUST be ${totalPossiblePoints}.
+7. PHOTO QUALITY & OPTICAL REGISTRATION DIAGNOSTICS ("photoQuality"):
+   Inspect the overall photo quality and physical paper capture conditions to alert the teacher if any of these 5 issues occur:
+   - "lighting": set to "too_dark" if the image is dim, underexposed, or has dark shadows obscuring the sheet; set to "too_bright" if there is harsh flash glare, washed-out overexposure, or bright light washing out boxes/text; otherwise set to "ok".
+   - "qrVisible": set to true if the top-right QR code is clearly visible inside the frame and not cropped or unreadable; otherwise false.
+   - "visibleCornerCount": integer (0 to 4) counting how many of the 4 solid black corner registration squares (top-left, top-right, bottom-left, bottom-right) are clearly visible and not cropped out or covered by fingers.
+   - "cornerMarkersVisible": set to true ONLY if all 4 black corner registration squares are clearly visible (visibleCornerCount === 4); otherwise false.
+   - "paperFlat": set to true if the paper is lying reasonably flat without severe folding, curling, crumpling, or extreme perspective tilt; otherwise false.
+   - "fullEdgesVisible": set to true if the full answer sheet borders/edges are inside the photo frame without cutting off any corner markers or answer boxes; otherwise false.
 
 You MUST return the final result as a strict, valid JSON object with this exact structure (note how clean vs. scribbled/overwritten items are formatted):
 {
   "studentName": "Extracted Student Name",
+  "lastName": "Extracted Last Name",
+  "firstName": "Extracted First Name",
+  "middleName": "Extracted Middle Name",
   "totalScore": 1,
   "maxScore": ${totalPossiblePoints},
+  "photoQuality": {
+    "lighting": "ok",
+    "qrVisible": true,
+    "cornerMarkersVisible": true,
+    "visibleCornerCount": 4,
+    "paperFlat": true,
+    "fullEdgesVisible": true
+  },
   "results": [
     {
       "questionNumber": 1,
@@ -483,6 +596,8 @@ You MUST return the final result as a strict, valid JSON object with this exact 
             ? `${extractedLast}, ${extractedFirst}${extractedMiddle ? ` ${extractedMiddle}` : ""}`
             : parsed.studentName || extractedLast || extractedFirst || "Student";
 
+    const photoQuality = normalizePhotoQuality(parsed.photoQuality);
+
     return {
         studentName: combinedExtractedName,
         lastName: extractedLast || undefined,
@@ -491,6 +606,7 @@ You MUST return the final result as a strict, valid JSON object with this exact 
         totalScore: computedTotalScore,
         maxScore: computedMaxScore || totalPossiblePoints,
         results: verifiedResults,
+        photoQuality,
     };
 }
 
