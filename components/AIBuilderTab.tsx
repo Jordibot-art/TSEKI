@@ -953,18 +953,18 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
         >
-            {/* ── Header ── */}
-            <View style={styles.headerRow}>
-                <View style={[styles.headerIconBg, { backgroundColor: accentColor + "18" }]}>
-                    <Ionicons name="sparkles" size={18} color={accentColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={[styles.headerTitle, { color: textMain }]}>Tseki AI Assessment Suite</Text>
-                </View>
-            </View>
-
             {!showResults ? (
                 <>
+                    {/* ── Header ── */}
+                    <View style={styles.headerRow}>
+                        <View style={[styles.headerIconBg, { backgroundColor: accentColor + "18" }]}>
+                            <Ionicons name="sparkles" size={18} color={accentColor} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.headerTitle, { color: textMain }]}>Tseki AI Assessment Suite</Text>
+                        </View>
+                    </View>
+
                     {/* ── Attached File ── */}
                     <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155", marginTop: 4 }]}>Reference file (optional)</Text>
                     <TouchableOpacity
@@ -1319,9 +1319,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     {/* ── Preview Screen Header Banner ── */}
                     <View style={[styles.previewScreenBanner, { backgroundColor: cardBg, borderColor: border }]}>
                         <View style={styles.previewTopRow}>
-                            <View style={[styles.previewModeBadge, { backgroundColor: accentColor + "18", borderColor: accentColor + "33" }]}>
-                                <Ionicons name="eye-outline" size={13} color={accentColor} />
-                                <Text style={[styles.previewModeBadgeText, { color: accentColor }]}>PREVIEW BEFORE SAVING</Text>
+                            <View style={[styles.previewModeBadge, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                                <Text style={[styles.previewModeBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>Draft Preview</Text>
                             </View>
                             <TouchableOpacity
                                 onPress={handleReset}
@@ -1333,41 +1332,41 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={[styles.previewTitle, { color: textMain }]} numberOfLines={2}>
+                        <Text style={[styles.previewTitle, { color: darkMode ? textMain : "#0F172A" }]}>
                             {generatedAssessment?.quizTitle || "Assessment Preview"}
                         </Text>
 
-                        <Text style={[styles.previewSubtext, { color: textSub }]}>
-                            Review questions, edit answers, or tap "Regenerate this question only" on any card to replace it before saving or publishing.
+                        <Text style={[styles.previewSubtext, { color: darkMode ? textSub : "#64748B" }]}>
+                            Review or edit items below before publishing to your class.
                         </Text>
 
                         <View style={[styles.previewStatsRow, { backgroundColor: inputBg, borderColor: border }]}>
                             <View style={styles.previewStatItem}>
-                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {generatedAssessment?.questions.length || questionCount}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Questions</Text>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Questions</Text>
                             </View>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <View style={styles.previewStatItem}>
-                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {generatedAssessment?.questions.reduce((sum, q) => sum + (q.type === "enumeration" ? (q.answerBoxesRequired || 3) : 1), 0) || questionCount}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Points</Text>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Points</Text>
                             </View>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <View style={styles.previewStatItem}>
-                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
+                                <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
                                     {difficulty.split(" ")[0]}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Difficulty</Text>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Difficulty</Text>
                             </View>
                             <View style={[styles.previewStatDivider, { backgroundColor: border }]} />
                             <View style={styles.previewStatItem}>
-                                <Text style={[styles.previewStatValue, { color: accentColor }]}>
-                                    {gradeLevel.replace(/Grade\s*/i, "Gr ")}
+                                <Text style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]} numberOfLines={1}>
+                                    {gradeLevel.replace(/\s*\(.*?\)/g, "").replace(/Grade\s*/i, "Gr ")}
                                 </Text>
-                                <Text style={[styles.previewStatLabel, { color: textSub }]}>Grade</Text>
+                                <Text style={[styles.previewStatLabel, { color: darkMode ? textSub : "#64748B" }]} numberOfLines={1}>Grade</Text>
                             </View>
                         </View>
                     </View>
@@ -1377,63 +1376,53 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         const answerObj = generatedAssessment.answerKey.find((k) => k.questionNumber === q.questionNumber);
                         const correctAnswer = answerObj ? answerObj.correctAnswer : "";
                         const points = answerObj ? answerObj.points : 1;
-                        const typeLabel = q.type.replace(/_/g, " ").toUpperCase();
+                        const hasOptions = Boolean(q.options && q.options.length > 0);
 
                         return (
                             <View key={q.questionNumber} style={[styles.questionCard, { backgroundColor: cardBg, borderColor: border }]}>
+                                {/* Row 1 — Dedicated Card Header Bar */}
                                 <View style={styles.questionHeader}>
-                                    <View style={[styles.questionNumber, { backgroundColor: accentColor }]}>
-                                        <Text style={styles.questionNumberText}>{q.questionNumber}</Text>
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                                            <View style={styles.qTypeBadge}>
-                                                <Text style={styles.qTypeBadgeText}>{typeLabel}</Text>
-                                            </View>
-                                            <View style={styles.boxesBadge}>
-                                                <Text style={styles.boxesBadgeText}>
-                                                    {q.answerBoxesRequired} {q.answerBoxesRequired > 1 ? "BOXES" : "BOX"}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                        {editingQuestionQNum === q.questionNumber ? (
-                                            <View style={{ marginTop: 4 }}>
-                                                <TextInput
-                                                    style={[
-                                                        styles.questionEditInput,
-                                                        {
-                                                            backgroundColor: inputBg,
-                                                            borderColor: accentColor,
-                                                            color: textMain,
-                                                        },
-                                                    ]}
-                                                    value={editingQuestionText}
-                                                    onChangeText={setEditingQuestionText}
-                                                    multiline
-                                                    autoFocus
-                                                />
-                                                <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
-                                                    <TouchableOpacity
-                                                        onPress={() => setEditingQuestionQNum(null)}
-                                                        style={[styles.smallCancelBtn, { borderColor: border }]}
-                                                    >
-                                                        <Text style={{ fontSize: 11, fontWeight: "600", color: textSub }}>Cancel</Text>
-                                                    </TouchableOpacity>
-                                                    <TouchableOpacity
-                                                        onPress={() => handleSaveQuestionTextEdit(q.questionNumber)}
-                                                        style={[styles.smallSaveBtn, { backgroundColor: accentColor }]}
-                                                    >
-                                                        <Text style={{ fontSize: 11, fontWeight: "700", color: "#FFFFFF" }}>Save Question</Text>
-                                                    </TouchableOpacity>
-                                                </View>
-                                            </View>
-                                        ) : (
-                                            <Text style={[styles.questionText, { color: textMain }]} numberOfLines={6}>
-                                                {q.questionText}
+                                    <View style={styles.questionHeaderLeft}>
+                                        <View style={[styles.questionNumber, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                                            <Text style={[styles.questionNumberText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                                Q{q.questionNumber}
                                             </Text>
-                                        )}
+                                        </View>
+                                        <Text style={[styles.questionPointsLabel, { color: darkMode ? textSub : "#64748B" }]}>
+                                            {points} {points === 1 ? "pt" : "pts"}
+                                        </Text>
                                     </View>
-                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+
+                                    <View style={styles.questionHeaderToolbar}>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.regenerateGhostPill,
+                                                {
+                                                    backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
+                                                },
+                                            ]}
+                                            onPress={() => handleRegenerateQuestion(q.questionNumber)}
+                                            disabled={regeneratingQNum !== null}
+                                            activeOpacity={0.7}
+                                        >
+                                            {regeneratingQNum === q.questionNumber ? (
+                                                <>
+                                                    <ActivityIndicator size="small" color={darkMode ? "#CBD5E1" : "#334155"} style={{ marginRight: 5, transform: [{ scale: 0.75 }] }} />
+                                                    <Text style={[styles.regenerateGhostPillText, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                                                        Regenerating...
+                                                    </Text>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Ionicons name="refresh" size={13} color={darkMode ? "#CBD5E1" : "#334155"} style={{ marginRight: 4 }} />
+                                                    <Text style={[styles.regenerateGhostPillText, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                                                        Regenerate
+                                                    </Text>
+                                                </>
+                                            )}
+                                        </TouchableOpacity>
+
                                         {/* Edit question text button */}
                                         <TouchableOpacity
                                             onPress={() => {
@@ -1449,20 +1438,59 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                         >
                                             <Ionicons
                                                 name={editingQuestionQNum === q.questionNumber ? "close" : "pencil-outline"}
-                                                size={16}
-                                                color={editingQuestionQNum === q.questionNumber ? textSub : accentColor}
+                                                size={18}
+                                                color={darkMode ? textSub : "#64748B"}
                                             />
                                         </TouchableOpacity>
+
                                         {/* Delete question button */}
                                         <TouchableOpacity
                                             onPress={() => handleDeleteQuestion(q.questionNumber)}
                                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                             style={styles.deleteQBtn}
                                         >
-                                            <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                            <Ionicons name="trash-outline" size={18} color={darkMode ? textSub : "#64748B"} />
                                         </TouchableOpacity>
                                     </View>
                                 </View>
+
+                                {/* Row 2 — Full-Width Question Prompt */}
+                                {editingQuestionQNum === q.questionNumber ? (
+                                    <View style={{ marginBottom: 12 }}>
+                                        <TextInput
+                                            style={[
+                                                styles.questionEditInput,
+                                                {
+                                                    backgroundColor: inputBg,
+                                                    borderColor: accentColor,
+                                                    color: textMain,
+                                                },
+                                            ]}
+                                            value={editingQuestionText}
+                                            onChangeText={setEditingQuestionText}
+                                            multiline
+                                            autoFocus
+                                        />
+                                        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                                            <TouchableOpacity
+                                                onPress={() => setEditingQuestionQNum(null)}
+                                                style={[styles.smallCancelBtn, { borderColor: border }]}
+                                            >
+                                                <Text style={{ fontSize: 12, fontWeight: "600", color: textSub }}>Cancel</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                onPress={() => handleSaveQuestionTextEdit(q.questionNumber)}
+                                                style={[styles.smallSaveBtn, { backgroundColor: accentColor }]}
+                                            >
+                                                <Text style={{ fontSize: 12, fontWeight: "600", color: "#FFFFFF" }}>Save Question</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ) : (
+                                    <Text style={[styles.questionText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                        {q.questionText}
+                                    </Text>
+                                )}
 
                                 {/* Word Bank display for word_box questions */}
                                 {q.type === "word_box" && q.options && q.options.length > 0 && (
@@ -1479,19 +1507,19 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                         key={`wb_${cIdx}`}
                                                         style={[
                                                             styles.wordBankChip,
-                                                            { backgroundColor: darkMode ? "#374151" : "#FFFFFF", borderColor: border },
-                                                            isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
+                                                            { backgroundColor: darkMode ? "#374151" : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" },
+                                                            isCorrect && { backgroundColor: "#F0FDF4", borderColor: "#16A34A" },
                                                         ]}
                                                     >
                                                         <Text style={[
                                                             styles.wordBankChipText,
-                                                            { color: textMain },
-                                                            isCorrect && { color: accentColor, fontWeight: "700" },
+                                                            { color: darkMode ? textMain : "#334155" },
+                                                            isCorrect && { color: "#15803D", fontWeight: "600" },
                                                         ]}>
                                                             {opt}
                                                         </Text>
                                                         {isCorrect && (
-                                                            <Ionicons name="checkmark-circle" size={13} color={accentColor} />
+                                                            <Ionicons name="checkmark" size={14} color="#16A34A" />
                                                         )}
                                                     </View>
                                                 );
@@ -1500,7 +1528,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     </View>
                                 )}
 
-                                {/* Standard choices for MC and T/F */}
+                                {/* Row 3 — Options List with Emerald Green Correct Key */}
                                 {q.type !== "word_box" && q.options && q.options.length > 0 && (
                                     <View style={styles.choicesWrap}>
                                         {q.options.map((opt, cIdx) => {
@@ -1510,19 +1538,25 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                     key={`${opt}_${cIdx}`}
                                                     style={[
                                                         styles.choiceItem,
-                                                        { backgroundColor: inputBg, borderColor: border },
-                                                        isCorrect && { backgroundColor: accentColor + "18", borderColor: accentColor },
+                                                        {
+                                                            backgroundColor: darkMode ? inputBg : "#FFFFFF",
+                                                            borderColor: darkMode ? border : "#E2E8F0",
+                                                        },
+                                                        isCorrect && {
+                                                            backgroundColor: "#F0FDF4",
+                                                            borderColor: "#16A34A",
+                                                        },
                                                     ]}
                                                 >
                                                     <Text style={[
                                                         styles.choiceText,
-                                                        { color: textMain },
-                                                        isCorrect && { color: accentColor, fontWeight: "700" },
+                                                        { color: darkMode ? textMain : "#334155" },
+                                                        isCorrect && { color: "#15803D", fontWeight: "600" },
                                                     ]}>
                                                         {opt}
                                                     </Text>
                                                     {isCorrect && (
-                                                        <Ionicons name="checkmark-circle" size={14} color={accentColor} />
+                                                        <Ionicons name="checkmark" size={16} color="#16A34A" style={{ marginLeft: 8 }} />
                                                     )}
                                                 </View>
                                             );
@@ -1530,21 +1564,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     </View>
                                 )}
 
-                                {/* Scannable Answer Boxes Preview */}
-                                <View style={styles.answerBoxesPreviewRow}>
-                                    <Ionicons name="create-outline" size={16} color={textSub} />
-                                    <Text style={[styles.answerBoxLabel, { color: textSub }]}>Student Answer Box{q.answerBoxesRequired > 1 ? "es" : ""}:</Text>
-                                    <View style={{ flexDirection: "row", gap: 6 }}>
-                                        {Array.from({ length: Math.min(q.answerBoxesRequired, 5) }).map((_, bIdx) => (
-                                            <View key={bIdx} style={[styles.answerBoxItem, { backgroundColor: inputBg, borderColor: border }]}>
-                                                <Text style={{ fontSize: 9, color: textSub }}>#{bIdx + 1}</Text>
-                                            </View>
-                                        ))}
-                                    </View>
-                                </View>
-
-                                {/* Official Answer Key Pill + Answer Length Flagging */}
-                                {(() => {
+                                {/* Compact Answer Key Row only for non-option question types (Identification, Fill-in-Blank, Enumeration) */}
+                                {!hasOptions && (() => {
                                     const isShortAnswerType =
                                         q.type === "identification" ||
                                         q.type === "fill_blank" ||
@@ -1562,26 +1583,21 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     const isEditingThis = editingAnswerQNum === q.questionNumber;
 
                                     return (
-                                        <View style={[styles.answerWrap, { borderLeftColor: isTooLong ? "#D97706" : accentColor, marginTop: 10 }]}>
+                                        <View style={[styles.answerWrap, { borderLeftColor: isTooLong ? "#D97706" : "#16A34A", marginTop: 4 }]}>
                                             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                                                <Text style={styles.answerLabel}>OFFICIAL ANSWER KEY</Text>
-                                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                                    {isShortAnswerType && !isEditingThis && (
-                                                        <TouchableOpacity
-                                                            onPress={() => {
-                                                                setEditingAnswerQNum(q.questionNumber);
-                                                                setEditingAnswerText(correctAnswer);
-                                                            }}
-                                                        >
-                                                            <Text style={{ fontSize: 11, fontWeight: "700", color: isTooLong ? "#D97706" : accentColor }}>
-                                                                Edit Answer
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    )}
-                                                    <Text style={[styles.pointsBadge, { color: accentColor }]}>
-                                                        +{points} pt{points > 1 ? "s" : ""}
-                                                    </Text>
-                                                </View>
+                                                <Text style={styles.answerLabel}>Answer Key</Text>
+                                                {isShortAnswerType && !isEditingThis && (
+                                                    <TouchableOpacity
+                                                        onPress={() => {
+                                                            setEditingAnswerQNum(q.questionNumber);
+                                                            setEditingAnswerText(correctAnswer);
+                                                        }}
+                                                    >
+                                                        <Text style={{ fontSize: 12, fontWeight: "600", color: isTooLong ? "#D97706" : "#475569" }}>
+                                                            Edit Answer
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                )}
                                             </View>
 
                                             {isEditingThis ? (
@@ -1590,7 +1606,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                         style={{
                                                             flex: 1,
                                                             borderWidth: 1,
-                                                            borderColor: accentColor,
+                                                            borderColor: "#CBD5E1",
                                                             borderRadius: 8,
                                                             paddingHorizontal: 10,
                                                             paddingVertical: 6,
@@ -1606,134 +1622,124 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                                     <TouchableOpacity
                                                         onPress={() => handleSaveInlineAnswerEdit(q.questionNumber)}
                                                         style={{
-                                                            backgroundColor: accentColor,
+                                                            backgroundColor: "#0F172A",
                                                             paddingHorizontal: 12,
                                                             paddingVertical: 7,
                                                             borderRadius: 8,
                                                         }}
                                                     >
-                                                        <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "700" }}>Save</Text>
+                                                        <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "600" }}>Save</Text>
                                                     </TouchableOpacity>
                                                 </View>
                                             ) : (
-                                                <Text style={[styles.answerText, { color: isTooLong ? "#D97706" : accentColor }]}>
+                                                <Text style={[styles.answerText, { color: isTooLong ? "#D97706" : "#15803D" }]}>
                                                     {correctAnswer}
                                                 </Text>
                                             )}
 
                                             {isTooLong && (
-                                                <Text style={{ fontSize: 11, fontWeight: "700", color: "#D97706", marginTop: 4 }}>
-                                                    ⚠ Exceeds 25 chars / 3 words — shorten so it fits inside the scannable answer box.
+                                                <Text style={{ fontSize: 11, fontWeight: "600", color: "#D97706", marginTop: 4 }}>
+                                                    Exceeds 25 chars / 3 words — shorten so it fits inside the scannable answer box.
                                                 </Text>
                                             )}
                                         </View>
                                     );
                                 })()}
-
-                                {/* ── Regenerate this question only button ── */}
-                                <TouchableOpacity
-                                    style={[
-                                        styles.regenerateQBtn,
-                                        {
-                                            borderColor: accentColor + "35",
-                                            backgroundColor: accentColor + "0D",
-                                        },
-                                        regeneratingQNum === q.questionNumber && {
-                                            backgroundColor: accentColor + "1A",
-                                            borderColor: accentColor,
-                                        },
-                                    ]}
-                                    onPress={() => handleRegenerateQuestion(q.questionNumber)}
-                                    disabled={regeneratingQNum !== null}
-                                    activeOpacity={0.7}
-                                >
-                                    {regeneratingQNum === q.questionNumber ? (
-                                        <View style={styles.regeneratingRow}>
-                                            <ActivityIndicator size="small" color={accentColor} style={{ marginRight: 8 }} />
-                                            <Text style={[styles.regenerateQBtnText, { color: accentColor, fontWeight: "700" }]}>
-                                                Regenerating Question #{q.questionNumber} with AI...
-                                            </Text>
-                                        </View>
-                                    ) : (
-                                        <View style={styles.regeneratingRow}>
-                                            <Ionicons name="sparkles" size={15} color={accentColor} style={{ marginRight: 6 }} />
-                                            <Text style={[styles.regenerateQBtnText, { color: accentColor }]}>
-                                                Regenerate this question only
-                                            </Text>
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
                             </View>
                         );
                     })}
 
                     {/* ── Add Question Manually Button ── */}
                     <TouchableOpacity
-                        style={[styles.addQuestionBtn, { borderColor: accentColor }]}
+                        style={[
+                            styles.addQuestionBtn,
+                            {
+                                backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                                borderColor: darkMode ? border : "#CBD5E1",
+                            },
+                        ]}
                         onPress={openAddQuestionModal}
                         activeOpacity={0.7}
                     >
-                        <View style={[styles.addQuestionIconCircle, { backgroundColor: accentColor + "18" }]}>
-                            <Ionicons name="add" size={20} color={accentColor} />
+                        <View style={[styles.addQuestionIconCircle, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                            <Ionicons name="add" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={[styles.addQuestionTitle, { color: accentColor }]}>Add Question Manually</Text>
-                            <Text style={[styles.addQuestionSub, { color: textSub }]}>
+                            <Text style={[styles.addQuestionTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                                Add Question Manually
+                            </Text>
+                            <Text style={[styles.addQuestionSub, { color: darkMode ? textSub : "#64748B" }]}>
                                 Add your own question to this assessment
                             </Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={18} color={accentColor} />
+                        <Ionicons name="chevron-forward" size={18} color={darkMode ? textSub : "#64748B"} />
                     </TouchableOpacity>
 
-                    {/* ── Export / Print Test Paper Button ── */}
+                    {/* ── Primary CTA: Publish Quiz ── */}
                     <TouchableOpacity
-                        style={[styles.exportPdfBtn, { backgroundColor: accentColor || "#1F2937" }]}
-                        onPress={() => setExportModalOpen(true)}
-                        disabled={exportingPdf}
+                        style={[styles.publishBtn, { backgroundColor: "#EA580C", opacity: publishingQuiz ? 0.7 : 1 }]}
+                        onPress={handlePublishQuiz}
+                        disabled={publishingQuiz}
                         activeOpacity={0.85}
                     >
-                        {exportingPdf ? (
-                            <ActivityIndicator size="small" color="#FFFFFF" />
-                        ) : (
-                            <>
-                                <Ionicons name="print-outline" size={18} color="#FFFFFF" />
-                                <Text style={styles.exportPdfBtnText}>Export / Print Paper Sheet (PDF)</Text>
-                            </>
-                        )}
+                        <Ionicons name="send-outline" size={16} color="#FFFFFF" />
+                        <Text style={styles.publishText}>
+                            {publishingQuiz ? "Publishing..." : "Publish Quiz"}
+                        </Text>
                     </TouchableOpacity>
 
-                    {/* ── Action Buttons ── */}
+                    {/* ── Secondary Row: Save as Draft + Export / Print PDF ── */}
                     <View style={styles.resultActions}>
                         <TouchableOpacity
-                            style={[styles.saveDraftBtn, { borderColor: accentColor, opacity: savingDraft ? 0.6 : 1 }]}
+                            style={[
+                                styles.secondaryFooterBtn,
+                                {
+                                    backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                                    borderColor: darkMode ? border : "#CBD5E1",
+                                    opacity: savingDraft ? 0.6 : 1,
+                                },
+                            ]}
                             onPress={handleSaveDraft}
                             disabled={savingDraft}
+                            activeOpacity={0.75}
                         >
                             {savingDraft ? (
-                                <ActivityIndicator size="small" color={accentColor} />
+                                <ActivityIndicator size="small" color={darkMode ? textMain : "#0F172A"} />
                             ) : (
                                 <>
-                                    <Ionicons name="save-outline" size={16} color={accentColor} />
-                                    <Text style={[styles.saveDraftText, { color: accentColor }]}>Save as Draft</Text>
+                                    <Ionicons name="save-outline" size={16} color={darkMode ? textMain : "#0F172A"} />
+                                    <Text style={[styles.secondaryFooterBtnText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                        Save as Draft
+                                    </Text>
                                 </>
                             )}
                         </TouchableOpacity>
+
                         <TouchableOpacity
-                            style={[styles.publishBtn, { backgroundColor: accentColor, opacity: publishingQuiz ? 0.7 : 1 }]}
-                            onPress={handlePublishQuiz}
-                            disabled={publishingQuiz}
+                            style={[
+                                styles.secondaryFooterBtn,
+                                {
+                                    backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                                    borderColor: darkMode ? border : "#CBD5E1",
+                                    opacity: exportingPdf ? 0.6 : 1,
+                                },
+                            ]}
+                            onPress={() => setExportModalOpen(true)}
+                            disabled={exportingPdf}
+                            activeOpacity={0.75}
                         >
-                            <Ionicons name="send-outline" size={16} color="#FFFFFF" />
-                            <Text style={styles.publishText}>
-                                {publishingQuiz ? "Publishing..." : "Publish Quiz"}
-                            </Text>
+                            {exportingPdf ? (
+                                <ActivityIndicator size="small" color={darkMode ? textMain : "#0F172A"} />
+                            ) : (
+                                <>
+                                    <Ionicons name="print-outline" size={16} color={darkMode ? textMain : "#0F172A"} />
+                                    <Text style={[styles.secondaryFooterBtnText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                        Export / Print PDF
+                                    </Text>
+                                </>
+                            )}
                         </TouchableOpacity>
                     </View>
-
-                    <TouchableOpacity style={styles.regenerateLink} onPress={handleReset}>
-                        <Ionicons name="arrow-back-outline" size={14} color="#6B7280" />
-                        <Text style={styles.regenerateLinkText}>Generate a new quiz</Text>
-                    </TouchableOpacity>
                 </>
             )}
 
@@ -2580,15 +2586,10 @@ const styles = StyleSheet.create({
 
     /* Preview Screen Banner */
     previewScreenBanner: {
-        borderRadius: 16,
+        borderRadius: 14,
         padding: 16,
-        marginBottom: 16,
+        marginBottom: 14,
         borderWidth: 1,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 5,
-        elevation: 2,
     },
     previewTopRow: {
         flexDirection: "row",
@@ -2599,16 +2600,13 @@ const styles = StyleSheet.create({
     previewModeBadge: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 5,
         paddingHorizontal: 10,
         paddingVertical: 4,
-        borderRadius: 20,
-        borderWidth: 1,
+        borderRadius: 6,
     },
     previewModeBadgeText: {
-        fontSize: 10.5,
-        fontWeight: "800",
-        letterSpacing: 0.5,
+        fontSize: 12,
+        fontWeight: "500",
     },
     previewResetBtn: {
         flexDirection: "row",
@@ -2619,18 +2617,19 @@ const styles = StyleSheet.create({
         borderWidth: 1,
     },
     previewResetBtnText: {
-        fontSize: 11.5,
+        fontSize: 12,
         fontWeight: "600",
     },
     previewTitle: {
-        fontSize: 16.5,
-        fontWeight: "800",
-        marginBottom: 5,
+        fontSize: 17,
+        fontWeight: "700",
+        marginBottom: 4,
+        lineHeight: 23,
         letterSpacing: -0.2,
     },
     previewSubtext: {
-        fontSize: 12,
-        lineHeight: 17,
+        fontSize: 13,
+        lineHeight: 18,
         marginBottom: 12,
     },
     previewStatsRow: {
@@ -2638,54 +2637,52 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "space-around",
         paddingVertical: 10,
+        paddingHorizontal: 4,
         borderRadius: 10,
         borderWidth: 1,
     },
     previewStatItem: {
         alignItems: "center",
+        justifyContent: "center",
         flex: 1,
+        paddingHorizontal: 4,
     },
     previewStatValue: {
-        fontSize: 14.5,
-        fontWeight: "800",
-        marginBottom: 2,
+        fontSize: 16,
+        fontWeight: "700",
+        marginBottom: 3,
     },
     previewStatLabel: {
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: "600",
         textTransform: "uppercase",
         letterSpacing: 0.3,
     },
     previewStatDivider: {
         width: 1,
-        height: 20,
+        height: 24,
     },
 
     /* Regenerate single question */
-    regenerateQBtn: {
-        marginTop: 12,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 10,
-        borderWidth: 1.2,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    regeneratingRow: {
+    regenerateGhostPill: {
+        height: 28,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+        borderWidth: 1,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
     },
-    regenerateQBtnText: {
-        fontSize: 12.5,
-        fontWeight: "700",
+    regenerateGhostPillText: {
+        fontSize: 12,
+        fontWeight: "600",
     },
     questionEditInput: {
         borderWidth: 1,
         borderRadius: 8,
         padding: 10,
-        fontSize: 13.5,
-        lineHeight: 19,
+        fontSize: 14,
+        lineHeight: 20,
         minHeight: 64,
         textAlignVertical: "top",
     },
@@ -2701,7 +2698,7 @@ const styles = StyleSheet.create({
         borderRadius: 6,
     },
     actionIconBtn: {
-        padding: 5,
+        padding: 4,
     },
 
     /* Results */
@@ -2714,54 +2711,90 @@ const styles = StyleSheet.create({
     resultsBannerSub: { fontSize: 11, color: "#6B7280", marginTop: 2 },
 
     questionCard: {
-        backgroundColor: "#FFFFFF", borderRadius: 14, padding: 16,
-        marginBottom: 12, borderWidth: 1, borderColor: "#E5E7EB",
-        shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+        backgroundColor: "#FFFFFF", borderRadius: 12, padding: 16,
+        marginBottom: 12, borderWidth: 1, borderColor: "#E2E8F0",
     },
-    questionHeader: { flexDirection: "row", gap: 12, marginBottom: 12 },
+    questionHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 10,
+    },
+    questionHeaderLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    questionHeaderToolbar: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
     questionNumber: {
-        width: 28, height: 28, borderRadius: 8,
-        alignItems: "center", justifyContent: "center", flexShrink: 0,
+        minWidth: 26,
+        height: 26,
+        paddingHorizontal: 6,
+        borderRadius: 6,
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
     },
-    questionNumberText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-    questionText: { flex: 1, fontSize: 14, color: "#1F2937", lineHeight: 20, fontWeight: "500" },
+    questionNumberText: { fontSize: 12, fontWeight: "700" },
+    questionPointsLabel: { fontSize: 12, fontWeight: "500" },
+    questionText: {
+        width: "100%",
+        fontSize: 15,
+        color: "#0F172A",
+        lineHeight: 22,
+        fontWeight: "600",
+        marginBottom: 12,
+    },
 
-    choicesWrap: { gap: 6 },
+    choicesWrap: { marginTop: 0 },
     choiceItem: {
-        flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-        paddingVertical: 9, paddingHorizontal: 12,
-        borderRadius: 8, borderWidth: 1, borderColor: "#E5E7EB",
-        backgroundColor: "#F9FAFB",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: 12,
+        marginBottom: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        backgroundColor: "#FFFFFF",
     },
-    choiceText: { fontSize: 13, color: "#374151", flex: 1 },
+    choiceText: { fontSize: 14, lineHeight: 20, color: "#334155", flex: 1 },
 
     answerWrap: {
         borderLeftWidth: 3, paddingLeft: 12, marginTop: 4,
     },
-    answerLabel: { fontSize: 11, color: "#9CA3AF", fontWeight: "600", marginBottom: 2 },
+    answerLabel: { fontSize: 11, color: "#64748B", fontWeight: "600", marginBottom: 2 },
     answerText: { fontSize: 14, fontWeight: "600" },
 
     /* Result actions */
-    resultActions: { flexDirection: "row", gap: 12, marginTop: 8, marginBottom: 4 },
-    saveDraftBtn: {
-        flex: 1, height: 48, borderRadius: 12, borderWidth: 1.5,
-        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    },
-    saveDraftText: { fontSize: 14, fontWeight: "600" },
     publishBtn: {
-        flex: 1, height: 48, borderRadius: 12,
-        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-        shadowColor: "#000", shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.18, shadowRadius: 6, elevation: 4,
+        width: "100%",
+        height: 46,
+        borderRadius: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        marginTop: 4,
+        marginBottom: 10,
     },
-    publishText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
-
-    regenerateLink: {
-        flexDirection: "row", alignItems: "center", justifyContent: "center",
-        gap: 6, marginTop: 16,
+    publishText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
+    resultActions: { flexDirection: "row", gap: 10, marginBottom: 8 },
+    secondaryFooterBtn: {
+        flex: 1,
+        height: 44,
+        borderRadius: 10,
+        borderWidth: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
     },
-    regenerateLinkText: { fontSize: 13, color: "#6B7280" },
+    secondaryFooterBtnText: { fontSize: 14, fontWeight: "500" },
 
     /* Scannable Question Elements */
     qTypeBadge: {
@@ -3017,34 +3050,33 @@ const styles = StyleSheet.create({
 
     /* ── Delete Question Button ── */
     deleteQBtn: {
-        padding: 6,
-        marginLeft: 4,
+        padding: 4,
     },
 
     /* ── Add Question Button ── */
     addQuestionBtn: {
         flexDirection: "row",
         alignItems: "center",
-        borderWidth: 2,
+        borderWidth: 1,
         borderStyle: "dashed",
-        borderRadius: 14,
-        padding: 16,
+        borderRadius: 12,
+        padding: 14,
         gap: 12,
-        marginBottom: 12,
+        marginBottom: 14,
     },
     addQuestionIconCircle: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
     },
     addQuestionTitle: {
         fontSize: 14,
-        fontWeight: "700",
+        fontWeight: "600",
     },
     addQuestionSub: {
-        fontSize: 11,
+        fontSize: 12,
         marginTop: 2,
     },
 
