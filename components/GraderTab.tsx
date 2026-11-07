@@ -16,7 +16,7 @@ import { useTheme } from "../context/ThemeContext";
 import { saveRosterAlert } from "../lib/alertStore";
 import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
 import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
-import { saveStudentQuizResult } from "../lib/questionAnalysis";
+import { saveStudentQuizResult, recalculateStudentAverage } from "../lib/questionAnalysis";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
 import { normalizeStudentRecord, splitStudentFullName } from "../lib/classListParserService";
 import { supabase } from "../supabase";
@@ -518,6 +518,17 @@ export default function GraderTab({
                     gradedAt: new Date().toISOString(),
                 });
 
+                // Automatically update student's cumulative average in roster state
+                if (student) {
+                    const updatedCumulativeAvg = await recalculateStudentAverage(student.id, classroomId);
+                    if (updatedCumulativeAvg > 0) {
+                        setRoster((prev) =>
+                            prev.map((s) => (s.id === student!.id ? { ...s, average: updatedCumulativeAvg } : s))
+                        );
+                        onScoreRecorded?.(student.id, updatedCumulativeAvg);
+                    }
+                }
+
                 // If student score is 50% or below, trigger system at-risk notification alert
                 if (percentage <= 50) {
                     const studentName = student ? student.full_name : (gradingResult.studentName && gradingResult.studentName !== "Unknown" ? gradingResult.studentName : "Student");
@@ -760,6 +771,15 @@ export default function GraderTab({
                         }),
                         gradedAt: new Date().toISOString(),
                     });
+
+                    // Automatically update student's cumulative average in updatedRoster state
+                    const updatedCumulativeAvg = await recalculateStudentAverage(student.id, classroomId);
+                    if (updatedCumulativeAvg > 0) {
+                        updatedRoster = updatedRoster.map((s) =>
+                            s.id === student!.id ? { ...s, average: updatedCumulativeAvg } : s
+                        );
+                        onScoreRecorded?.(student.id, updatedCumulativeAvg);
+                    }
 
                     if (percentage <= 50) {
                         await saveRosterAlert({

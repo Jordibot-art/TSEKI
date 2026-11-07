@@ -2,7 +2,7 @@ import './nodeIO';
 // lib/printEngine/__tests__/runExcelScoreTest.ts
 
 import * as XLSX from 'xlsx';
-import { generateExcelClasslistBase64, generateScoreExportBase64 } from '../../classListParserService';
+import { generateExcelClasslistBase64, generateScoreExportBase64, generateExcelTemplateBase64 } from '../../classListParserService';
 
 function runExcelScoreTests() {
     console.log('=== Running Scores-Only Excel Export Tests ===\n');
@@ -102,7 +102,29 @@ function runExcelScoreTests() {
     assert(rosterHeader[4] === 'Email Address', 'Classlist col 4 is "Email Address"');
     assert(rosterHeader[5] === 'Quiz 1: Network Concepts (25 pts)', 'Classlist col 5 is Quiz 1');
     assert(rosterHeader[6] === 'Quiz 2: Server Architecture (20 pts)', 'Classlist col 6 is Quiz 2');
-    assert(!JSON.stringify(rosterHeader).toLowerCase().includes('average'), 'Classlist header does NOT contain Average');
+    assert(rosterHeader[7] === 'Average Scores', 'Classlist col 7 is "Average Scores"');
+
+    // Verify row 7 has 85% average score
+    const studentRow = rosterRows[7] || [];
+    assert(studentRow[7] === '85%', `Student row has 85% average score (got ${studentRow[7]})`);
+
+    // Verify BSIT-4 template generation
+    const templateBase64 = generateExcelTemplateBase64({
+        classroomTitle: 'BSIT-4',
+        subject: 'SAM',
+        section: 'SECTION 5',
+    });
+    assert(Boolean(templateBase64 && templateBase64.length > 500), 'Template base64 is generated');
+    const templateWb = XLSX.read(templateBase64, { type: 'base64' });
+    const templateSheet = templateWb.Sheets[templateWb.SheetNames[0]];
+    const templateRows: any[][] = XLSX.utils.sheet_to_json(templateSheet, { header: 1 });
+    const templateHeader = templateRows[6] || [];
+    assert(templateHeader[0] === 'Item', 'Template col 0 is "Item"');
+    assert(templateHeader[1] === 'Last Name', 'Template col 1 is "Last Name"');
+    assert(templateHeader[2] === 'First Name', 'Template col 2 is "First Name"');
+    assert(templateHeader[3] === 'Middle Name', 'Template col 3 is "Middle Name"');
+    assert(templateHeader[4] === 'Email Address', 'Template col 4 is "Email Address"');
+    assert(templateRows.length >= 10, 'Template contains sample student rows');
 
     console.log(`\nResults: ${passed} passed, ${failed} failed.\n`);
     if (failed > 0) process.exit(1);

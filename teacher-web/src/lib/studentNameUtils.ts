@@ -1,3 +1,5 @@
+import * as XLSX from "xlsx";
+
 export interface StudentNameParts {
   lastName: string;
   firstName: string;
@@ -132,4 +134,62 @@ export function formatQuizColumnHeader(
     return `${baseLabel} (${maxScore} pts)`;
   }
   return baseLabel;
+}
+
+export interface ExcelTemplateMetadata {
+  classroomTitle?: string;
+  subject?: string;
+  section?: string;
+  room?: string;
+  schedule?: string;
+  teacher?: string;
+}
+
+/**
+ * Builds an XLSX Workbook for the BSIT-4 blank template with sample student records.
+ */
+export function generateExcelTemplateWorkbook(meta?: ExcelTemplateMetadata): XLSX.WorkBook {
+  const formattedDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const rows: any[][] = [
+    ["TSEKI - CLASS ROSTER TEMPLATE"],
+    ["Classroom:", meta?.classroomTitle || "BSIT-4", "", "Subject:", meta?.subject || "SAM"],
+    ["Section:", meta?.section || "SECTION 5", "", "Room:", meta?.room || "CL2"],
+    ["Schedule:", meta?.schedule || "MWF 3:30-4:30", "", "Teacher:", meta?.teacher || "N/A"],
+    ["Export Date:", formattedDate, "", "Total Enrolled:", 3],
+    [], // Blank separator row
+    ["Item", "Last Name", "First Name", "Middle Name", "Email Address"],
+    [1, "Abellanosa", "Reymark", "B.", "reymark.abellanosa@example.com"],
+    [2, "Abuhat", "Louise Paulo", "T.", "louise.abuhat@example.com"],
+    [3, "Aguanta", "Sheme Nichollei John", "A.", "shememyst@gmail.com"],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 8 },  // Item
+    { wch: 22 }, // Last Name
+    { wch: 22 }, // First Name
+    { wch: 18 }, // Middle Name
+    { wch: 32 }, // Email Address
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Classlist");
+  return wb;
+}
+
+/**
+ * Downloads the BSIT-4 Excel template directly in the browser.
+ */
+export function downloadExcelTemplate(meta?: ExcelTemplateMetadata, fileName?: string): void {
+  const wb = generateExcelTemplateWorkbook(meta);
+  const cleanTitle = (meta?.classroomTitle || "Classroom")
+    .replace(/[^a-zA-Z0-9_\-\s]/g, "")
+    .replace(/\s+/g, "_");
+  const actualFileName = fileName || `${cleanTitle}_BSIT4_Template.xlsx`;
+  XLSX.writeFile(wb, actualFileName);
 }

@@ -146,10 +146,60 @@ export async function saveStudentQuizResult(
         },
         { onConflict: "student_id,classroom_id,quiz_title" }
       );
+
+      // Recalculate student's average across all quizzes in this classroom
+      await recalculateStudentAverage(result.studentId, result.classroomId);
     }
   } catch (cloudErr) {
     console.warn("Could not sync student quiz result to Supabase:", cloudErr);
   }
+}
+
+/**
+ * Recalculates and updates a student's cumulative average grade in the `students` table
+ * based on all their records in `student_quiz_results` for the specified classroom.
+ * Returns the newly computed average (0-100).
+ */
+export async function recalculateStudentAverage(
+  studentId: string,
+  classroomId: string
+): Promise<number> {
+  try {
+    const { supabase } = await import("../supabase");
+    const { data: allScores, error } = await supabase
+      .from("student_quiz_results")
+      .select("score_percentage, total_score, max_score")
+      .eq("student_id", studentId)
+      .eq("classroom_id", classroomId);
+
+    if (error || !allScores || allScores.length === 0) {
+      return 0;
+    }
+
+    let sumPct = 0;
+    let count = 0;
+    for (const s of allScores) {
+      if (typeof s.score_percentage === "number" && !Number.isNaN(s.score_percentage)) {
+        sumPct += s.score_percentage;
+        count++;
+      } else if (s.max_score && s.max_score > 0) {
+        sumPct += (s.total_score / s.max_score) * 100;
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      const calculatedAvg = Math.round(sumPct / count);
+      await supabase
+        .from("students")
+        .update({ average: calculatedAvg })
+        .eq("id", studentId);
+      return calculatedAvg;
+    }
+  } catch (err) {
+    console.warn("Failed to recalculate student average:", err);
+  }
+  return 0;
 }
 
 // ── Load All Results for a Classroom ──────────────────────────────────────────

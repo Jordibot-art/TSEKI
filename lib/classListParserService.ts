@@ -625,9 +625,9 @@ export function formatQuizColumnHeader(
 }
 
 /**
- * Generates an Excel workbook (.xlsx) from classroom metadata, student roster
- * (with Last Name, First Name, Middle Name), and individual Quiz 1, Quiz 2, Quiz 3... scores
- * (never Average % score).
+ * Generates an Excel workbook (.xlsx) following the BSIT4 format from classroom metadata,
+ * student roster (Last Name, First Name, Middle Name, Email Address), individual Quiz 1, Quiz 2,
+ * Quiz 3... scores, and Average Scores.
  */
 export function generateExcelClasslistBase64(options: ExportClasslistOptions): string {
   const { classroomTitle, subject, section, room, schedule, teacher, students, quizzes = [], results = [] } = options;
@@ -668,22 +668,26 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
     }
   }
 
-  // Build rows array for SheetJS
+  // Build rows array for SheetJS (BSIT4 layout)
   const rows: any[][] = [
-    ["TSEKI - CLASS ROSTER & QUIZ SCORES RECORD"],
+    ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
     ["Classroom:", classroomTitle, "", "Subject:", subject || "N/A"],
     ["Section:", section || "N/A", "", "Room:", room || "N/A"],
     ["Schedule:", schedule || "N/A", "", "Teacher:", teacher || "N/A"],
     ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
     [], // Blank separator row
-    ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders],
+    ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
   ];
 
-  // Populate student records with individual quiz scores (no average % column)
+  // Populate student records with individual quiz scores and calculated average score
   students.forEach((s, idx) => {
     const norm = normalizeStudentRecord(s);
     const normFull = (norm.full_name || "").trim().toLowerCase();
     const normSimple = `${norm.first_name} ${norm.last_name}`.trim().toLowerCase();
+
+    let earnedTotal = 0;
+    let maxTotal = 0;
+    let scoredCount = 0;
 
     const quizScoreCells = effectiveQuizzes.map((q) => {
       const qTitle = (q.quizTitle || "").trim().toLowerCase();
@@ -695,8 +699,24 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
       } else if (scoreByName.has(`${normSimple}:::${qTitle}`)) {
         score = scoreByName.get(`${normSimple}:::${qTitle}`);
       }
-      return typeof score === "number" && !Number.isNaN(score) ? { t: "n", v: score } : undefined;
+
+      if (typeof score === "number" && !Number.isNaN(score)) {
+        earnedTotal += score;
+        const qMax = (q.maxScore && q.maxScore > 0) ? q.maxScore : 100;
+        maxTotal += qMax;
+        scoredCount++;
+        return { t: "n", v: score };
+      }
+      return "";
     });
+
+    // Compute average score display: database average preferred, otherwise derived from quiz scores
+    let averageDisplay = "0%";
+    if (typeof s.average === "number" && !Number.isNaN(s.average)) {
+      averageDisplay = `${Math.round(s.average)}%`;
+    } else if (scoredCount > 0 && maxTotal > 0) {
+      averageDisplay = `${Math.round((earnedTotal / maxTotal) * 100)}%`;
+    }
 
     rows.push([
       idx + 1,
@@ -705,6 +725,7 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
       norm.middle_name || "",
       s.email || "N/A",
       ...quizScoreCells,
+      averageDisplay,
     ]);
   });
 
@@ -718,6 +739,59 @@ export function generateExcelClasslistBase64(options: ExportClasslistOptions): s
     { wch: 18 }, // Middle Name
     { wch: 30 }, // Email Address
     ...quizHeaders.map((h) => ({ wch: Math.max(16, h.length + 4) })),
+    { wch: 18 }, // Average Scores
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Classlist");
+
+  return XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+}
+
+// ── Teacher Excel Blank Template Generator (BSIT4 Format) ───────────────────
+
+export interface ExcelTemplateOptions {
+  classroomTitle?: string;
+  subject?: string;
+  section?: string;
+  room?: string;
+  schedule?: string;
+  teacher?: string;
+}
+
+/**
+ * Generates a pre-formatted blank BSIT4 Excel template for teachers with column headers:
+ * Item | Last Name | First Name | Middle Name | Email Address
+ * includes sample rows for reference.
+ */
+export function generateExcelTemplateBase64(options?: ExcelTemplateOptions): string {
+  const meta = options || {};
+  const formattedDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const rows: any[][] = [
+    ["TSEKI - CLASS ROSTER TEMPLATE"],
+    ["Classroom:", meta.classroomTitle || "BSIT-4", "", "Subject:", meta.subject || "SAM"],
+    ["Section:", meta.section || "SECTION 5", "", "Room:", meta.room || "CL2"],
+    ["Schedule:", meta.schedule || "MWF 3:30-4:30", "", "Teacher:", meta.teacher || "N/A"],
+    ["Export Date:", formattedDate, "", "Total Enrolled:", 3],
+    [], // Blank separator row
+    ["Item", "Last Name", "First Name", "Middle Name", "Email Address"],
+    [1, "Abellanosa", "Reymark", "B.", "reymark.abellanosa@example.com"],
+    [2, "Abuhat", "Louise Paulo", "T.", "louise.abuhat@example.com"],
+    [3, "Aguanta", "Sheme Nichollei John", "A.", "shememyst@gmail.com"],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 8 },  // Item
+    { wch: 22 }, // Last Name
+    { wch: 22 }, // First Name
+    { wch: 18 }, // Middle Name
+    { wch: 32 }, // Email Address
   ];
 
   const wb = XLSX.utils.book_new();

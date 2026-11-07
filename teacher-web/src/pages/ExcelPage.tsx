@@ -6,6 +6,7 @@ import styles from "./ExcelPage.module.css";
 import { useNavigate } from "react-router-dom";
 import { Loader2, UploadCloud, Download } from "lucide-react";
 import {
+  downloadExcelTemplate,
   formatQuizColumnHeader,
   formatStudentFullName,
   normalizeStudentRecord,
@@ -19,6 +20,7 @@ type StudentRecord = {
   first_name?: string;
   middle_name?: string | null;
   full_name: string;
+  email?: string;
   average: number;
 };
 
@@ -107,10 +109,25 @@ export default function ExcelPage() {
       formatQuizColumnHeader(q.quizTitle, idx, q.maxScore)
     );
 
+    const formattedDate = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
     const wsData = [
-      ["#", "Last Name", "First Name", "Middle Name", ...quizHeaders],
+      ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
+      ["Classroom:", "All Students", "", "Subject:", "Overview"],
+      ["Section:", "N/A", "", "Room:", "N/A"],
+      ["Schedule:", "N/A", "", "Teacher:", user?.user_metadata?.full_name || "N/A"],
+      ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
+      [], // Blank separator row
+      ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
       ...students.map((s, idx) => {
         const norm = normalizeStudentRecord(s);
+        let sumEarned = 0;
+        let sumMax = 0;
+        let count = 0;
         const quizCells = chronologicalQuizzes.map((q) => {
           const match = quizResults.find(
             (r) =>
@@ -118,21 +135,48 @@ export default function ExcelPage() {
               (r.quiz_id === q.id ||
                 r.quiz_title.toLowerCase().trim() === q.quizTitle.toLowerCase().trim())
           );
-          return match !== undefined ? Number(match.total_score) : "";
+          if (match !== undefined && typeof match.total_score === "number") {
+            sumEarned += match.total_score;
+            sumMax += q.maxScore || 100;
+            count++;
+            return Number(match.total_score);
+          }
+          return "";
         });
+
+        let avgDisplay = "0%";
+        if (typeof s.average === "number" && !isNaN(s.average)) {
+          avgDisplay = `${Math.round(s.average)}%`;
+        } else if (count > 0 && sumMax > 0) {
+          avgDisplay = `${Math.round((sumEarned / sumMax) * 100)}%`;
+        }
+
         return [
           idx + 1,
           norm.last_name || "",
           norm.first_name || "",
           norm.middle_name || "",
+          s.email || "N/A",
           ...quizCells,
+          avgDisplay,
         ];
       }),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws["!cols"] = [
+      { wch: 8 },  // Item
+      { wch: 22 }, // Last Name
+      { wch: 22 }, // First Name
+      { wch: 18 }, // Middle Name
+      { wch: 30 }, // Email Address
+      ...chronologicalQuizzes.map((q, idx) => ({
+        wch: Math.max(formatQuizColumnHeader(q.quizTitle, idx, q.maxScore).length + 4, 16),
+      })),
+      { wch: 18 }, // Average Scores
+    ];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Student Scores");
-    XLSX.writeFile(wb, "student_quiz_scores.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "Classlist");
+    XLSX.writeFile(wb, "TSEKI_Student_Quiz_Scores.xlsx");
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -189,6 +233,13 @@ export default function ExcelPage() {
         </div>
       ) : (
         <section className={styles.actions}>
+          <button
+            className={styles.exportBtn}
+            onClick={() => downloadExcelTemplate()}
+            style={{ background: "#10B981" }}
+          >
+            <Download size={18} /> Download Excel Template
+          </button>
           <button className={styles.exportBtn} onClick={exportToExcel}>
             <Download size={18} /> Export Quiz Scores
           </button>

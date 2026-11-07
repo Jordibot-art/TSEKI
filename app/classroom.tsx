@@ -41,6 +41,7 @@ import {
   formatQuizColumnHeader,
   formatStudentFullName,
   generateExcelClasslistBase64,
+  generateExcelTemplateBase64,
   generateScoreExportBase64,
   isDuplicateStudent,
   normalizeStudentRecord,
@@ -1028,6 +1029,35 @@ export default function ClassroomScreen() {
     } catch (err: any) {
       console.error("Excel export error:", err);
       Alert.alert("Export Failed", err.message || "Could not export Excel file.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleDownloadTemplate(forceNewFolder = false) {
+    try {
+      setIsExporting(true);
+      const base64 = generateExcelTemplateBase64({
+        classroomTitle: title || "Classroom",
+        subject: classroomSubject,
+        section: classroomSection,
+        room: classroomRoom,
+        schedule: classroomSchedule,
+      });
+
+      const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
+      const fileName = `${cleanTitle}_BSIT4_Template.xlsx`;
+      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+      await saveDirectlyToPhone({
+        fileName,
+        mimeType,
+        base64Data: base64,
+        forceNewFolder,
+      });
+    } catch (err: any) {
+      console.error("Template download error:", err);
+      Alert.alert("Download Failed", err.message || "Could not generate template.");
     } finally {
       setIsExporting(false);
     }
@@ -2458,7 +2488,31 @@ export default function ClassroomScreen() {
               <Ionicons name="download-outline" size={20} color={textSub} />
             </TouchableOpacity>
 
-            {/* Option 4: Share to other App */}
+            {/* Option 4: Download Blank BSIT-4 Template */}
+            <TouchableOpacity
+              style={[
+                styles.exportOptionCard,
+                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
+              ]}
+              onPress={() => {
+                setExportModalVisible(false);
+                handleDownloadTemplate(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconBox, { backgroundColor: "#10B98114" }]}>
+                <Ionicons name="cloud-download-outline" size={22} color="#10B981" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Download Excel Template (.xlsx)</Text>
+                <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
+                  Pre-formatted BSIT-4 blank template with sample student rows
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color="#10B981" />
+            </TouchableOpacity>
+
+            {/* Option 5: Share to other App */}
             <TouchableOpacity
               style={[
                 styles.exportOptionCard,

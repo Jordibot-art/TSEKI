@@ -15,6 +15,7 @@ import {
   GraduationCap,
 } from "lucide-react";
 import styles from "./ClassroomsPage.module.css";
+import { ClassroomOnboardingModal } from "../components/ClassroomOnboardingModal";
 
 type Classroom = {
   id: string;
@@ -43,6 +44,10 @@ export default function ClassroomsPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Classroom Creation Onboarding Modal State
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingClassroom, setOnboardingClassroom] = useState<any | null>(null);
 
   // Form
   const [title, setTitle] = useState("");
@@ -146,15 +151,35 @@ export default function ClassroomsPage() {
         color: selectedColor,
       };
 
-      const { error } = await supabase.from("classrooms").insert(payload);
+      let createdClass: any = null;
+      let { data, error } = await supabase.from("classrooms").insert(payload).select().single();
       if (error && (error.message?.includes("color") || error.code === "PGRST204" || error.message?.includes("schema cache"))) {
         delete payload.color;
-        await supabase.from("classrooms").insert(payload);
+        const retry = await supabase.from("classrooms").insert(payload).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+      if (data) {
+        createdClass = data;
       }
 
       setShowModal(false);
       resetForm();
       await loadClassrooms();
+
+      // Immediately open onboarding modal with the 4 actions
+      if (createdClass) {
+        setOnboardingClassroom({
+          id: createdClass.id,
+          title: createdClass.title,
+          subject: createdClass.subject || "",
+          section: section.trim(),
+          room: createdClass.room || "",
+          schedule: schedule.trim(),
+          color: selectedColor,
+        });
+        setShowOnboarding(true);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -385,6 +410,14 @@ export default function ClassroomsPage() {
         </div>,
         document.body
       )}
+
+      {/* Classroom Creation Onboarding Alert Modal */}
+      <ClassroomOnboardingModal
+        isOpen={showOnboarding}
+        classroom={onboardingClassroom}
+        onClose={() => setShowOnboarding(false)}
+        onRosterUpdated={loadClassrooms}
+      />
     </div>
   );
 }

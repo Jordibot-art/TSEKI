@@ -27,6 +27,7 @@ import {
 import styles from "./ClassroomDetailPage.module.css";
 import { showAlert, showConfirm } from "../components/CustomAlertModal";
 import {
+  downloadExcelTemplate,
   formatQuizColumnHeader,
   formatStudentFullName,
   normalizeStudentRecord,
@@ -298,11 +299,26 @@ export default function ClassroomDetailPage() {
         formatQuizColumnHeader(q.quizTitle, idx, q.maxScore)
       );
 
-      // Sheet 1: Student Roster with Individual Quiz Scores (Quiz 1, Quiz 2, Quiz 3...)
+      const formattedDate = new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+
+      // Sheet 1: Student Roster with Individual Quiz Scores & Average Scores (BSIT-4 Layout)
       const rosterData = [
-        ["#", "Last Name", "First Name", "Middle Name", "Email", ...quizHeaders],
+        ["TSEKI - CLASS ROSTER & PERFORMANCE RECORD"],
+        ["Classroom:", classroom?.title || "Classroom", "", "Subject:", classroom?.subject || "N/A"],
+        ["Section:", classroom?.section || "N/A", "", "Room:", classroom?.room || "N/A"],
+        ["Schedule:", classroom?.schedule || "N/A", "", "Teacher:", user?.user_metadata?.full_name || "N/A"],
+        ["Export Date:", formattedDate, "", "Total Enrolled:", students.length],
+        [], // Blank separator row
+        ["Item", "Last Name", "First Name", "Middle Name", "Email Address", ...quizHeaders, "Average Scores"],
         ...students.map((s, i) => {
           const norm = normalizeStudentRecord(s);
+          let sumEarned = 0;
+          let sumMax = 0;
+          let count = 0;
           const quizCells = chronologicalQuizzes.map((q) => {
             const match = quizResults.find(
               (r) =>
@@ -310,28 +326,44 @@ export default function ClassroomDetailPage() {
                 (r.quiz_id === q.id ||
                   r.quiz_title.toLowerCase().trim() === q.quizTitle.toLowerCase().trim())
             );
-            return match !== undefined ? Number(match.total_score) : "";
+            if (match !== undefined && typeof match.total_score === "number") {
+              sumEarned += match.total_score;
+              sumMax += q.maxScore || 100;
+              count++;
+              return Number(match.total_score);
+            }
+            return "";
           });
+
+          let avgDisplay = "0%";
+          if (typeof s.average === "number" && !isNaN(s.average)) {
+            avgDisplay = `${Math.round(s.average)}%`;
+          } else if (count > 0 && sumMax > 0) {
+            avgDisplay = `${Math.round((sumEarned / sumMax) * 100)}%`;
+          }
+
           return [
             i + 1,
             norm.last_name || "",
             norm.first_name || "",
             norm.middle_name || "",
-            s.email || "",
+            s.email || "N/A",
             ...quizCells,
+            avgDisplay,
           ];
         }),
       ];
       const rosterSheet = XLSX.utils.aoa_to_sheet(rosterData);
       rosterSheet["!cols"] = [
-        { wch: 5 },
-        { wch: 20 },
-        { wch: 20 },
-        { wch: 18 },
-        { wch: 28 },
+        { wch: 8 },  // Item
+        { wch: 22 }, // Last Name
+        { wch: 22 }, // First Name
+        { wch: 18 }, // Middle Name
+        { wch: 30 }, // Email Address
         ...chronologicalQuizzes.map((q, idx) => ({
           wch: Math.max(formatQuizColumnHeader(q.quizTitle, idx, q.maxScore).length + 4, 16),
         })),
+        { wch: 18 }, // Average Scores
       ];
 
       // Sheet 2: Assessment List
@@ -388,19 +420,46 @@ export default function ClassroomDetailPage() {
           return;
         }
 
-        const headerRow = (rows[0] || []).map((c: any) =>
+        // Detect header row by scanning for keywords
+        const HEADER_KEYWORDS = [
+          "last name",
+          "student's name",
+          "student name",
+          "first name",
+          "surname",
+          "email",
+          "item",
+          "name",
+        ];
+        let headerRowIdx = 0;
+        let bestScore = 0;
+
+        for (let r = 0; r < Math.min(rows.length, 25); r++) {
+          const rText = (rows[r] || []).map((c: any) => String(c || "").toLowerCase().trim());
+          let score = 0;
+          for (const kw of HEADER_KEYWORDS) {
+            if (rText.some((t: string) => t.includes(kw))) score++;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            headerRowIdx = r;
+          }
+        }
+
+        const headerRow = (rows[headerRowIdx] || []).map((c: any) =>
           String(c || "").toLowerCase().trim()
         );
         const lastIdx = headerRow.findIndex((h: string) => h.includes("last") || h === "surname" || h === "family name");
         const firstIdx = headerRow.findIndex((h: string) => h.includes("first") || h === "given name");
         const middleIdx = headerRow.findIndex((h: string) => h.includes("middle") || h === "mi" || h === "m.i.");
         const emailIdx = headerRow.findIndex((h: string) => h.includes("email") || h.includes("e-mail"));
+        const fullNameIdx = headerRow.findIndex((h: string) => h.includes("student's name") || h.includes("student name") || h === "name" || h === "full name");
         const hasSeparateCols = lastIdx !== -1 && firstIdx !== -1;
 
         const preview: BulkImportCandidate[] = [];
-        for (let i = 1; i < rows.length; i++) {
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
           const row = rows[i];
-          if (!row) continue;
+          if (!row || row.length === 0) continue;
 
           if (hasSeparateCols) {
             const lastName = String(row[lastIdx] || "").trim();
@@ -421,9 +480,10 @@ export default function ClassroomDetailPage() {
               });
             }
           } else {
-            const rawName = String(row[0] || "").trim();
+            const rawCol = fullNameIdx !== -1 ? row[fullNameIdx] : row[1] || row[0];
+            const rawName = String(rawCol || "").trim();
             const email = String(row[emailIdx !== -1 ? emailIdx : 1] || "").trim();
-            if (rawName) {
+            if (rawName && !/^(total|subtotal|summary|item)/i.test(rawName)) {
               const parts = splitStudentFullName(rawName);
               preview.push({
                 lastName: parts.lastName,
@@ -506,16 +566,13 @@ export default function ClassroomDetailPage() {
   }
 
   function downloadTemplate() {
-    const templateData = [
-      ["Last Name", "First Name", "Middle Name (optional)", "Email (optional)"],
-      ["Dela Cruz", "Juan", "Santos", "juan@email.com"],
-      ["Santos", "Maria", "", "maria@email.com"],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(templateData);
-    ws["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 28 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Students");
-    XLSX.writeFile(wb, "student_import_template.xlsx");
+    downloadExcelTemplate({
+      classroomTitle: classroom?.title,
+      subject: classroom?.subject,
+      section: classroom?.section,
+      room: classroom?.room,
+      schedule: classroom?.schedule,
+    });
   }
 
   function getInitials(name: string) {

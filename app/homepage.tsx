@@ -36,6 +36,7 @@ import {
   getQuizPerformanceRecords,
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
+import { ClassroomOnboardingModal } from "../components/ClassroomOnboardingModal";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ClassCard = {
@@ -120,6 +121,10 @@ export default function HomePage() {
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [classToDelete, setClassToDelete] = useState<ClassCard | null>(null);
   const [isDeletingClass, setIsDeletingClass] = useState(false);
+
+  // Classroom Onboarding Alert Modal State
+  const [onboardingClassroom, setOnboardingClassroom] = useState<ClassCard | null>(null);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
 
   // form fields
   const [classTitle, setClassTitle] = useState("");
@@ -510,6 +515,7 @@ export default function HomePage() {
           flagged: 0,
         };
         setCards((prev) => [...prev, newCard]);
+        setOnboardingClassroom(newCard);
       }
 
       // 3. Re-sync with database to ensure counts and references are accurate
@@ -525,6 +531,11 @@ export default function HomePage() {
 
       Keyboard.dismiss();
       setModalVisible(false);
+
+      // 5. Open onboarding modal immediately for newly created classroom
+      if (created) {
+        setOnboardingVisible(true);
+      }
     } catch (err: any) {
       console.error("Unexpected error in handleBuildClass:", err);
       Alert.alert(
@@ -1147,6 +1158,29 @@ export default function HomePage() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Classroom Creation Onboarding Modal ── */}
+      <ClassroomOnboardingModal
+        visible={onboardingVisible}
+        classroom={onboardingClassroom}
+        onClose={() => setOnboardingVisible(false)}
+        onStudentsUpdated={loadClassrooms}
+        onEnterClassroom={(cls) => {
+          setOnboardingVisible(false);
+          router.push({
+            pathname: "/classroom",
+            params: {
+              id: cls.id,
+              title: cls.title,
+              subject: cls.subject,
+              section: cls.section,
+              room: cls.room,
+              schedule: cls.schedule,
+              color: cls.color,
+            },
+          });
+        }}
+      />
     </View>
   );
 }
