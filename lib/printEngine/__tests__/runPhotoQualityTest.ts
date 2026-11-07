@@ -1,5 +1,8 @@
 import { normalizePhotoQuality } from "../../gradingService";
-import { evaluateLiveHoverQuality } from "../../liveCameraInspector";
+import {
+    computeReticleCropRect,
+    evaluateLiveHoverQuality,
+} from "../../liveCameraInspector";
 
 let passed = 0;
 let failed = 0;
@@ -83,6 +86,16 @@ const hoverTilted = evaluateLiveHoverQuality(
 assert(hoverTilted.hasWarnings === true, "Tilted paper triggers warning");
 assert(hoverTilted.paperFlat === false, "paperFlat is false when tilted");
 assert(hoverTilted.warnings.some((w) => w.toLowerCase().includes("tilted")), "Warning tells teacher paper is tilted or folded");
+
+// 6. Reticle Auto-Crop to Prevent Zoomed-Out Capture (Trimming Laptop, Desk, Legs)
+const crop1 = computeReticleCropRect(3024, 4032, 1080, 2400, 0.08);
+assert(crop1.originX >= 0, "Crop originX >= 0");
+assert(crop1.originY >= 0, "Crop originY >= 0");
+assert(crop1.originX + crop1.width <= 3024, "Crop fits within photo width");
+assert(crop1.originY + crop1.height <= 4032, "Crop fits within photo height");
+assert(crop1.originY > 600, "Crop removes excess background/laptop at top (originY > 600)");
+assert(crop1.originY + crop1.height < 3400, "Crop removes excess lap/legs at bottom");
+assert(crop1.width >= 1600 && crop1.height >= 2100, "Crop preserves large high-resolution framed paper");
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

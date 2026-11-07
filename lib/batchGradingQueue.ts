@@ -270,7 +270,7 @@ export class BatchGradingQueue {
                 const manipulated = await manipulateAsync(
                     item.imageUri,
                     [{ resize: { width: 1280 } }],
-                    { compress: 0.72, format: SaveFormat.JPEG, base64: true }
+                    { compress: 0.80, format: SaveFormat.JPEG, base64: true }
                 );
                 base64 = manipulated.base64 || "";
             } catch (optErr) {

@@ -239,7 +239,7 @@ export default function GraderTab({
             const manip = await manipulateAsync(
                 asset.uri,
                 [{ resize: { width: 1280 } }],
-                { compress: 0.72, format: SaveFormat.JPEG, base64: true }
+                { compress: 0.80, format: SaveFormat.JPEG, base64: true }
             );
             if (manip.base64) {
                 return { base64: manip.base64, mimeType: "image/jpeg" };

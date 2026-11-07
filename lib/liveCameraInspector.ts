@@ -212,3 +212,134 @@ export function evaluateLiveHoverQuality(
     };
 }
 
+export interface CropRect {
+    originX: number;
+    originY: number;
+    width: number;
+    height: number;
+}
+
+/**
+ * Calculates the exact crop box matching the on-screen reticle that the user framed,
+ * translating from screen coordinate space into raw camera sensor pixel space.
+ */
+export function computeReticleCropRect(
+    photoWidth: number,
+    photoHeight: number,
+    screenWidth: number,
+    screenHeight: number,
+    safetyMarginFraction: number = 0.08
+): CropRect {
+    const pw = Math.max(1, photoWidth);
+    const ph = Math.max(1, photoHeight);
+    const sw = Math.max(1, screenWidth);
+    const sh = Math.max(1, screenHeight);
+
+    // Reticle dimensions matching BatchScannerModal.tsx
+    const reticleWidth = sw * 0.88;
+    const reticleHeight = Math.min(sw * 0.88 * 1.30, sh * 0.54);
+    const reticleX = (sw - reticleWidth) / 2;
+    const reticleY = Math.max(0, (sh - reticleHeight) / 2 - 10);
+
+    // CameraView with StyleSheet.absoluteFillObject uses aspectFill (centerCrop/cover)
+    const scaleX = sw / pw;
+    const scaleY = sh / ph;
+    const scale = Math.max(scaleX, scaleY);
+
+    const displayedWidth = pw * scale;
+    const displayedHeight = ph * scale;
+
+    const screenOffsetX = (displayedWidth - sw) / 2;
+    const screenOffsetY = (displayedHeight - sh) / 2;
+
+    // Convert reticle area on screen back to native photo pixel space
+    const cropPhotoX = (reticleX + screenOffsetX) / scale;
+    const cropPhotoY = (reticleY + screenOffsetY) / scale;
+    const cropPhotoW = reticleWidth / scale;
+    const cropPhotoH = reticleHeight / scale;
+
+    // Safety padding so edges & corner markers are never clipped
+    const padX = cropPhotoW * safetyMarginFraction;
+    const padY = cropPhotoH * safetyMarginFraction;
+
+    const originX = Math.max(0, Math.floor(cropPhotoX - padX));
+    const originY = Math.max(0, Math.floor(cropPhotoY - padY));
+
+    // Clamp width & height to stay strictly within photo pixel boundaries
+    const maxAllowedW = pw - originX;
+    const maxAllowedH = ph - originY;
+    const width = Math.min(maxAllowedW, Math.ceil(cropPhotoW + padX * 2));
+    const height = Math.min(maxAllowedH, Math.ceil(cropPhotoH + padY * 2));
+
+    return { originX, originY, width, height };
+}
+
+/**
+ * Automatically crops the raw captured photo to the exact area the teacher aligned inside the reticle,
+ * trimming away excess background (laptop keyboard, desk edges, lap/legs).
+ *
+ * This ensures the student's answer sheet fills the image, stays crisp at high resolution,
+ * and completely prevents the "zoomed out" effect.
+ */
+export async function cropCapturedSheetToReticle(
+    photo: { uri: string; width?: number; height?: number },
+    screenWidth: number,
+    screenHeight: number
+): Promise<{ uri: string; width: number; height: number }> {
+    try {
+        const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
+
+        let pw = photo.width || 0;
+        let ph = photo.height || 0;
+
+        // If dimensions were not returned directly by the camera driver, inspect with manipulateAsync
+        if (!pw || !ph) {
+            const probe = await manipulateAsync(photo.uri, [], { format: SaveFormat.JPEG });
+            pw = probe.width;
+            ph = probe.height;
+        }
+
+        if (!pw || !ph) {
+            return { uri: photo.uri, width: pw || 1280, height: ph || 1700 };
+        }
+
+        let currentUri = photo.uri;
+        // If raw sensor buffer is landscape (pw > ph) while device is in portrait (screenWidth < screenHeight),
+        // normalize orientation first so crop coordinates map 1:1
+        if (pw > ph && screenWidth < screenHeight) {
+            const rotated = await manipulateAsync(currentUri, [{ rotate: 90 }], { format: SaveFormat.JPEG });
+            currentUri = rotated.uri;
+            pw = rotated.width;
+            ph = rotated.height;
+        }
+
+        const cropRect = computeReticleCropRect(pw, ph, screenWidth, screenHeight, 0.08);
+
+        // Crop to the framed answer sheet and normalize to sharp 1400px width for Gemini Vision AI
+        const cropped = await manipulateAsync(
+            currentUri,
+            [
+                { crop: cropRect },
+                { resize: { width: 1400 } },
+            ],
+            {
+                compress: 0.85,
+                format: SaveFormat.JPEG,
+            }
+        );
+
+        return {
+            uri: cropped.uri,
+            width: cropped.width,
+            height: cropped.height,
+        };
+    } catch (err) {
+        console.warn("[CameraGrader] Reticle auto-crop fallback to original photo:", err);
+        return {
+            uri: photo.uri,
+            width: photo.width || 1280,
+            height: photo.height || 1700,
+        };
+    }
+}
+

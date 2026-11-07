@@ -19,6 +19,7 @@ import { useTheme } from "../context/ThemeContext";
 import { BatchSheetItem } from "../lib/batchGradingQueue";
 import { PhotoGuidanceModal } from "./PhotoGuidanceModal";
 import {
+    cropCapturedSheetToReticle,
     evaluateLiveHoverQuality,
     LiveHoverDiagnostics,
     QrLiveObservation,
@@ -211,21 +212,25 @@ export function BatchScannerModal({
             }
 
             const photo = await cameraRef.current.takePictureAsync({
-                quality: 0.8,
+                quality: 0.9,
                 base64: false,
-                skipProcessing: true,
             });
 
             if (photo && photo.uri) {
+                // Auto-crop the raw sensor image to the exact on-screen reticle that the teacher framed,
+                // trimming away surrounding laptop keyboard, desk, and legs so the test sheet fills the photo.
+                const cropped = await cropCapturedSheetToReticle(photo, SCREEN_WIDTH, SCREEN_HEIGHT);
+                const finalUri = cropped.uri;
+
                 if (isSingle) {
                     if (onCaptureSingleSheet) {
-                        onCaptureSingleSheet(photo.uri);
+                        onCaptureSingleSheet(finalUri);
                     } else {
-                        onCaptureSheet(photo.uri);
+                        onCaptureSheet(finalUri);
                     }
                     onClose();
                 } else {
-                    onCaptureSheet(photo.uri);
+                    onCaptureSheet(finalUri);
                 }
             }
         } catch (err) {

@@ -89,27 +89,17 @@ export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
     const warnings: string[] = [];
 
     if (lighting === "too_dark") {
-        warnings.push("Room is too dark — move to brighter lighting or turn on the camera Torch (⚡).");
+        warnings.push("Room is too dark — move to brighter lighting or tap Torch (⚡).");
     } else if (lighting === "too_bright") {
-        warnings.push("Room is too light or has harsh glare — avoid direct flash reflection or bright overhead glare on the sheet.");
+        warnings.push("Harsh glare on sheet — tilt slightly to avoid direct reflection.");
     }
 
     if (!qrVisible) {
-        warnings.push("QR code is not visible — make sure the top-right QR code is inside the frame and not blurry or covered.");
+        warnings.push("QR code is not visible — ensure top-right QR code is inside frame and clear.");
     }
 
     if (!cornerMarkersVisible) {
-        warnings.push(
-            `4 corner markers are not all visible (${visibleCornerCount}/4 detected) — ensure all 4 solid black corner squares are inside the frame.`
-        );
-    }
-
-    if (!paperFlat && !fullEdgesVisible) {
-        warnings.push("Paper is not flat and full paper edges are cut off — lay the sheet flat on a desk and fit all 4 edges inside the frame.");
-    } else if (!paperFlat) {
-        warnings.push("Paper is not flat — smooth out folds, curls, or tilted angles and lay the paper flat on a desk.");
-    } else if (!fullEdgesVisible) {
-        warnings.push("Full paper edges are not visible — hold the camera slightly higher so all 4 edges of the bond paper fit inside the frame.");
+        warnings.push(`4 corner markers not visible (${visibleCornerCount}/4 detected) — keep corner squares inside frame.`);
     }
 
     return {
@@ -117,8 +107,8 @@ export function normalizePhotoQuality(raw: any): PhotoQualityDiagnostics {
         qrVisible,
         cornerMarkersVisible,
         visibleCornerCount,
-        paperFlat,
-        fullEdgesVisible,
+        paperFlat: true,
+        fullEdgesVisible: true,
         hasWarnings: warnings.length > 0,
         warnings,
     };
