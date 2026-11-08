@@ -39,7 +39,7 @@ function getRegisteredNodeFontLoader(): NodeFontLoader | undefined {
 async function readSingleAssetBytes(assetModule: any): Promise<Uint8Array | null> {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Asset } = require('expo-asset') as typeof import('expo-asset');
+        const { Asset } = (require as any)('expo-asset');
         const asset = Asset.fromModule(assetModule);
 
         // Download asset with 2.5s timeout

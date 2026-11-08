@@ -21,23 +21,26 @@ export function PdfExportingAnimation({
   accentColor = "#EA580C",
   darkMode = false,
 }: PdfExportingAnimationProps) {
-  // Laser / print sweep vertical animation (0 -> 1 -> 0)
+  // Laser / print sweep vertical animation (0 -> 1 -> 0) [100% Native Driver]
   const laserAnim = useRef(new Animated.Value(0)).current;
 
-  // Corner registration brackets gentle breathing pulse
+  // Corner registration brackets gentle breathing pulse [100% Native Driver]
   const cornerPulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Status dot pulse
+  // Status dot pulse [100% Native Driver]
   const dotPulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Active printed row (1..3)
-  const [activeRow, setActiveRow] = useState<number>(1);
+  // Sequential row formatting opacities [100% Native Driver — Zero React Re-renders]
+  const row1Opacity = useRef(new Animated.Value(0.45)).current;
+  const row2Opacity = useRef(new Animated.Value(0.45)).current;
+  const row3Opacity = useRef(new Animated.Value(0.45)).current;
 
-  // Stage progression (advances 0 -> 1 -> 2 and holds on final stage)
-  const [stageIndex, setStageIndex] = useState<number>(0);
-
-  // Continuous forward-moving progress bar + live percentage
+  // Continuous forward-moving progress bar [100% Native Driver translateX — Never Stutters]
   const progressAnim = useRef(new Animated.Value(0.18)).current;
+  const [trackWidth, setTrackWidth] = useState<number>(250);
+
+  // Dynamic stages (calm interval update, not every frame)
+  const [stageIndex, setStageIndex] = useState<number>(0);
   const [percentDisplay, setPercentDisplay] = useState<number>(18);
 
   const STAGES = [
@@ -56,18 +59,18 @@ export function PdfExportingAnimation({
   ];
 
   useEffect(() => {
-    // 1. Continuous Calibration Laser Sweep Loop
+    // 1. Continuous Laser Sweep Loop (Native Driver — runs 60fps on GPU)
     const laserLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(laserAnim, {
           toValue: 1,
-          duration: 1550,
+          duration: 1500,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(laserAnim, {
           toValue: 0,
-          duration: 1550,
+          duration: 1500,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
@@ -75,7 +78,7 @@ export function PdfExportingAnimation({
     );
     laserLoop.start();
 
-    // 2. Corner Registration Squares Gentle Breathing
+    // 2. Corner Registration Squares Breathing (Native Driver)
     const cornerLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(cornerPulseAnim, {
@@ -94,7 +97,7 @@ export function PdfExportingAnimation({
     );
     cornerLoop.start();
 
-    // 3. Status Dot Pulse
+    // 3. Status Dot Pulse (Native Driver)
     const dotLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(dotPulseAnim, {
@@ -113,37 +116,50 @@ export function PdfExportingAnimation({
     );
     dotLoop.start();
 
-    // 4. Smooth Continuous Progress Bar Fill (18% -> 98% without looping backwards)
-    const listenerId = progressAnim.addListener(({ value }) => {
-      setPercentDisplay(Math.round(value * 100));
-    });
+    // 4. Sequential Row Formatting Pulse (Native Driver — avoids React re-renders)
+    const rowsLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(row1Opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.timing(row2Opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.timing(row3Opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.delay(800),
+        Animated.parallel([
+          Animated.timing(row1Opacity, { toValue: 0.45, duration: 350, useNativeDriver: true }),
+          Animated.timing(row2Opacity, { toValue: 0.45, duration: 350, useNativeDriver: true }),
+          Animated.timing(row3Opacity, { toValue: 0.45, duration: 350, useNativeDriver: true }),
+        ]),
+        Animated.delay(150),
+      ])
+    );
+    rowsLoop.start();
 
+    // 5. Continuous Smooth Progress Fill (Native Driver translateX — never blocks when JS is busy)
     Animated.timing(progressAnim, {
       toValue: 0.98,
-      duration: 3800,
+      duration: 3600,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start();
 
-    // 5. Advance Stages sequentially (holds at final stage)
+    // 6. Calm Stage Advancement (every 1.2s, minimal JS overhead)
     const stageTimer = setInterval(() => {
       setStageIndex((prev) => (prev < STAGES.length - 1 ? prev + 1 : prev));
-    }, 1250);
+    }, 1200);
 
-    // 6. Cycle Active Formatted Rows (1 -> 2 -> 3)
-    const rowTimer = setInterval(() => {
-      setActiveRow((prev) => (prev >= 3 ? 1 : prev + 1));
-    }, 600);
+    // 7. Calm Percentage Counter (every 350ms, prevents 60fps re-render choking)
+    const percentTimer = setInterval(() => {
+      setPercentDisplay((prev) => (prev < 96 ? prev + 13 : 97));
+    }, 380);
 
     return () => {
       laserLoop.stop();
       cornerLoop.stop();
       dotLoop.stop();
-      progressAnim.removeListener(listenerId);
+      rowsLoop.stop();
       clearInterval(stageTimer);
-      clearInterval(rowTimer);
+      clearInterval(percentTimer);
     };
-  }, [laserAnim, cornerPulseAnim, dotPulseAnim, progressAnim]);
+  }, [laserAnim, cornerPulseAnim, dotPulseAnim, row1Opacity, row2Opacity, row3Opacity, progressAnim]);
 
   const stageBg = darkMode ? "#1E293B" : "#F8FAFC";
   const stageBorder = darkMode ? "#334155" : "#E2E8F0";
@@ -229,77 +245,70 @@ export function PdfExportingAnimation({
             </View>
           </View>
 
-          {/* Simulated Scannable Question Rows & Bubble Grid */}
+          {/* Simulated Scannable Question Rows & Bubble Grid (Natively Animated Opacity) */}
           <View style={styles.itemsGrid}>
-            {[1, 2, 3].map((rowNum) => {
-              const isFormatted = rowNum <= activeRow;
-              return (
-                <View key={rowNum} style={styles.itemRow}>
-                  {/* Item Number */}
-                  <Text
-                    style={[
-                      styles.rowNumber,
-                      { color: isFormatted ? accentColor : subTextColor },
-                    ]}
-                  >
-                    {`0${rowNum}`}
-                  </Text>
-
-                  {/* Question Stem Skeleton Bar */}
+            <Animated.View style={[styles.itemRow, { opacity: row1Opacity }]}>
+              <Text style={[styles.rowNumber, { color: accentColor }]}>01</Text>
+              <View style={[styles.skeletonLine, { width: 52, height: 5, backgroundColor: "rgba(16, 185, 129, 0.45)" }]} />
+              <View style={styles.bubbleGroup}>
+                {["A", "B", "C", "D"].map((letter) => (
                   <View
+                    key={letter}
                     style={[
-                      styles.skeletonLine,
+                      styles.bubble,
                       {
-                        width: rowNum === 1 ? 52 : rowNum === 2 ? 44 : 48,
-                        height: 5,
-                        backgroundColor: isFormatted
-                          ? "rgba(16, 185, 129, 0.45)"
-                          : skelBarBg,
+                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                        borderColor: darkMode ? "#475569" : "#CBD5E1",
                       },
                     ]}
-                  />
-
-                  {/* Scannable Bubble Options [A] [B] [C] [D] */}
-                  <View style={styles.bubbleGroup}>
-                    {["A", "B", "C", "D"].map((letter) => (
-                      <View
-                        key={letter}
-                        style={[
-                          styles.bubble,
-                          {
-                            backgroundColor: isFormatted
-                              ? "rgba(16, 185, 129, 0.08)"
-                              : darkMode
-                              ? "#1E293B"
-                              : "#F8FAFC",
-                            borderColor: isFormatted
-                              ? "#10B981"
-                              : darkMode
-                              ? "#475569"
-                              : "#CBD5E1",
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.bubbleText,
-                            {
-                              color: isFormatted
-                                ? "#10B981"
-                                : darkMode
-                                ? "#94A3B8"
-                                : "#64748B",
-                            },
-                          ]}
-                        >
-                          {letter}
-                        </Text>
-                      </View>
-                    ))}
+                  >
+                    <Text style={[styles.bubbleText, { color: darkMode ? "#94A3B8" : "#64748B" }]}>{letter}</Text>
                   </View>
-                </View>
-              );
-            })}
+                ))}
+              </View>
+            </Animated.View>
+
+            <Animated.View style={[styles.itemRow, { opacity: row2Opacity }]}>
+              <Text style={[styles.rowNumber, { color: accentColor }]}>02</Text>
+              <View style={[styles.skeletonLine, { width: 44, height: 5, backgroundColor: "rgba(16, 185, 129, 0.45)" }]} />
+              <View style={styles.bubbleGroup}>
+                {["A", "B", "C", "D"].map((letter) => (
+                  <View
+                    key={letter}
+                    style={[
+                      styles.bubble,
+                      {
+                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                        borderColor: darkMode ? "#475569" : "#CBD5E1",
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.bubbleText, { color: darkMode ? "#94A3B8" : "#64748B" }]}>{letter}</Text>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+
+            <Animated.View style={[styles.itemRow, { opacity: row3Opacity }]}>
+              <Text style={[styles.rowNumber, { color: accentColor }]}>03</Text>
+              <View style={[styles.skeletonLine, { width: 48, height: 5, backgroundColor: "rgba(16, 185, 129, 0.45)" }]} />
+              <View style={styles.bubbleGroup}>
+                {["A", "B", "C", "D"].map((letter) => (
+                  <View
+                    key={letter}
+                    style={[
+                      styles.bubble,
+                      {
+                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                        borderColor: darkMode ? "#475569" : "#CBD5E1",
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.bubbleText, { color: darkMode ? "#94A3B8" : "#64748B" }]}>{letter}</Text>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
           </View>
 
           {/* Sheet Footer Strip: Ready to Print */}
@@ -352,17 +361,30 @@ export function PdfExportingAnimation({
         </Text>
       </View>
 
-      {/* ── 3. Smooth Continuous Progress Bar + Step & Live Percentage Row ── */}
-      <View style={[styles.progressTrack, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+      {/* ── 3. Smooth Continuous Progress Bar (100% Native Driver translateX) ── */}
+      <View
+        style={[styles.progressTrack, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0 && Math.abs(w - trackWidth) > 5) {
+            setTrackWidth(w);
+          }
+        }}
+      >
         <Animated.View
           style={[
             styles.progressFill,
             {
               backgroundColor: accentColor,
-              width: progressAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["0%", "100%"],
-              }),
+              width: "100%",
+              transform: [
+                {
+                  translateX: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-trackWidth, 0],
+                  }),
+                },
+              ],
             },
           ]}
         />

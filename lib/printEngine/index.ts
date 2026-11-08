@@ -76,6 +76,8 @@ export async function generatePrintPackage(
 
     // 1. Run automatic fit decision
     const fit = await decideFit(activeAssessment, options);
+    // Yield to the JS event loop to keep animations fluid
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // 2. Handle fast 'LAYOUT_ONLY' target (used by quiz publishing)
     if (target === 'LAYOUT_ONLY') {
@@ -184,6 +186,7 @@ export async function generatePrintPackage(
             quizId,
             paperSize,
         });
+        await new Promise((resolve) => setTimeout(resolve, 10));
 
         const { pdfBytes: answerSheetPdf, pages } = await renderAnswerSheetPDF(activeAssessment.questions, {
             ...options,
@@ -191,6 +194,7 @@ export async function generatePrintPackage(
             quizId,
             paperSize,
         });
+        await new Promise((resolve) => setTimeout(resolve, 10));
 
         // Merge booklet + answer sheet into single printable document for teachers
         const combinedStudentPdf = await mergePdfs([bookletPdf, answerSheetPdf]);

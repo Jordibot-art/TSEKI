@@ -1255,7 +1255,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
             // 2. Build PDF cleanly on demand and cache for subsequent exports
             setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
-            await new Promise((r) => setTimeout(r, 80));
+            await new Promise((r) => setTimeout(r, 200));
+            const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
             const printPkg = await generatePrintPackage(generatedAssessment, {
                 paperSize,
                 version: activeVersion,

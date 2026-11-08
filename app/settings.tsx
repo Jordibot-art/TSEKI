@@ -375,7 +375,8 @@ export default function SettingsScreen() {
 
       // 2. Uncached build fallback
       setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
-      await new Promise((r) => setTimeout(r, 80)); // Yield to let React Native render loading overlay
+      await new Promise((r) => setTimeout(r, 200)); // Yield to let React Native mount modal & run native animation
+      const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
       const printPkg = await generatePrintPackage(quiz, {
         paperSize,
         version: activeVersion,
