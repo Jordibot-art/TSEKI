@@ -9,8 +9,9 @@ export const AI_QUOTA_CONFIG = {
     /**
      * Daily cap of successful full-quiz generations per user (teacher_id).
      * Resets automatically at 12:00 AM (midnight) Asia/Manila time (UTC+8).
+     * Set to 50 in development (__DEV__) and 25 for production to avoid exhausting quota during testing.
      */
-    DAILY_LIMIT: 10,
+    DAILY_LIMIT: typeof __DEV__ !== "undefined" && __DEV__ ? 50 : 25,
 
     /**
      * Timezone for daily quota resets (midnight Asia/Manila, Philippines).

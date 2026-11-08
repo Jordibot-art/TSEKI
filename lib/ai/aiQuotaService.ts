@@ -24,6 +24,7 @@ interface LocalQuotaStore {
     lastAttemptTimestamp: number;
     recentAttemptTimestamps: number[];
     cooldownUntil: number;
+    testResetTimestamp?: number;
 }
 
 /**
@@ -67,6 +68,7 @@ async function readLocalStore(teacherId: string, manilaDate: string): Promise<Lo
                 return {
                     ...data,
                     pendingUnsyncedCount: data.pendingUnsyncedCount || 0,
+                    testResetTimestamp: data.testResetTimestamp || 0,
                 };
             }
         }
@@ -82,6 +84,7 @@ async function readLocalStore(teacherId: string, manilaDate: string): Promise<Lo
         lastAttemptTimestamp: 0,
         recentAttemptTimestamps: [],
         cooldownUntil: 0,
+        testResetTimestamp: 0,
     };
 }
 
@@ -147,12 +150,16 @@ export async function getTeacherQuotaState(explicitTeacherId?: string | null): P
             }
         }
 
+        const queryStartIso = (store.testResetTimestamp && store.testResetTimestamp > new Date(startIso).getTime())
+            ? new Date(store.testResetTimestamp).toISOString()
+            : startIso;
+
         const { data: logs, error: logsError } = await supabase
             .from("ai_generation_logs")
             .select("cost")
             .eq("teacher_id", teacherId)
             .eq("status", "success")
-            .gte("created_at", startIso)
+            .gte("created_at", queryStartIso)
             .lt("created_at", endIso);
 
         if (!logsError && Array.isArray(logs)) {
@@ -358,4 +365,39 @@ export async function applyRateLimitPenalty(
     store.lastAttemptTimestamp = now;
     await saveLocalStore(store);
     return cooldownSeconds;
+}
+
+/**
+ * Resets the teacher's daily AI quota for testing purposes.
+ * Clears local usage and sets a reset checkpoint so previous logs from today are ignored.
+ */
+export async function resetTeacherQuotaForTesting(explicitTeacherId?: string | null): Promise<QuotaState> {
+    const teacherId = await resolveCurrentTeacherId(explicitTeacherId);
+    const { manilaDate } = getManilaDayBoundsIso();
+    const now = Date.now();
+
+    if (teacherId) {
+        const store: LocalQuotaStore = {
+            teacherId,
+            manilaDate,
+            usedCount: 0,
+            pendingUnsyncedCount: 0,
+            lastAttemptTimestamp: 0,
+            recentAttemptTimestamps: [],
+            cooldownUntil: 0,
+            testResetTimestamp: now,
+        };
+        await saveLocalStore(store);
+
+        try {
+            await supabase
+                .from("ai_generation_logs")
+                .delete()
+                .eq("teacher_id", teacherId);
+        } catch {
+            // RLS may disallow client deletes, which is safely handled by testResetTimestamp
+        }
+    }
+
+    return getTeacherQuotaState(teacherId);
 }

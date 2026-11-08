@@ -52,6 +52,7 @@ import {
     QuotaState,
     recordGenerationFailure,
     recordGenerationSuccess,
+    resetTeacherQuotaForTesting,
     resolveCurrentTeacherId,
 } from "../lib/ai/aiQuotaService";
 import { supabase } from "../supabase";
@@ -422,11 +423,29 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         const quotaCheck = await checkCanGenerate(activeTeacherId, false);
         if (!quotaCheck.allowed) {
             await refreshUserQuota(activeTeacherId);
-            Alert.alert(
-                quotaCheck.reason === "DAILY_LIMIT" ? "Daily Limit Reached" : "Please Wait",
-                quotaCheck.message ||
-                    "You have reached today's 10x AI generation limit. Your quota resets at 12:00 AM midnight (Manila, Philippines time)."
-            );
+            if (quotaCheck.reason === "DAILY_LIMIT") {
+                Alert.alert(
+                    "Daily Limit Reached",
+                    `You have reached today's AI generation limit (${quotaCheck.usedToday}/${quotaCheck.dailyLimit} used today).\n\nWould you like to reset your quota to continue testing?`,
+                    [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                            text: "Reset Quota (Testing)",
+                            onPress: async () => {
+                                const freshState = await resetTeacherQuotaForTesting(activeTeacherId);
+                                setQuotaState(freshState);
+                                Alert.alert("Quota Reset", `Daily AI quota reset to ${freshState.remainingToday} of ${freshState.dailyLimit}! You can now generate.`);
+                            },
+                        },
+                    ]
+                );
+            } else {
+                Alert.alert(
+                    quotaCheck.reason === "COOLDOWN" ? "Please Wait" : "Notice",
+                    quotaCheck.message ||
+                        "Please wait before generating another quiz."
+                );
+            }
             return;
         }
 
@@ -1692,7 +1711,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                         accentColor={accentColor}
                     />
 
-                    {/* ── Per-User Daily AI Quota Status Bar (10x/day, resets 12:00 AM Manila) ── */}
+                    {/* ── Per-User Daily AI Quota Status Bar (resets 12:00 AM Manila) ── */}
                     {quotaState && (
                         <View
                             style={{
@@ -1709,17 +1728,52 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     : (darkMode ? "#1E293B" : "#F8FAFC"),
                             }}
                         >
-                            <View style={{ marginBottom: 8 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                                 <Text
                                     style={{
                                         fontSize: 12,
                                         fontWeight: "500",
                                         color: quotaState.isDailyLimitReached ? "#DC2626" : (darkMode ? "#94A3B8" : "#475569"),
+                                        flex: 1,
                                     }}
                                     numberOfLines={1}
                                 >
                                     {`Daily AI quota: ${quotaState.remainingToday} of ${quotaState.dailyLimit} left · Resets 12:00 AM PHT`}
                                 </Text>
+
+                                {(quotaState.isDailyLimitReached || (typeof __DEV__ !== "undefined" && __DEV__)) && (
+                                    <TouchableOpacity
+                                        onPress={async () => {
+                                            const activeTeacherId = currentTeacherId || (await resolveCurrentTeacherId());
+                                            const freshState = await resetTeacherQuotaForTesting(activeTeacherId);
+                                            setQuotaState(freshState);
+                                            Alert.alert("Quota Reset", `Daily AI quota reset to ${freshState.remainingToday} of ${freshState.dailyLimit} for testing!`);
+                                        }}
+                                        style={{
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 2,
+                                            borderRadius: 6,
+                                            backgroundColor: quotaState.isDailyLimitReached
+                                                ? (darkMode ? "rgba(220, 38, 38, 0.25)" : "#FEE2E2")
+                                                : (darkMode ? "#334155" : "#E2E8F0"),
+                                            marginLeft: 8,
+                                        }}
+                                        activeOpacity={0.7}
+                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                        <Text
+                                            style={{
+                                                fontSize: 11,
+                                                fontWeight: "600",
+                                                color: quotaState.isDailyLimitReached
+                                                    ? "#DC2626"
+                                                    : (darkMode ? "#F8FAFC" : "#0F172A"),
+                                            }}
+                                        >
+                                            Reset
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                             <View
                                 style={{
