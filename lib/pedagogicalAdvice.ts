@@ -59,8 +59,9 @@ export function generateStudentAdvice(params: {
   const subjectLabel = subject && subject !== "No Subject" ? subject : "the subject";
   const quizLabel = quizTitle || "the assessment";
   const isFlagged = average <= 50;
-  const isTop = !isFlagged && highestAvg > 50 && average === highestAvg;
-  const isAboveAverage = average > classAverage && !isTop;
+  // Absolute mastery threshold: Top tier requires >= 85% mastery
+  const isTop = average >= 85 && (totalStudents === 1 || average === highestAvg || average >= 90);
+  const isAboveAverage = average >= 75 && average > classAverage && !isTop;
   const isNearPassing = average > 50 && average < 75;
   const diffLabel = difficulty || "Standard";
 
@@ -119,22 +120,22 @@ export function generateStudentAdvice(params: {
     return `${firstName} is below the passing threshold at ${average}% in ${subjectLabel}. I recommend creating a focused, Easy-difficulty practice quiz on core ${subjectLabel} concepts to rebuild their confidence and close knowledge gaps. ${classAverage > 65 ? `The class average is ${classAverage}%, so targeted support can help ${firstName} catch up.` : ""}`;
   }
 
-  // ── NEAR PASSING (51%-74%) ────────────────────────────────────────────────
+  // ── NEAR PASSING / NEEDS SUPPORT (51%-74%) ────────────────────────────────
   if (isNearPassing) {
     if (analysis && analysis.weakQuestionTypes.length > 0) {
       const weakType = formatQuestionType(analysis.weakQuestionTypes[0].type);
       const trendMsg =
         analysis.trend === "improving"
-          ? `${firstName} is trending upward — great progress!`
+          ? `${firstName} is showing progress, but remains below the 75% passing mark.`
           : analysis.trend === "declining"
-          ? `${firstName}'s scores are dipping — targeted practice is key.`
+          ? `${firstName}'s scores are dipping below the passing threshold.`
           : "";
 
-      return `${firstName} is at ${average}% in ${subjectLabel}, just below the passing mark. ${trendMsg} They particularly struggle with ${weakType} questions. A targeted Medium-difficulty practice session focusing on ${weakType} items in ${subjectLabel} could push them across the 75% threshold.`;
+      return `${firstName} is at ${average}% in ${subjectLabel}, below the 75% passing standard. ${trendMsg} Analysis highlights difficulty with ${weakType} questions. Recommend foundational review and a focused remedial quiz on ${weakType} concepts in ${subjectLabel} to help them cross the 75% passing mark.`;
     }
 
     const gap = 75 - average;
-    return `${firstName} is ${gap} points away from passing at ${average}% in ${subjectLabel}. They're close! Recommend focused practice on "${quizLabel}" concepts with a ${diffLabel === "Hard" ? "Medium" : diffLabel}-difficulty review quiz to reinforce areas of weakness and push past the passing threshold.`;
+    return `${firstName} is ${gap} point${gap > 1 ? "s" : ""} away from passing at ${average}% in ${subjectLabel}. Recommend foundational review and a focused remedial practice quiz on "${quizLabel}" concepts to reinforce core understanding and push past the 75% passing threshold.`;
   }
 
   // ── ABOVE AVERAGE (above class avg but not top) ───────────────────────────

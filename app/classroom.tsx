@@ -1624,9 +1624,9 @@ export default function ClassroomScreen() {
             ) : (
               filtered.map((student) => {
                 const avg = student.average ?? 0;
-                const isFlagged = avg <= 50;
+                const isFlagged = avg < 75;
                 const highestAvg = students.length > 0 ? Math.max(...students.map((s) => s.average ?? 0)) : 0;
-                const isTop = !isFlagged && highestAvg > 50 && avg === highestAvg;
+                const isTop = avg >= 85 && avg === highestAvg;
                 const avatarUri = getStudentAvatar(student.full_name);
 
                 return (
@@ -1732,14 +1732,17 @@ export default function ClassroomScreen() {
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
                 <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
+                  {/* Top Drag Handle */}
+                  <View style={styles.sheetDragHandle} />
+
                   {/* Header */}
                   <View style={styles.modalHeader}>
                     <Text style={[styles.modalTitle, { color: textMain }]}>Add New Student</Text>
                     <TouchableOpacity
                       onPress={handleCancel}
-                      style={[styles.modalCloseBtn, { backgroundColor: btnSecondaryBg }]}
+                      style={[styles.sheetCloseBtn, { backgroundColor: btnSecondaryBg }]}
                     >
-                      <Ionicons name="close" size={22} color={textSub} />
+                      <Ionicons name="close" size={18} color={textSub} />
                     </TouchableOpacity>
                   </View>
 
@@ -1749,7 +1752,7 @@ export default function ClassroomScreen() {
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Smith"
+                    placeholder="e.g. Dela Cruz"
                     placeholderTextColor={textSub}
                     value={lastName}
                     onChangeText={setLastName}
@@ -1761,7 +1764,7 @@ export default function ClassroomScreen() {
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Liam"
+                    placeholder="e.g. Juan"
                     placeholderTextColor={textSub}
                     value={firstName}
                     onChangeText={setFirstName}
@@ -1783,7 +1786,7 @@ export default function ClassroomScreen() {
                   <Text style={[styles.fieldLabel, { color: textSub }]}>Email address</Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. liam.smith@school.edu"
+                    placeholder="e.g. juan.delacruz@school.edu.ph"
                     placeholderTextColor={textSub}
                     value={email}
                     onChangeText={setEmail}
@@ -1802,16 +1805,24 @@ export default function ClassroomScreen() {
                     <TouchableOpacity
                       style={[
                         styles.addBtn,
-                        { backgroundColor: cardColor, shadowColor: cardColor },
-                        ((!lastName.trim() && !firstName.trim()) || saving) && styles.addBtnDisabled,
+                        (!lastName.trim() || !firstName.trim() || saving)
+                          ? [styles.addBtnDisabled, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9", borderColor: border }]
+                          : { backgroundColor: ORANGE },
                       ]}
                       onPress={handleAddStudent}
-                      disabled={(!lastName.trim() && !firstName.trim()) || saving}
+                      disabled={!lastName.trim() || !firstName.trim() || saving}
                     >
                       {saving ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
                       ) : (
-                        <Text style={styles.addBtnText}>Add Student</Text>
+                        <Text
+                          style={[
+                            styles.addBtnText,
+                            (!lastName.trim() || !firstName.trim()) && { color: "#94A3B8" },
+                          ]}
+                        >
+                          Add Student
+                        </Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -1837,9 +1848,12 @@ export default function ClassroomScreen() {
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
                 <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
+                  {/* Top Drag Handle */}
+                  <View style={styles.sheetDragHandle} />
+
                   {/* Header */}
                   <View style={styles.modalHeader}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
                       <Text style={[styles.modalTitle, { color: textMain }]}>Edit Student Details</Text>
                       <Text style={{ fontSize: 12, color: textSub, marginTop: 2 }}>
                         Update student name and email address
@@ -1847,9 +1861,9 @@ export default function ClassroomScreen() {
                     </View>
                     <TouchableOpacity
                       onPress={handleCancelEdit}
-                      style={[styles.modalCloseBtn, { backgroundColor: btnSecondaryBg }]}
+                      style={[styles.sheetCloseBtn, { backgroundColor: btnSecondaryBg }]}
                     >
-                      <Ionicons name="close" size={22} color={textSub} />
+                      <Ionicons name="close" size={18} color={textSub} />
                     </TouchableOpacity>
                   </View>
 
@@ -1859,7 +1873,7 @@ export default function ClassroomScreen() {
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Smith"
+                    placeholder="e.g. Dela Cruz"
                     placeholderTextColor={textSub}
                     value={editLastName}
                     onChangeText={setEditLastName}
@@ -1871,7 +1885,7 @@ export default function ClassroomScreen() {
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Liam"
+                    placeholder="e.g. Juan"
                     placeholderTextColor={textSub}
                     value={editFirstName}
                     onChangeText={setEditFirstName}
@@ -1898,7 +1912,7 @@ export default function ClassroomScreen() {
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. student@school.edu"
+                    placeholder="e.g. juan.delacruz@school.edu.ph"
                     placeholderTextColor={textSub}
                     value={editEmail}
                     onChangeText={setEditEmail}
@@ -1918,16 +1932,24 @@ export default function ClassroomScreen() {
                     <TouchableOpacity
                       style={[
                         styles.addBtn,
-                        { backgroundColor: cardColor, shadowColor: cardColor },
-                        ((!editLastName.trim() && !editFirstName.trim()) || savingEdit) && styles.addBtnDisabled,
+                        (!editLastName.trim() || !editFirstName.trim() || savingEdit)
+                          ? [styles.addBtnDisabled, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9", borderColor: border }]
+                          : { backgroundColor: ORANGE },
                       ]}
                       onPress={handleSaveEditStudent}
-                      disabled={(!editLastName.trim() && !editFirstName.trim()) || savingEdit}
+                      disabled={!editLastName.trim() || !editFirstName.trim() || savingEdit}
                     >
                       {savingEdit ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
                       ) : (
-                        <Text style={styles.addBtnText}>Save Changes</Text>
+                        <Text
+                          style={[
+                            styles.addBtnText,
+                            (!editLastName.trim() || !editFirstName.trim()) && { color: "#94A3B8" },
+                          ]}
+                        >
+                          Save Changes
+                        </Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -1938,11 +1960,11 @@ export default function ClassroomScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Student Profile Modal (Popup) ── */}
+      {/* ── Student Profile Modal (Bottom Sheet) ── */}
       <Modal
         visible={selectedProfile !== null}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setSelectedProfile(null)}
       >
         <View style={styles.profileModalOverlay}>
@@ -1953,60 +1975,65 @@ export default function ClassroomScreen() {
 
           {selectedProfile && (() => {
             const profileAvg = selectedProfile.average ?? 0;
-            const profileIsFlagged = profileAvg <= 50;
+            const isNeedsSupport = profileAvg < 75;
+            const isTopPerformer = profileAvg >= 85;
+            const isPassing = profileAvg >= 75 && profileAvg < 85;
             const highestAvg = students.length > 0 ? Math.max(...students.map((s) => s.average ?? 0)) : 0;
-            const profileIsTop = !profileIsFlagged && highestAvg > 50 && profileAvg === highestAvg;
             const firstName = selectedProfile.first_name || selectedProfile.full_name.replace(/,/g, " ").trim().split(/\s+/)[0];
             const profileAvatar = getStudentAvatar(selectedProfile.full_name);
 
+            const latestResult = studentQuizResults.length > 0 ? studentQuizResults[0] : null;
             const quizTitleDisplay =
+              latestResult?.quizTitle ||
               publishedQuizzes[0]?.quizTitle ||
               selectedGradingQuiz ||
               classroomSubject ||
               (schedule !== "No Subject" ? schedule : "") ||
               "Assessment";
 
-            const quizTotalPoints = publishedQuizzes[0]?.questions?.length || 10;
-            const quizScore = Math.round((profileAvg / 100) * quizTotalPoints);
+            const quizTotalPoints = latestResult?.maxScore || publishedQuizzes[0]?.questions?.length || 10;
+            const quizScore = latestResult?.totalScore ?? Math.round((profileAvg / 100) * quizTotalPoints);
+            const quizPercentage = quizTotalPoints > 0
+              ? Math.round((quizScore / quizTotalPoints) * 100)
+              : profileAvg;
 
             return (
               <View style={[styles.profileModalCard, { backgroundColor: cardBg }]}>
-                {/* Header (Pinned) */}
-                <View style={[styles.profileHeader, { backgroundColor: cardColor }]}>
-                  <View style={styles.profileHeaderLeft}>
-                    {profileAvatar ? (
-                      <Image source={{ uri: profileAvatar }} style={styles.profileAvatarImg} />
-                    ) : (
-                      <View style={styles.profileAvatarFallback}>
-                        <Text style={styles.profileAvatarFallbackText}>
-                          {getInitials(selectedProfile.full_name)}
+                {/* Header (Clean White Sheet Header with Drag Handle) */}
+                <View style={[styles.profileHeader, { backgroundColor: cardBg, borderBottomColor: border }]}>
+                  <View style={styles.sheetDragHandle} />
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={styles.profileHeaderLeft}>
+                      {profileAvatar ? (
+                        <Image source={{ uri: profileAvatar }} style={styles.profileAvatarImg} />
+                      ) : (
+                        <View style={[styles.profileAvatarFallback, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9", borderColor: border }]}>
+                          <Text style={[styles.profileAvatarFallbackText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                            {getInitials(selectedProfile.full_name)}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={[styles.profileName, { color: textMain }]} numberOfLines={2}>
+                          {selectedProfile.full_name}
                         </Text>
+                        {selectedProfile.email ? (
+                          <Text style={[styles.profileEmail, { color: textSub }]} numberOfLines={1}>
+                            {selectedProfile.email}
+                          </Text>
+                        ) : (
+                          <TouchableOpacity onPress={() => openEditModal(selectedProfile)} style={{ marginTop: 2 }}>
+                            <Text style={{ fontSize: 13, color: ORANGE, fontWeight: "600" }}>+ Add email</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.profileName} numberOfLines={1}>
-                        {selectedProfile.full_name}
-                      </Text>
-                      <Text style={styles.profileEmail} numberOfLines={1}>
-                        {selectedProfile.email || "No email registered"}
-                      </Text>
                     </View>
-                  </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <TouchableOpacity
-                      style={styles.profileHeaderEditBtn}
-                      onPress={() => openEditModal(selectedProfile)}
-                      activeOpacity={0.7}
-                      accessibilityLabel="Edit Student Details"
-                    >
-                      <Ionicons name="pencil" size={16} color="#FFFFFF" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.profileCloseBtn}
+                      style={[styles.profileCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F8FAFC", borderColor: border }]}
                       onPress={() => setSelectedProfile(null)}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="close" size={18} color="#FFFFFF" />
+                      <Ionicons name="close" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -2019,28 +2046,33 @@ export default function ClassroomScreen() {
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled={true}
                 >
-                  {/* Missing Email Alert Banner */}
+                  {/* Sleek Single-Row Inline Callout for Missing Email */}
                   {!selectedProfile.email && (
-                    <TouchableOpacity
+                    <View
                       style={[
-                        styles.missingEmailBanner,
+                        styles.compactMissingEmailBanner,
                         {
-                          backgroundColor: darkMode ? "#374151" : "#FFF7ED",
-                          borderColor: darkMode ? "#4B5563" : "#FDBA74",
+                          backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                          borderColor: darkMode ? "#334155" : "#E2E8F0",
                         },
                       ]}
-                      onPress={() => openEditModal(selectedProfile)}
-                      activeOpacity={0.8}
                     >
-                      <Ionicons name="mail-unread-outline" size={20} color={ORANGE} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.missingEmailTitle, { color: textMain }]}>No Email Address Recorded</Text>
-                        <Text style={[styles.missingEmailSub, { color: textSub }]}>{"Tap here to add this student's email"}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                        <Ionicons name="mail-outline" size={16} color={darkMode ? "#94A3B8" : "#64748B"} />
+                        <Text style={[styles.compactMissingEmailText, { color: darkMode ? textSub : "#64748B" }]}>
+                          No email linked
+                        </Text>
                       </View>
-                      <View style={[styles.missingEmailBadge, { backgroundColor: cardColor }]}>
-                        <Text style={styles.missingEmailBadgeText}>Add Email</Text>
-                      </View>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => openEditModal(selectedProfile)}
+                        style={[styles.compactAddEmailBtn, { borderColor: darkMode ? "#475569" : "#CBD5E1", backgroundColor: cardBg }]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.compactAddEmailBtnText, { color: darkMode ? textMain : "#0F172A" }]}>
+                          + Add Email
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
 
                   {/* Stats Row */}
@@ -2051,30 +2083,30 @@ export default function ClassroomScreen() {
                     </View>
                     <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
                       <Text style={[styles.statBoxLabel, { color: textSub }]}>STATUS</Text>
-                      {profileIsTop ? (
-                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#1E3A8A" : "#EFF6FF" }]}>
-                          <Text style={[styles.statusPillText, { color: darkMode ? "#93C5FD" : "#2563EB" }]}>TOP TIER</Text>
+                      {isTopPerformer ? (
+                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#064E3B" : "#F0FDF4" }]}>
+                          <Text style={[styles.statusPillText, { color: darkMode ? "#86EFAC" : "#15803D" }]}>Top Performer</Text>
                         </View>
-                      ) : profileIsFlagged ? (
-                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}>
-                          <Text style={[styles.statusPillText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>AT RISK</Text>
+                      ) : isPassing ? (
+                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                          <Text style={[styles.statusPillText, { color: darkMode ? "#CBD5E1" : "#334155" }]}>Passing</Text>
                         </View>
                       ) : (
-                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#064E3B" : "#ECFDF5" }]}>
-                          <Text style={[styles.statusPillText, { color: darkMode ? "#6EE7B7" : "#059669" }]}>ON TRACK</Text>
+                        <View style={[styles.statusPill, { backgroundColor: darkMode ? "#450A0A" : "#FEF2F2" }]}>
+                          <Text style={[styles.statusPillText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>At-Risk</Text>
                         </View>
                       )}
                     </View>
                   </View>
 
-                  {/* At-Risk Warning Flag (Only if profileIsFlagged) */}
-                  {profileIsFlagged && (
+                  {/* At-Risk Warning Flag (Only if below 75% passing threshold) */}
+                  {isNeedsSupport && (
                     <View style={[styles.atRiskCard, { backgroundColor: darkMode ? "#450A0A" : "#FEF2F2", borderColor: darkMode ? "#7F1D1D" : "#FECACA" }]}>
                       <Ionicons name="warning-outline" size={20} color={darkMode ? "#FCA5A5" : "#DC2626"} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.atRiskTitle, { color: darkMode ? "#FCA5A5" : "#991B1B" }]}>At-Risk Behavioral Flag</Text>
                         <Text style={[styles.atRiskSub, { color: darkMode ? "#F87171" : "#DC2626" }]}>
-                          {quizTitleDisplay} score below threshold
+                          {quizTitleDisplay} score below 75% passing threshold
                         </Text>
                       </View>
                     </View>
@@ -2087,7 +2119,7 @@ export default function ClassroomScreen() {
                       <Text style={[styles.quizSheetTitle, { color: textSub }]}>QUIZ GRADE SHEET</Text>
                     </View>
                     <View style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}>
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, marginRight: 12 }}>
                         <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={1}>
                           {quizTitleDisplay}
                         </Text>
@@ -2101,11 +2133,11 @@ export default function ClassroomScreen() {
                           <View
                             style={[
                               styles.quizScoreDot,
-                              { backgroundColor: profileIsFlagged ? "#EF4444" : "#10B981" },
+                              { backgroundColor: isNeedsSupport ? "#EF4444" : "#10B981" },
                             ]}
                           />
                         </View>
-                        <Text style={[styles.quizScorePercent, { color: textSub }]}>({profileAvg}%)</Text>
+                        <Text style={[styles.quizScorePercent, { color: textSub }]}>({quizPercentage}%)</Text>
                       </View>
                     </View>
                   </View>
@@ -2132,33 +2164,26 @@ export default function ClassroomScreen() {
                   </View>
                 </ScrollView>
 
-                {/* Fixed Footer Action Buttons (Always Visible at bottom!) */}
+                {/* Fixed Clean 3-Button Footer */}
                 <View style={[styles.profileFooter, { backgroundColor: cardBg, borderTopColor: border }]}>
                   <TouchableOpacity
-                    style={[styles.editProfileBtn, { backgroundColor: cardColor }]}
+                    style={[styles.profileFooterBtn, { backgroundColor: cardBg, borderColor: border }]}
                     onPress={() => openEditModal(selectedProfile)}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons name="pencil" size={16} color="#FFFFFF" />
-                    <Text style={styles.editProfileBtnText}>Edit</Text>
+                    <Ionicons name="pencil-outline" size={15} color={textMain} />
+                    <Text style={[styles.profileFooterBtnText, { color: textMain }]}>Edit Student</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[
-                      styles.emailBtn,
-                      {
-                        backgroundColor: darkMode ? "#374151" : "#F3F4F6",
-                        borderWidth: 1,
-                        borderColor: border,
-                      },
-                    ]}
+                    style={[styles.profileFooterBtn, { backgroundColor: cardBg, borderColor: border }]}
                     onPress={() => {
                       if (selectedProfile.email) {
                         Linking.openURL(`mailto:${selectedProfile.email}`);
                       } else {
                         Alert.alert(
                           "No Email Recorded",
-                          `${selectedProfile.full_name} does not have an email address recorded yet. Tap "Edit" to add their email.`,
+                          `${selectedProfile.full_name} does not have an email address recorded yet. Tap "Edit Student" to add their email.`,
                           [
                             { text: "Cancel", style: "cancel" },
                             { text: "Edit Student", onPress: () => openEditModal(selectedProfile) },
@@ -2166,27 +2191,25 @@ export default function ClassroomScreen() {
                         );
                       }
                     }}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons name="mail" size={16} color={textMain} />
-                    <Text style={[styles.emailBtnText, { color: textMain }]}>Email</Text>
+                    <Ionicons name="mail-outline" size={15} color={textMain} />
+                    <Text style={[styles.profileFooterBtnText, { color: textMain }]}>Email Report</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.removeStudentProfileBtn, { backgroundColor: darkMode ? "#7F1D1D" : "#FEE2E2" }]}
+                    style={[
+                      styles.profileDeleteBtn,
+                      {
+                        backgroundColor: darkMode ? "#450A0A" : "#FEF2F2",
+                        borderColor: darkMode ? "#7F1D1D" : "#FECACA",
+                      },
+                    ]}
                     onPress={() => promptDeleteStudent(selectedProfile)}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Delete student"
                   >
-                    <Ionicons name="trash-outline" size={16} color="#DC2626" />
-                    <Text style={[styles.removeStudentProfileBtnText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>Remove</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.closeProfileBtn, { backgroundColor: btnSecondaryBg }]}
-                    onPress={() => setSelectedProfile(null)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.closeProfileBtnText, { color: textSub }]}>Close</Text>
+                    <Ionicons name="trash-outline" size={18} color="#DC2626" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2388,7 +2411,7 @@ export default function ClassroomScreen() {
       <Modal
         visible={exportModalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setExportModalVisible(false)}
       >
         <TouchableOpacity
@@ -2400,22 +2423,29 @@ export default function ClassroomScreen() {
             style={[styles.exportModalSheet, { backgroundColor: cardBg }]}
             onPress={(e) => e.stopPropagation?.()}
           >
+            <View style={styles.sheetDragHandle} />
+
             <View style={styles.exportModalHeader}>
-              <View style={[styles.exportModalTag, { backgroundColor: cardColor + "18" }]}>
-                <Ionicons name="download" size={13} color={cardColor} />
-                <Text style={[styles.exportModalTagText, { color: cardColor }]}>EXPORT CLASSROOM DATA</Text>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={[styles.exportModalTitle, { color: textMain }]}>Export Records</Text>
+                <Text style={[styles.exportModalSub, { color: textSub }]}>
+                  Download or share your class records and scores formatted for Excel:
+                </Text>
               </View>
-              <Text style={[styles.exportModalTitle, { color: textMain }]}>Export Records</Text>
-              <Text style={[styles.exportModalSub, { color: textSub }]}>
-                Download or share your class records and scores formatted for Excel:
-              </Text>
+              <TouchableOpacity
+                onPress={() => setExportModalVisible(false)}
+                style={[styles.sheetCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={16} color={textSub} />
+              </TouchableOpacity>
             </View>
 
-            {/* Option 1: Quiz Scores (Featured) */}
+            {/* Option 1: Quiz Scores */}
             <TouchableOpacity
               style={[
                 styles.exportOptionCard,
-                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: cardColor + "55" },
+                { backgroundColor: darkMode ? "#1E293B" : "#FFFFFF", borderColor: darkMode ? "#334155" : "#E2E8F0" },
               ]}
               onPress={() => {
                 setExportModalVisible(false);
@@ -2423,28 +2453,28 @@ export default function ClassroomScreen() {
               }}
               activeOpacity={0.7}
             >
-              <View style={[styles.exportOptionIconBox, { backgroundColor: cardColor + "18" }]}>
-                <Ionicons name="grid" size={22} color={cardColor} />
+              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                <Ionicons name="grid-outline" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Quiz Scores (.xlsx)</Text>
-                  <View style={[styles.exportOptionBadge, { backgroundColor: cardColor + "20" }]}>
-                    <Text style={[styles.exportOptionBadgeText, { color: cardColor }]}>Scores</Text>
+                  <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Quiz Scores</Text>
+                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#94A3B8" : "#475569" }]}>.xlsx</Text>
                   </View>
                 </View>
                 <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
                   All graded quizzes, student points, and item breakdown
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color={cardColor} />
+              <Ionicons name="download-outline" size={20} color={textSub} />
             </TouchableOpacity>
 
-            {/* Option 2: Download Blank BSIT-4 Template */}
+            {/* Option 2: Blank Student Template */}
             <TouchableOpacity
               style={[
                 styles.exportOptionCard,
-                { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border },
+                { backgroundColor: darkMode ? "#1E293B" : "#FFFFFF", borderColor: darkMode ? "#334155" : "#E2E8F0" },
               ]}
               onPress={() => {
                 setExportModalVisible(false);
@@ -2452,25 +2482,21 @@ export default function ClassroomScreen() {
               }}
               activeOpacity={0.7}
             >
-              <View style={[styles.exportOptionIconBox, { backgroundColor: "#10B98114" }]}>
-                <Ionicons name="cloud-download-outline" size={22} color="#10B981" />
+              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                <Ionicons name="document-text-outline" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Download Excel Template (.xlsx)</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>Blank Student Template</Text>
+                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#94A3B8" : "#475569" }]}>.xlsx</Text>
+                  </View>
+                </View>
                 <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
                   Pre-formatted BSIT-4 blank template with sample student rows
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color="#10B981" />
-            </TouchableOpacity>
-
-            {/* Cancel Button */}
-            <TouchableOpacity
-              style={[styles.exportModalCancelBtn, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}
-              onPress={() => setExportModalVisible(false)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.exportModalCancelText, { color: textMain }]}>Cancel</Text>
+              <Ionicons name="download-outline" size={20} color={textSub} />
             </TouchableOpacity>
           </Pressable>
         </TouchableOpacity>
@@ -3328,11 +3354,11 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 28,
-    paddingTop: 28,
-    paddingBottom: 40,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 40 : 24,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,
@@ -3343,112 +3369,106 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 14,
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "800",
     color: "#1F2937",
   },
   modalCloseBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
   fieldLabel: {
     fontSize: 13,
-    fontWeight: "700",
-    color: "#6B7280",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginTop: 14,
+    fontWeight: "600",
+    color: "#334155",
+    letterSpacing: 0,
+    marginBottom: 6,
+    marginTop: 12,
   },
   required: { color: "#EF4444" },
   input: {
-    height: 52,
-    borderWidth: 1.5,
-    borderColor: "#D1D5DB",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: "#1F2937",
-    backgroundColor: "#F9FAFB",
+    height: 44,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    fontSize: 14.5,
+    color: "#0F172A",
+    backgroundColor: "#FFFFFF",
   },
   modalActions: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 26,
+    gap: 10,
+    marginTop: 20,
   },
   cancelBtn: {
     flex: 1,
-    height: 54,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#D1D5DB",
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
     alignItems: "center",
     justifyContent: "center",
   },
   cancelBtnText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
-    color: "#4B5563",
+    color: "#475569",
   },
   addBtn: {
     flex: 1,
-    height: 54,
-    borderRadius: 16,
+    height: 44,
+    borderRadius: 10,
     backgroundColor: ORANGE,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 5,
   },
   addBtnDisabled: {
-    backgroundColor: "#FED7AA",
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     shadowOpacity: 0,
     elevation: 0,
   },
   addBtnText: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
     color: "#FFFFFF",
   },
 
   /* ── Student Profile Modal ── */
   profileModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.65)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 24,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "flex-end",
   },
   profileModalCard: {
     width: "100%",
-    maxWidth: 390,
-    maxHeight: "85%",
+    maxHeight: "88%",
     backgroundColor: "#FFFFFF",
-    borderRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
     elevation: 16,
   },
   profileHeader: {
-    backgroundColor: "#2563EB",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
-    paddingVertical: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    paddingTop: 12,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
   },
   profileHeaderLeft: {
     flexDirection: "row",
@@ -3457,54 +3477,70 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   profileAvatarImg: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-    marginRight: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
   },
   profileAvatarFallback: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-    marginRight: 14,
+    marginRight: 12,
   },
   profileAvatarFallbackText: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   profileName: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   profileEmail: {
-    fontSize: 12.5,
-    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 13,
+    color: "#64748B",
     marginTop: 2,
   },
   profileCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
   },
-  profileHeaderEditBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.25)",
+  compactMissingEmailBanner: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  compactMissingEmailText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  compactAddEmailBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  compactAddEmailBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   missingEmailBanner: {
     flexDirection: "row",
@@ -3687,55 +3723,69 @@ const styles = StyleSheet.create({
   },
   profileFooter: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 18,
+    gap: 8,
+    paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 24,
+    paddingBottom: Platform.OS === "ios" ? 32 : 16,
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: "#E2E8F0",
+  },
+  profileFooterBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: "#FFFFFF",
+    borderColor: "#CBD5E1",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  profileFooterBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  profileDeleteBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
+    alignItems: "center",
+    justifyContent: "center",
   },
   editProfileBtn: {
     flex: 1,
-    height: 46,
-    borderRadius: 23,
+    height: 42,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
   editProfileBtnText: {
-    fontSize: 13.5,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "600",
     color: "#FFFFFF",
   },
   emailBtn: {
     flex: 1,
-    height: 46,
-    borderRadius: 23,
+    height: 42,
+    borderRadius: 10,
     backgroundColor: "#2563EB",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
   },
   emailBtnText: {
-    fontSize: 13.5,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "600",
     color: "#FFFFFF",
-  },
-  closeProfileBtn: {
-    flex: 1,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#E2E8F0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  closeProfileBtnText: {
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: "#334155",
   },
   topBarBadge: {
     position: "absolute",
@@ -4161,15 +4211,18 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   exportModalSheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: Platform.OS === "ios" ? 40 : 28,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 36 : 24,
     gap: 10,
   },
   exportModalHeader: {
-    marginBottom: 6,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 8,
   },
   exportModalTag: {
     flexDirection: "row",
@@ -4187,38 +4240,40 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
   },
   exportModalTitle: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: "800",
-    marginBottom: 4,
+    marginBottom: 3,
   },
   exportModalSub: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12.5,
+    lineHeight: 17,
   },
   exportOptionCard: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
     gap: 12,
   },
   exportOptionIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   exportOptionCardTitle: {
-    fontSize: 14.5,
-    fontWeight: "700",
-    marginBottom: 2,
+    fontSize: 15,
+    fontWeight: "600",
   },
   exportOptionCardSub: {
     fontSize: 12,
     lineHeight: 16,
+    marginTop: 2,
   },
   exportOptionBadge: {
     paddingHorizontal: 7,
@@ -4228,6 +4283,40 @@ const styles = StyleSheet.create({
   exportOptionBadgeText: {
     fontSize: 10,
     fontWeight: "800",
+  },
+
+  /* Reusable Sheet Elements */
+  sheetDragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "#CBD5E1",
+    alignSelf: "center",
+    marginBottom: 12,
+  },
+  sheetCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  neutralOptionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dimBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  dimBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   exportModalCancelBtn: {
     alignItems: "center",
