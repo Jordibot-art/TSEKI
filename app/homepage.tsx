@@ -52,7 +52,14 @@ type ClassCard = {
   flagged: number;
 };
 
-const CARD_COLORS = ["#FF6B00", "#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#EC4899"];
+const CARD_COLORS = [
+  "#C2410C", // Terracotta / Rust (Default Brand)
+  "#4F46E5", // Slate Indigo
+  "#047857", // Emerald Forest
+  "#7C3AED", // Deep Amethyst
+  "#D97706", // Warm Amber
+  "#BE185D", // Rose Coral
+];
 
 // Local persistence for classroom theme colors (graceful fallback if Supabase table lacks color column)
 const CLASSROOM_COLORS_KEY = "tseki_classroom_colors";
@@ -809,6 +816,9 @@ export default function HomePage() {
         onRequestClose={handleCancel}
       >
         <View style={[styles.modalFullScreen, { backgroundColor: cardBg }]}>
+          {/* Top Drag Handle */}
+          <View style={styles.sheetDragHandle} />
+
           {/* Header */}
           <View
             style={[
@@ -818,7 +828,7 @@ export default function HomePage() {
           >
             <View style={styles.modalHeaderInfo}>
               <Text style={[styles.modalTitle, { color: textMain }]}>Build Classroom</Text>
-              <Text style={[styles.modalSubtitle, { color: textSub }]}>
+              <Text style={[styles.modalSubtitle, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
                 Set up course information &amp; schedule
               </Text>
             </View>
@@ -826,12 +836,12 @@ export default function HomePage() {
               onPress={handleCancel}
               style={[
                 styles.modalCloseBtn,
-                { backgroundColor: darkMode ? "#374151" : "#F3F4F6" },
+                { backgroundColor: darkMode ? "#334155" : "#F1F5F9" },
               ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityLabel="Close modal"
             >
-              <Ionicons name="close" size={20} color={textMain} />
+              <Ionicons name="close" size={18} color={darkMode ? "#E2E8F0" : "#475569"} />
             </TouchableOpacity>
           </View>
 
@@ -847,40 +857,40 @@ export default function HomePage() {
               bounces={false}
             >
               {/* Class title */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151", marginTop: 6 }]}>
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155", marginTop: 6 }]}>
                 Class title <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                    borderColor: darkMode ? "#4B5563" : "#D1D5DB",
-                    color: textMain,
+                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                    borderColor: darkMode ? "#334155" : "#CBD5E1",
+                    color: darkMode ? "#F8FAFC" : "#0F172A",
                   },
                 ]}
                 placeholder="e.g. Grade 10 - Mathematics"
-                placeholderTextColor={textSub}
+                placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
                 value={classTitle}
                 autoCapitalize="words"
                 onChangeText={setClassTitle}
               />
 
               {/* Subject */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>
                 Subject <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                    borderColor: darkMode ? "#4B5563" : "#D1D5DB",
-                    color: textMain,
+                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                    borderColor: darkMode ? "#334155" : "#CBD5E1",
+                    color: darkMode ? "#F8FAFC" : "#0F172A",
                   },
                 ]}
                 placeholder="e.g. Mathematics"
-                placeholderTextColor={textSub}
+                placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
                 value={subject}
                 autoCapitalize="words"
                 onChangeText={setSubject}
@@ -889,36 +899,36 @@ export default function HomePage() {
               {/* Section + Room (side by side) */}
               <View style={styles.rowFields}>
                 <View style={styles.halfField}>
-                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>Section</Text>
+                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Section</Text>
                   <TextInput
                     style={[
                       styles.input,
                       {
-                        backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                        borderColor: darkMode ? "#4B5563" : "#D1D5DB",
-                        color: textMain,
+                        backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                        borderColor: darkMode ? "#334155" : "#CBD5E1",
+                        color: darkMode ? "#F8FAFC" : "#0F172A",
                       },
                     ]}
                     placeholder="e.g. Section 5"
-                    placeholderTextColor={textSub}
+                    placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
                     value={section}
                     autoCapitalize="words"
                     onChangeText={setSection}
                   />
                 </View>
                 <View style={styles.halfField}>
-                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>Room</Text>
+                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Room</Text>
                   <TextInput
                     style={[
                       styles.input,
                       {
-                        backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                        borderColor: darkMode ? "#4B5563" : "#D1D5DB",
-                        color: textMain,
+                        backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                        borderColor: darkMode ? "#334155" : "#CBD5E1",
+                        color: darkMode ? "#F8FAFC" : "#0F172A",
                       },
                     ]}
                     placeholder="e.g. CL1"
-                    placeholderTextColor={textSub}
+                    placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
                     value={room}
                     autoCapitalize="characters"
                     onChangeText={setRoom}
@@ -927,28 +937,28 @@ export default function HomePage() {
               </View>
 
               {/* Schedule */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151" }]}>Schedule</Text>
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Schedule</Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                    borderColor: darkMode ? "#4B5563" : "#D1D5DB",
-                    color: textMain,
+                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                    borderColor: darkMode ? "#334155" : "#CBD5E1",
+                    color: darkMode ? "#F8FAFC" : "#0F172A",
                   },
                 ]}
                 placeholder="e.g. MWF 9:00 - 10:30 AM"
-                placeholderTextColor={textSub}
+                placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
                 value={schedule}
                 autoCapitalize="characters"
                 onChangeText={setSchedule}
               />
 
               {/* Theme color */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E5E7EB" : "#374151", marginBottom: 4 }]}>
+              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155", marginBottom: 4 }]}>
                 Theme color
               </Text>
-              <Text style={[styles.colorSubtitle, { color: textSub }]}>
+              <Text style={[styles.colorSubtitle, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
                 Select an accent color for this classroom card &amp; banner
               </Text>
 
@@ -961,25 +971,15 @@ export default function HomePage() {
                       activeOpacity={0.8}
                       onPress={() => setSelectedColor(c)}
                       style={[
-                        styles.colorRingOuter,
-                        isSelected && { borderColor: c },
+                        styles.colorSwatch,
+                        { backgroundColor: c },
+                        isSelected && styles.colorSwatchSelected,
                       ]}
                       accessibilityLabel={`Select theme color ${c}`}
                     >
-                      <View
-                        style={[
-                          styles.colorDot,
-                          { backgroundColor: c },
-                          isSelected && {
-                            borderWidth: 2,
-                            borderColor: darkMode ? "#1F2937" : "#FFFFFF",
-                          },
-                        ]}
-                      >
-                        {isSelected && (
-                          <Ionicons name="checkmark-sharp" size={15} color="#FFFFFF" />
-                        )}
-                      </View>
+                      {isSelected && (
+                        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -990,17 +990,35 @@ export default function HomePage() {
                 <TouchableOpacity
                   style={[
                     styles.cancelBtn,
-                    { borderColor: darkMode ? "#4B5563" : "#D1D5DB", backgroundColor: cardBg },
+                    {
+                      backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
+                      borderColor: darkMode ? "#475569" : "#CBD5E1",
+                    },
                   ]}
                   onPress={handleCancel}
                 >
-                  <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
+                  <Text
+                    style={[
+                      styles.cancelBtnText,
+                      { color: darkMode ? "#E2E8F0" : "#334155" },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[
                     styles.buildBtn,
-                    { backgroundColor: selectedColor, shadowColor: selectedColor },
-                    (!classTitle.trim() || saving) && styles.buildBtnDisabled,
+                    (!classTitle.trim() || saving)
+                      ? [
+                          styles.buildBtnDisabled,
+                          {
+                            backgroundColor: darkMode ? "#1E293B" : "#F1F5F9",
+                            borderColor: darkMode ? "#334155" : "#E2E8F0",
+                          },
+                        ]
+                      : { backgroundColor: selectedColor || "#EA580C" },
                   ]}
                   onPress={handleBuildClass}
                   disabled={!classTitle.trim() || saving}
@@ -1009,8 +1027,19 @@ export default function HomePage() {
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
-                      <Ionicons name="add" size={18} color="#FFFFFF" />
-                      <Text style={styles.buildBtnText}>Build Class</Text>
+                      <Ionicons
+                        name="add"
+                        size={18}
+                        color={(!classTitle.trim() || saving) ? "#94A3B8" : "#FFFFFF"}
+                      />
+                      <Text
+                        style={[
+                          styles.buildBtnText,
+                          (!classTitle.trim() || saving) && styles.buildBtnTextDisabled,
+                        ]}
+                      >
+                        Build Class
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -1482,6 +1511,15 @@ const styles = StyleSheet.create({
   },
 
   /* ── Modal ── */
+  sheetDragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "#CBD5E1",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 2,
+  },
   modalFullScreen: {
     flex: 1,
   },
@@ -1489,7 +1527,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: Platform.OS === "ios" ? 50 : 40,
+    paddingTop: 10,
     paddingBottom: 14,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
@@ -1499,7 +1537,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: -0.3,
   },
   modalSubtitle: {
@@ -1509,9 +1547,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   modalCloseBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 12,
@@ -1523,8 +1561,8 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 13,
-    fontWeight: "500",
-    color: "#374151",
+    fontWeight: "600",
+    color: "#334155",
     marginBottom: 6,
     marginTop: 16,
   },
@@ -1534,9 +1572,12 @@ const styles = StyleSheet.create({
   input: {
     height: 44,
     borderWidth: 1,
+    borderColor: "#CBD5E1",
     borderRadius: 10,
     paddingHorizontal: 14,
-    fontSize: 14.5,
+    fontSize: 14,
+    backgroundColor: "#FFFFFF",
+    color: "#0F172A",
   },
   rowFields: {
     flexDirection: "row",
@@ -1555,40 +1596,45 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
   cancelBtnText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "500",
+    color: "#334155",
   },
   buildBtn: {
     flex: 1.4,
     height: 44,
     borderRadius: 10,
-    backgroundColor: ORANGE,
+    backgroundColor: "#EA580C",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 6,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   buildBtnDisabled: {
-    backgroundColor: "#FED7AA",
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     shadowOpacity: 0,
     elevation: 0,
   },
   buildBtnText: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
     color: "#FFFFFF",
   },
+  buildBtnTextDisabled: {
+    color: "#94A3B8",
+  },
   colorSubtitle: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: "400",
     lineHeight: 18,
     marginBottom: 12,
@@ -1600,21 +1646,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     marginBottom: 4,
   },
-  colorRingOuter: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: "transparent",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  colorDot: {
+  colorSwatch: {
     width: 32,
     height: 32,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+  colorSwatchSelected: {
+    transform: [{ scale: 1.08 }],
   },
 
   /* ── Active Roster Alerts Popup (Image 2) ── */
