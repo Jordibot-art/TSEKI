@@ -1348,48 +1348,50 @@ export default function GraderTab({
                     onPress={() => setSourceModalOpen(false)}
                 >
                     <View style={[styles.actionSheet, { backgroundColor: cardBg }]}>
+                        <View style={styles.sheetDragHandle} />
+
                         <View style={styles.actionSheetHeader}>
-                            <Text style={[styles.actionSheetTitle, { color: textMain }]}>Scan Student Test Sheet</Text>
-                            <Text style={[styles.actionSheetSub, { color: textSub }]}>Choose how to provide the handwritten test paper</Text>
+                            <View style={{ flex: 1, paddingRight: 10 }}>
+                                <Text style={[styles.actionSheetTitle, { color: textMain }]}>Scan Student Test Sheet</Text>
+                                <Text style={[styles.actionSheetSub, { color: textSub }]}>Choose how to provide the handwritten test paper</Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setSourceModalOpen(false)}
+                                style={[styles.sheetCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={16} color={textSub} />
+                            </TouchableOpacity>
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border }]}
+                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
                             onPress={handleOpenCamera}
                             activeOpacity={0.7}
                         >
-                            <View style={[styles.sheetBtnIcon, { backgroundColor: (accentColor || "#F97316") + "18" }]}>
-                                <Ionicons name="camera" size={20} color={accentColor || "#F97316"} />
+                            <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
+                                <Ionicons name="camera-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Take Photo with Camera</Text>
                                 <Text style={[styles.sheetBtnSub, { color: textSub }]}>{"Snap a photo of the student's test sheet"}</Text>
                             </View>
-                            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#374151" : "#F9FAFB", borderColor: border }]}
+                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
                             onPress={handlePickImage}
                             activeOpacity={0.7}
                         >
-                            <View style={[styles.sheetBtnIcon, { backgroundColor: "#10B98118" }]}>
-                                <Ionicons name="images" size={20} color="#10B981" />
+                            <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
+                                <Ionicons name="image-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Choose from Photo Library</Text>
                                 <Text style={[styles.sheetBtnSub, { color: textSub }]}>Upload an existing photo from device</Text>
                             </View>
-                            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-                        </TouchableOpacity>
-
-
-                        <TouchableOpacity
-                            style={styles.sheetCancelBtn}
-                            onPress={() => setSourceModalOpen(false)}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={[styles.sheetCancelText, { color: textSub }]}>Cancel</Text>
+                            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
                         </TouchableOpacity>
                     </View>
                 </TouchableOpacity>
@@ -2079,14 +2081,40 @@ const styles = StyleSheet.create({
     },
     actionSheet: {
         backgroundColor: "#FFFFFF",
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        paddingHorizontal: 24,
-        paddingTop: 24,
-        paddingBottom: 36,
-        gap: 12,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 32,
+        gap: 10,
+    },
+    sheetDragHandle: {
+        width: 36,
+        height: 4,
+        borderRadius: 999,
+        backgroundColor: "#CBD5E1",
+        alignSelf: "center",
+        marginBottom: 12,
+    },
+    sheetCloseBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    neutralOptionIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 8,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
     },
     actionSheetHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
         marginBottom: 8,
     },
     actionSheetTitle: {
