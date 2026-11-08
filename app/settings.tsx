@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
+import { PdfExportingAnimation } from "../components/PdfExportingAnimation";
 import { BondPaperSize } from "../lib/paperSheetExporter";
 import { generatePrintPackage } from "../lib/printEngine";
 import {
@@ -349,7 +350,8 @@ export default function SettingsScreen() {
       ? `${quiz.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
       : `${quiz.quizTitle} — Student Paper (Set ${activeVersion})`;
 
-    // Activate loading UI immediately inside the modal sheet
+    // Dismiss export options sheet immediately
+    setExportModalVisible(false);
     setExportingStage(
       includeKey
         ? `Preparing Teacher Answer Key for Set ${activeVersion}...`
@@ -362,7 +364,7 @@ export default function SettingsScreen() {
       const cachedUri = await getCachedPdfUri(cacheKey);
       if (cachedUri) {
         setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 600));
         setExportModalVisible(false);
         setExportingPdf(false);
         setExportingTarget(null);
@@ -1149,25 +1151,13 @@ export default function SettingsScreen() {
           {/* In-Repository Export Loading Overlay (guaranteed visible on top of archive cards) */}
           {exportingPdf && !exportModalVisible && (
             <View style={styles.loadingOverlay}>
-              <View style={[styles.loadingCard, { backgroundColor: card }]}>
-                <View style={[styles.loadingIconGlow, { backgroundColor: (themeColor || "#2563EB") + "22" }]}>
-                  <View style={[styles.loadingIconCircle, { backgroundColor: themeColor || "#2563EB" }]}>
-                    <Ionicons name="print" size={28} color="#FFFFFF" />
-                  </View>
-                </View>
-                <Text style={[styles.loadingTitle, { color: textMain }]}>Preparing Scannable PDF</Text>
-                <Text style={[styles.loadingSub, { color: textSub }]}>
-                  {exportingStage || `Formatting Set ${exportVersion} test sheet...`}
-                </Text>
-                <View style={styles.spinnerWrap}>
-                  <ActivityIndicator size="large" color={themeColor || "#2563EB"} />
-                </View>
-                <View style={[styles.loadingNoticeRow, { backgroundColor: inputBg }]}>
-                  <Ionicons name="document-text-outline" size={14} color={themeColor || "#2563EB"} />
-                  <Text style={[styles.loadingNoticeText, { color: textSub }]}>
-                    Optimizing layout for one-shot camera scanning
-                  </Text>
-                </View>
+              <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
+                <PdfExportingAnimation
+                  exportVersion={exportVersion}
+                  quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
+                  accentColor={themeColor || "#EA580C"}
+                  darkMode={darkMode}
+                />
               </View>
             </View>
           )}
@@ -1323,25 +1313,13 @@ export default function SettingsScreen() {
           {/* Inspector Export Loading Overlay */}
           {exportingPdf && !exportModalVisible && (
             <View style={styles.loadingOverlay}>
-              <View style={[styles.loadingCard, { backgroundColor: card }]}>
-                <View style={[styles.loadingIconGlow, { backgroundColor: (themeColor || "#2563EB") + "22" }]}>
-                  <View style={[styles.loadingIconCircle, { backgroundColor: themeColor || "#2563EB" }]}>
-                    <Ionicons name="print" size={28} color="#FFFFFF" />
-                  </View>
-                </View>
-                <Text style={[styles.loadingTitle, { color: textMain }]}>Preparing Scannable PDF</Text>
-                <Text style={[styles.loadingSub, { color: textSub }]}>
-                  {exportingStage || `Formatting Set ${exportVersion} test sheet...`}
-                </Text>
-                <View style={styles.spinnerWrap}>
-                  <ActivityIndicator size="large" color={themeColor || "#2563EB"} />
-                </View>
-                <View style={[styles.loadingNoticeRow, { backgroundColor: inputBg }]}>
-                  <Ionicons name="document-text-outline" size={14} color={themeColor || "#2563EB"} />
-                  <Text style={[styles.loadingNoticeText, { color: textSub }]}>
-                    Optimizing layout for one-shot camera scanning
-                  </Text>
-                </View>
+              <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
+                <PdfExportingAnimation
+                  exportVersion={exportVersion}
+                  quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
+                  accentColor={themeColor || "#EA580C"}
+                  darkMode={darkMode}
+                />
               </View>
             </View>
           )}
@@ -1370,45 +1348,12 @@ export default function SettingsScreen() {
               e.stopPropagation?.();
             }}
           >
-            {exportingPdf ? (
-              <View style={styles.sheetLoadingWrap}>
-                <View style={[styles.loadingIconGlow, { backgroundColor: (themeColor || "#2563EB") + "20" }]}>
-                  <View style={[styles.loadingIconCircle, { backgroundColor: themeColor || "#2563EB" }]}>
-                    <Ionicons name="print" size={28} color="#FFFFFF" />
-                  </View>
-                </View>
-
-                <Text style={[styles.loadingTitle, { color: textMain }]}>
-                  Generating Set {exportVersion} PDF
-                </Text>
-
-                <Text style={[styles.loadingSub, { color: textSub }]}>
-                  {exportingStage || `Formatting Set ${exportVersion} scannable test sheet...`}
-                </Text>
-
-                <View style={styles.spinnerWrap}>
-                  <ActivityIndicator size="large" color={themeColor || "#2563EB"} />
-                </View>
-
-                <View style={[styles.loadingNoticeRow, { backgroundColor: inputBg, marginTop: 14 }]}>
-                  <Ionicons name="shield-checkmark" size={16} color={themeColor || "#2563EB"} />
-                  <Text style={[styles.loadingNoticeText, { color: textSub }]}>
-                    Anti-cheating exam version • Optimizing for camera grading
-                  </Text>
-                </View>
-
-                <Text style={{ fontSize: 11.5, color: textSub, marginTop: 14, textAlign: "center" }}>
-                  Please wait a moment while TSEKI prepares your document...
-                </Text>
-              </View>
-            ) : (
-              <>
-                <View style={styles.exportSheetHeader}>
-                  <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
-                  <Text style={[styles.exportSheetSub, { color: textSub }]}>
-                    Download, print, or share the physical test sheet formatted with scannable answer boxes.
-                  </Text>
-                </View>
+            <View style={styles.exportSheetHeader}>
+              <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
+              <Text style={[styles.exportSheetSub, { color: textSub }]}>
+                Download, print, or share the physical test sheet formatted with scannable answer boxes.
+              </Text>
+            </View>
 
                 {/* Anti-Cheating Version Selector (Set A / B / C) */}
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -1530,8 +1475,6 @@ export default function SettingsScreen() {
                 >
                   <Text style={[styles.exportCancelText, { color: textSub }]}>Cancel</Text>
                 </TouchableOpacity>
-              </>
-            )}
           </Pressable>
         </TouchableOpacity>
       </Modal>
@@ -1545,25 +1488,13 @@ export default function SettingsScreen() {
         onRequestClose={() => { }}
       >
         <View style={styles.loadingOverlay}>
-          <View style={[styles.loadingCard, { backgroundColor: card }]}>
-            <View style={[styles.loadingIconGlow, { backgroundColor: (themeColor || "#2563EB") + "22" }]}>
-              <View style={[styles.loadingIconCircle, { backgroundColor: themeColor || "#2563EB" }]}>
-                <Ionicons name="print" size={28} color="#FFFFFF" />
-              </View>
-            </View>
-            <Text style={[styles.loadingTitle, { color: textMain }]}>Preparing Scannable PDF</Text>
-            <Text style={[styles.loadingSub, { color: textSub }]}>
-              {exportingStage || `Formatting Set ${exportVersion} test sheet and embedding scannable answer boxes...`}
-            </Text>
-            <View style={styles.spinnerWrap}>
-              <ActivityIndicator size="large" color={themeColor || "#2563EB"} />
-            </View>
-            <View style={[styles.loadingNoticeRow, { backgroundColor: inputBg }]}>
-              <Ionicons name="document-text-outline" size={14} color={themeColor || "#2563EB"} />
-              <Text style={[styles.loadingNoticeText, { color: textSub }]}>
-                Optimizing layout for one-shot camera scanning
-              </Text>
-            </View>
+          <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
+            <PdfExportingAnimation
+              exportVersion={exportVersion}
+              quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
+              accentColor={themeColor || "#EA580C"}
+              darkMode={darkMode}
+            />
           </View>
         </View>
       </Modal>
@@ -2091,24 +2022,26 @@ const styles = StyleSheet.create({
   /* ── Full-screen Export Progress Overlay ── */
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(17, 24, 39, 0.82)",
+    backgroundColor: "rgba(17, 24, 39, 0.85)",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 28,
+    paddingHorizontal: 24,
     zIndex: 9999,
   },
   loadingCard: {
     width: "100%",
-    maxWidth: 360,
-    borderRadius: 24,
-    paddingHorizontal: 24,
-    paddingVertical: 32,
+    maxWidth: 344,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
-    elevation: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 22,
+    elevation: 14,
   },
   loadingIconGlow: {
     width: 76,

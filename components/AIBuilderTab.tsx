@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
 import { AssessmentGeneratingAnimation } from "./AssessmentGeneratingAnimation";
 import { PublishingQuizAnimation } from "./PublishingQuizAnimation";
+import { PdfExportingAnimation } from "./PdfExportingAnimation";
 import {
     detectDocType,
     getDocBadgeInfo,
@@ -1230,6 +1231,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             ? `${generatedAssessment.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
             : `${generatedAssessment.quizTitle} — Student Paper (Set ${activeVersion})`;
 
+        // Dismiss the export options bottom sheet immediately so it does not render underneath the loading modal
+        setExportModalOpen(false);
         setExportingStage(
             includeKey
                 ? `Preparing Teacher Answer Key for Set ${activeVersion}...`
@@ -1242,7 +1245,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             const cachedUri = await getCachedPdfUri(cacheKey);
             if (cachedUri) {
                 setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
-                await new Promise((r) => setTimeout(r, 200));
+                await new Promise((r) => setTimeout(r, 600));
                 setExportModalOpen(false);
                 setExportingPdf(false);
                 await new Promise((r) => setTimeout(r, 120));
@@ -2421,7 +2424,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 </View>
             </Modal>
 
-            {/* ── PDF Exporting Progress Overlay (shown only during uncached builds) ── */}
+            {/* ── PDF Exporting Progress Overlay ── */}
             <Modal
                 visible={exportingPdf}
                 transparent
@@ -2430,25 +2433,13 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={styles.loadingCard}>
-                        <View style={[styles.loadingIconGlow, { backgroundColor: accentColor + "22" }]}>
-                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor }]}>
-                                <Ionicons name="print" size={28} color="#FFFFFF" />
-                            </View>
-                        </View>
-                        <Text style={styles.loadingTitle}>Preparing Scannable PDF</Text>
-                        <Text style={styles.loadingSub}>
-                            Formatting Set {exportVersion} test sheet and embedding scannable answer boxes...
-                        </Text>
-                        <View style={styles.spinnerWrap}>
-                            <ActivityIndicator size="large" color={accentColor} />
-                        </View>
-                        <View style={styles.loadingNoticeRow}>
-                            <Ionicons name="document-text-outline" size={14} color="#6B7280" />
-                            <Text style={styles.loadingNoticeText}>
-                                Optimizing layout for one-shot camera scanning.
-                            </Text>
-                        </View>
+                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
+                        <PdfExportingAnimation
+                            exportVersion={exportVersion}
+                            quizTitle={generatedAssessment?.quizTitle || "Assessment"}
+                            accentColor={accentColor}
+                            darkMode={darkMode}
+                        />
                     </View>
                 </View>
             </Modal>
@@ -2475,57 +2466,24 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             e.stopPropagation?.();
                         }}
                     >
-                        {exportingPdf ? (
-                            <View style={styles.sheetLoadingWrap}>
-                                <View style={[styles.loadingIconGlow, { backgroundColor: (accentColor || "#2563EB") + "20" }]}>
-                                    <View style={[styles.loadingIconCircle, { backgroundColor: accentColor || "#2563EB" }]}>
-                                        <Ionicons name="print" size={28} color="#FFFFFF" />
-                                    </View>
-                                </View>
+                        {/* Drag Handle */}
+                        <View style={styles.sheetDragHandle} />
 
-                                <Text style={[styles.loadingTitle, { color: textMain }]}>
-                                    Generating Set {exportVersion} PDF
-                                </Text>
-
-                                <Text style={[styles.loadingSub, { color: textSub }]}>
-                                    {exportingStage || `Formatting Set ${exportVersion} scannable test sheet...`}
-                                </Text>
-
-                                <View style={styles.spinnerWrap}>
-                                    <ActivityIndicator size="large" color={accentColor || "#2563EB"} />
-                                </View>
-
-                                <View style={[styles.loadingNoticeRow, { backgroundColor: inputBg, marginTop: 14 }]}>
-                                    <Ionicons name="shield-checkmark" size={16} color={accentColor || "#2563EB"} />
-                                    <Text style={[styles.loadingNoticeText, { color: textSub }]}>
-                                        Anti-cheating exam version • Optimizing for camera grading
-                                    </Text>
-                                </View>
-
-                                <Text style={{ fontSize: 11.5, color: textSub, marginTop: 14, textAlign: "center" }}>
-                                    Please wait a moment while TSEKI prepares your document...
+                        <View style={styles.exportSheetHeader}>
+                            <View style={{ flex: 1, paddingRight: 8 }}>
+                                <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
+                                <Text style={[styles.exportSheetSub, { color: textSub }]}>
+                                    Download, print, or share the physical test sheet formatted with scannable answer boxes.
                                 </Text>
                             </View>
-                        ) : (
-                            <>
-                                {/* Drag Handle */}
-                                <View style={styles.sheetDragHandle} />
-
-                                <View style={styles.exportSheetHeader}>
-                                    <View style={{ flex: 1, paddingRight: 8 }}>
-                                        <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
-                                        <Text style={[styles.exportSheetSub, { color: textSub }]}>
-                                            Download, print, or share the physical test sheet formatted with scannable answer boxes.
-                                        </Text>
-                                    </View>
-                                    <TouchableOpacity
-                                        onPress={() => setExportModalOpen(false)}
-                                        style={styles.sheetCloseBtn}
-                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    >
-                                        <Ionicons name="close" size={20} color={textSub} />
-                                    </TouchableOpacity>
-                                </View>
+                            <TouchableOpacity
+                                onPress={() => setExportModalOpen(false)}
+                                style={styles.sheetCloseBtn}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={20} color={textSub} />
+                            </TouchableOpacity>
+                        </View>
 
                                 {/* Anti-Cheating Version Selector (Set A / B / C) */}
                                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -2665,8 +2623,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     </View>
                                     <Ionicons name="download-outline" size={18} color="#94A3B8" />
                                 </TouchableOpacity>
-                            </>
-                        )}
                     </Pressable>
                 </TouchableOpacity>
             </Modal>
