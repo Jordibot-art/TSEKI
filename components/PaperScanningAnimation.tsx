@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Animated,
   Easing,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -17,29 +16,40 @@ export interface PaperScanningAnimationProps {
 
 export function PaperScanningAnimation({
   quizTitle = "Assessment",
-  accentColor = "#F97316",
+  accentColor = "#EA580C",
   darkMode = false,
 }: PaperScanningAnimationProps) {
   // Laser vertical sweep animation (0 -> 1 -> 0)
   const laserAnim = useRef(new Animated.Value(0)).current;
 
-  // Corner breathing pulse animation
-  const cornerPulseAnim = useRef(new Animated.Value(1)).current;
-
   // Active question row highlights as laser sweeps
   const [activeRow, setActiveRow] = useState<number>(1);
 
-  // Dynamic stage progression
+  // Dynamic stage progression (3 steps)
   const [stageIndex, setStageIndex] = useState<number>(0);
   const STAGES = [
-    { title: "Aligning Corner Registration Squares", sub: "360° perspective correction active" },
-    { title: "Reading Student Information & QR Code", sub: "Linking student identity to roster" },
-    { title: "Scanning Handwritten Answer Boxes", sub: "Detecting shaded marks & capital letters" },
-    { title: "Validating Against Master Answer Key", sub: "Tallying score and generating feedback" },
+    {
+      title: "Aligning Corner Registration Markers",
+      sub: "360° perspective correction and corner lock active",
+      progress: 0.35,
+      percentText: "35%",
+    },
+    {
+      title: "Scanning Handwritten Answer Bubbles",
+      sub: "Detecting shaded marks and student handwriting",
+      progress: 0.7,
+      percentText: "70%",
+    },
+    {
+      title: "Validating Against Master Answer Key",
+      sub: "Calculating scores and verifying low-confidence marks",
+      progress: 1.0,
+      percentText: "100%",
+    },
   ];
 
-  // Stage progress animation (0 -> 100%)
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  // Stage progress animation (0.35 -> 0.7 -> 1.0)
+  const progressAnim = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
     // 1. Continuous Laser Sweep Loop
@@ -47,13 +57,13 @@ export function PaperScanningAnimation({
       Animated.sequence([
         Animated.timing(laserAnim, {
           toValue: 1,
-          duration: 1800,
+          duration: 1500,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(laserAnim, {
           toValue: 0,
-          duration: 1800,
+          duration: 1500,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
@@ -61,216 +71,149 @@ export function PaperScanningAnimation({
     );
     laserLoop.start();
 
-    // 2. Corner Bracket Gentle Breathing
-    const cornerLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(cornerPulseAnim, {
-          toValue: 1.08,
-          duration: 900,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(cornerPulseAnim, {
-          toValue: 1.0,
-          duration: 900,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    cornerLoop.start();
-
-    // 3. Progress Bar Fill Loop
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 6000,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-
-    // 4. Cycle Stages and Active Rows
-    const stageTimer = setInterval(() => {
-      setStageIndex((prev) => (prev + 1) % STAGES.length);
-    }, 1500);
-
+    // 2. Cycle active row highlights
     const rowTimer = setInterval(() => {
-      setActiveRow((prev) => (prev >= 4 ? 1 : prev + 1));
-    }, 800);
+      setActiveRow((prev) => (prev >= 3 ? 1 : prev + 1));
+    }, 750);
+
+    // 3. Stage & progress bar cycle
+    const stageTimer = setInterval(() => {
+      setStageIndex((prev) => {
+        const next = (prev + 1) % STAGES.length;
+        Animated.timing(progressAnim, {
+          toValue: STAGES[next].progress,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start();
+        return next;
+      });
+    }, 2000);
 
     return () => {
       laserLoop.stop();
-      cornerLoop.stop();
-      clearInterval(stageTimer);
       clearInterval(rowTimer);
+      clearInterval(stageTimer);
     };
-  }, [laserAnim, cornerPulseAnim, progressAnim]);
+  }, []);
 
-  const sheetBg = darkMode ? "#1F2937" : "#FFFFFF";
-  const sheetBorder = darkMode ? "#374151" : "#E5E7EB";
-  const textColor = darkMode ? "#F9FAFB" : "#111827";
-  const subTextColor = darkMode ? "#9CA3AF" : "#6B7280";
+  const textColor = darkMode ? "#F8FAFC" : "#0F172A";
+  const subTextColor = darkMode ? "#94A3B8" : "#64748B";
+  const stageBg = darkMode ? "#1E293B" : "#F8FAFC";
+  const stageBorder = darkMode ? "#334155" : "#E2E8F0";
+  const sheetBg = darkMode ? "#0F172A" : "#FFFFFF";
+  const markerColor = darkMode ? "#F8FAFC" : "#0F172A";
+
+  const currentStage = STAGES[stageIndex];
 
   return (
     <View style={styles.container}>
-      {/* ── Mini Stylized Paper Sheet ── */}
-      <View style={[styles.paperSheet, { backgroundColor: sheetBg, borderColor: sheetBorder }]}>
-        {/* Corner 1: Top-Left Marker */}
-        <Animated.View
-          style={[
-            styles.cornerMarker,
-            styles.cornerTL,
-            { transform: [{ scale: cornerPulseAnim }] },
-          ]}
-        >
-          <View style={styles.solidMarkerBox} />
-        </Animated.View>
+      {/* ── 1. Top Animated Stage: Mini OMR Sheet Preview ── */}
+      <View style={[styles.stageCard, { backgroundColor: stageBg, borderColor: stageBorder }]}>
+        <View style={[styles.omrSheet, { backgroundColor: sheetBg, borderColor: stageBorder }]}>
+          {/* 4 Shrunk 8x8px Corner Registration Markers */}
+          <View style={[styles.cornerMarker, styles.cornerTL, { backgroundColor: markerColor }]} />
+          <View style={[styles.cornerMarker, styles.cornerTR, { backgroundColor: markerColor }]} />
+          <View style={[styles.cornerMarker, styles.cornerBL, { backgroundColor: markerColor }]} />
+          <View style={[styles.cornerMarker, styles.cornerBR, { backgroundColor: markerColor }]} />
 
-        {/* Corner 2: Top-Right Marker */}
-        <Animated.View
-          style={[
-            styles.cornerMarker,
-            styles.cornerTR,
-            { transform: [{ scale: cornerPulseAnim }] },
-          ]}
-        >
-          <View style={styles.solidMarkerBox} />
-        </Animated.View>
+          {/* Clean 01–03 Bubble Rows (A B C D) */}
+          <View style={styles.bubbleGrid}>
+            {[1, 2, 3].map((rowNum) => {
+              const isDetected = rowNum <= activeRow;
+              return (
+                <View key={rowNum} style={styles.bubbleRow}>
+                  <Text style={[styles.rowNumber, { color: isDetected ? "#10B981" : subTextColor }]}>
+                    {`0${rowNum}`}
+                  </Text>
+                  {["A", "B", "C", "D"].map((letter, colIdx) => {
+                    const isTarget =
+                      (rowNum === 1 && colIdx === 1) || // Q1 -> B
+                      (rowNum === 2 && colIdx === 0) || // Q2 -> A
+                      (rowNum === 3 && colIdx === 2);   // Q3 -> C
 
-        {/* Corner 3: Bottom-Left Marker */}
-        <Animated.View
-          style={[
-            styles.cornerMarker,
-            styles.cornerBL,
-            { transform: [{ scale: cornerPulseAnim }] },
-          ]}
-        >
-          <View style={styles.solidMarkerBox} />
-        </Animated.View>
+                    const isMarked = isTarget && isDetected;
 
-        {/* Corner 4: Bottom-Right Marker */}
-        <Animated.View
-          style={[
-            styles.cornerMarker,
-            styles.cornerBR,
-            { transform: [{ scale: cornerPulseAnim }] },
-          ]}
-        >
-          <View style={styles.solidMarkerBox} />
-        </Animated.View>
-
-        {/* Header Preview inside the Sheet */}
-        <View style={styles.sheetHeader}>
-          <View style={{ flex: 1 }}>
-            <View style={[styles.skeletonLine, { width: "65%", height: 7, backgroundColor: accentColor }]} />
-            <View style={[styles.skeletonLine, { width: "90%", height: 4, marginTop: 4, opacity: 0.5 }]} />
-            <View style={[styles.skeletonLine, { width: "75%", height: 4, marginTop: 3, opacity: 0.4 }]} />
+                    return (
+                      <View
+                        key={letter}
+                        style={[
+                          styles.bubble,
+                          {
+                            borderColor: isMarked ? "#10B981" : (darkMode ? "#475569" : "#CBD5E1"),
+                            backgroundColor: isMarked
+                              ? "#10B981"
+                              : (darkMode ? "#1E293B" : "#F8FAFC"),
+                          },
+                        ]}
+                      >
+                        {isMarked ? (
+                          <Ionicons name="checkmark" size={8} color="#FFFFFF" />
+                        ) : (
+                          <Text style={[styles.bubbleText, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                            {letter}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
           </View>
-          <View style={styles.miniQrBox}>
-            <Ionicons name="qr-code" size={18} color="#10B981" />
-          </View>
+
+          {/* Sweeping Laser Line Overlay */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.laserBar,
+              {
+                backgroundColor: "#10B981",
+                shadowColor: "#10B981",
+                transform: [
+                  {
+                    translateY: laserAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [4, 78],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.laserTrail} />
+          </Animated.View>
         </View>
-
-        {/* Simulated Question & Answer Rows */}
-        <View style={styles.bubbleGrid}>
-          {[1, 2, 3, 4].map((rowNum) => {
-            const isScanned = rowNum <= activeRow;
-            return (
-              <View key={rowNum} style={styles.bubbleRow}>
-                <Text style={[styles.rowNumber, { color: isScanned ? accentColor : subTextColor }]}>
-                  {rowNum < 10 ? `0${rowNum}` : rowNum}
-                </Text>
-                {["A", "B", "C", "D"].map((letter, colIdx) => {
-                  const isMarked = (rowNum === 1 && colIdx === 1) ||
-                    (rowNum === 2 && colIdx === 0) ||
-                    (rowNum === 3 && colIdx === 2) ||
-                    (rowNum === 4 && colIdx === 3);
-
-                  return (
-                    <View
-                      key={letter}
-                      style={[
-                        styles.bubble,
-                        isMarked && isScanned && {
-                          backgroundColor: "#10B981",
-                          borderColor: "#10B981",
-                        },
-                      ]}
-                    >
-                      {isMarked && isScanned ? (
-                        <Ionicons name="checkmark" size={9} color="#FFFFFF" />
-                      ) : (
-                        <Text style={styles.bubbleText}>{letter}</Text>
-                      )}
-                    </View>
-                  );
-                })}
-
-                {/* Row Score Pill */}
-                {isScanned ? (
-                  <View style={[styles.rowPill, { backgroundColor: "#10B9811C" }]}>
-                    <Text style={[styles.rowPillText, { color: "#10B981" }]}>+1 pt</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.rowPill, { backgroundColor: "transparent" }]}>
-                    <Text style={[styles.rowPillText, { color: "transparent" }]}>+1 pt</Text>
-                  </View>
-                )}
-              </View>
-            );
-          })}
-        </View>
-
-        {/* ── Sweeping Laser Beam Overlay ── */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.laserBar,
-            {
-              backgroundColor: "#10B981",
-              shadowColor: "#10B981",
-              transform: [
-                {
-                  translateY: laserAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [6, 174],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          {/* Subtle glowing trail below the laser line */}
-          <View style={styles.laserTrail} />
-        </Animated.View>
       </View>
 
-      {/* ── Status Text & Step Progress ── */}
-      <View style={styles.statusArea}>
-        <View style={styles.stageTitleRow}>
-          <View style={[styles.pulseDot, { backgroundColor: accentColor }]} />
-          <Text style={[styles.stageTitle, { color: textColor }]}>
-            {STAGES[stageIndex].title}
-          </Text>
-        </View>
-        <Text style={[styles.stageSub, { color: subTextColor }]}>
-          {STAGES[stageIndex].sub}
+      {/* ── 2. Typography Block (Centered, No Floating Left Dot) ── */}
+      <View style={styles.typographyBlock}>
+        <Text style={[styles.stageTitle, { color: textColor }]}>
+          {currentStage.title}
+        </Text>
+        <Text style={[styles.stageSubtitle, { color: subTextColor }]} numberOfLines={1}>
+          {currentStage.sub}
         </Text>
       </View>
 
-      {/* ── Animated Gradient-like Progress Bar ── */}
-      <View style={[styles.progressTrack, { backgroundColor: darkMode ? "#374151" : "#E5E7EB" }]}>
+      {/* ── 3. Smooth Progress Bar + Step Counter Row ── */}
+      <View style={[styles.progressTrack, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
         <Animated.View
           style={[
             styles.progressFill,
             {
-              backgroundColor: accentColor,
               width: progressAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: ["15%", "95%"],
+                outputRange: ["0%", "100%"],
               }),
             },
           ]}
         />
+      </View>
+
+      <View style={styles.stepCounterRow}>
+        <Text style={styles.stepText}>Step {stageIndex + 1} of 3</Text>
+        <Text style={[styles.percentText, { color: textColor }]}>{currentStage.percentText}</Text>
       </View>
     </View>
   );
@@ -278,155 +221,134 @@ export function PaperScanningAnimation({
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: "center",
     width: "100%",
-    paddingVertical: 4,
+    alignItems: "center",
   },
-  paperSheet: {
-    width: 230,
-    height: 190,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    padding: 12,
+  stageCard: {
+    width: "100%",
+    height: 110,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 18,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  omrSheet: {
+    width: 200,
+    height: 84,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    justifyContent: "center",
     position: "relative",
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   cornerMarker: {
     position: "absolute",
-    width: 16,
-    height: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  solidMarkerBox: {
-    width: 10,
-    height: 10,
-    backgroundColor: "#111827",
+    width: 8,
+    height: 8,
     borderRadius: 1.5,
   },
-  cornerTL: { top: 6, left: 6 },
-  cornerTR: { top: 6, right: 6 },
-  cornerBL: { bottom: 6, left: 6 },
-  cornerBR: { bottom: 6, right: 6 },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    marginBottom: 10,
-  },
-  skeletonLine: {
-    borderRadius: 3,
-    backgroundColor: "#9CA3AF",
-  },
-  miniQrBox: {
-    width: 26,
-    height: 26,
-    borderRadius: 5,
-    backgroundColor: "rgba(16, 185, 129, 0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(16, 185, 129, 0.3)",
-  },
+  cornerTL: { top: 5, left: 5 },
+  cornerTR: { top: 5, right: 5 },
+  cornerBL: { bottom: 5, left: 5 },
+  cornerBR: { bottom: 5, right: 5 },
   bubbleGrid: {
-    paddingHorizontal: 16,
-    gap: 8,
+    gap: 6,
+    alignItems: "center",
   },
   bubbleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
   },
   rowNumber: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "700",
-    width: 18,
+    width: 16,
+    textAlign: "right",
+    marginRight: 2,
   },
   bubble: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F9FAFB",
   },
   bubbleText: {
-    fontSize: 8,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  rowPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginLeft: "auto",
-  },
-  rowPillText: {
-    fontSize: 9,
-    fontWeight: "800",
+    fontSize: 7.5,
+    fontWeight: "700",
   },
   laserBar: {
     position: "absolute",
     left: 0,
     right: 0,
-    height: 2.5,
+    height: 2,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 6,
-    elevation: 8,
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 4,
   },
   laserTrail: {
     position: "absolute",
     top: 2,
     left: 0,
     right: 0,
-    height: 14,
+    height: 10,
     backgroundColor: "rgba(16, 185, 129, 0.12)",
   },
-  statusArea: {
+  typographyBlock: {
+    width: "100%",
     alignItems: "center",
-    marginTop: 18,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-  },
-  stageTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
   stageTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 4,
     letterSpacing: -0.2,
-    textAlign: "center",
   },
-  stageSub: {
-    fontSize: 11.5,
-    marginTop: 3,
+  stageSubtitle: {
+    fontSize: 13,
     textAlign: "center",
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
   progressTrack: {
-    width: "85%",
-    height: 5,
-    borderRadius: 3,
+    height: 6,
+    width: "100%",
+    borderRadius: 999,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    borderRadius: 3,
+    backgroundColor: "#0F172A",
+    borderRadius: 999,
+  },
+  stepCounterRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    alignItems: "center",
+  },
+  stepText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  percentText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
 });

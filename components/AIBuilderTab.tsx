@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
 import { AssessmentGeneratingAnimation } from "./AssessmentGeneratingAnimation";
+import { PublishingQuizAnimation } from "./PublishingQuizAnimation";
 import {
     detectDocType,
     getDocBadgeInfo,
@@ -1697,7 +1698,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             style={{
                                 marginTop: 18,
                                 paddingHorizontal: 14,
-                                paddingVertical: 12,
+                                paddingVertical: 10,
                                 borderRadius: 12,
                                 borderWidth: 1,
                                 borderColor: quotaState.isDailyLimitReached
@@ -1708,25 +1709,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                                     : (darkMode ? "#1E293B" : "#F8FAFC"),
                             }}
                         >
-                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                    <Ionicons
-                                        name={quotaState.isDailyLimitReached ? "lock-closed-outline" : "flash-outline"}
-                                        size={14}
-                                        color={quotaState.isDailyLimitReached ? "#DC2626" : accentColor}
-                                    />
-                                    <Text
-                                        style={{
-                                            fontSize: 12.5,
-                                            fontWeight: "600",
-                                            color: quotaState.isDailyLimitReached ? "#DC2626" : textMain,
-                                        }}
-                                    >
-                                        Daily AI quota
-                                    </Text>
-                                </View>
-                                <Text style={{ fontSize: 12, fontWeight: "500", color: "#64748B" }}>
-                                    {`${quotaState.remainingToday} of ${quotaState.dailyLimit} left today · Resets at 12:00 AM PHT`}
+                            <View style={{ marginBottom: 8 }}>
+                                <Text
+                                    style={{
+                                        fontSize: 12,
+                                        fontWeight: "500",
+                                        color: quotaState.isDailyLimitReached ? "#DC2626" : (darkMode ? "#94A3B8" : "#475569"),
+                                    }}
+                                    numberOfLines={1}
+                                >
+                                    {`Daily AI quota: ${quotaState.remainingToday} of ${quotaState.dailyLimit} left · Resets 12:00 AM PHT`}
                                 </Text>
                             </View>
                             <View
@@ -2287,30 +2279,12 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: cardBg }]}>
-                        <View style={[styles.loadingIconGlow, { backgroundColor: accentColor + "22" }]}>
-                            <View style={[styles.loadingIconCircle, { backgroundColor: accentColor }]}>
-                                <Ionicons name="cloud-upload" size={28} color="#FFFFFF" />
-                            </View>
-                        </View>
-                        <Text style={[styles.loadingTitle, { color: textMain }]}>Publishing Quiz</Text>
-                        <Text style={[styles.loadingSub, { color: textSub }]}>
-                            {publishingStage || `Saving "${generatedAssessment?.quizTitle || "Assessment"}" to ${classTitle} and your cloud archive...`}
-                        </Text>
-                        <View style={styles.spinnerWrap}>
-                            <ActivityIndicator size="large" color={accentColor} />
-                        </View>
-                        <View style={[styles.loadingMetaPill, { backgroundColor: inputBg }]}>
-                            <Text style={[styles.loadingMetaText, { color: textSub }]} numberOfLines={1}>
-                                {classTitle} • {generatedAssessment?.questions.length || questionCount} Items • Archive & Grader
-                            </Text>
-                        </View>
-                        <View style={styles.loadingNoticeRow}>
-                            <Ionicons name="scan-outline" size={14} color={accentColor} />
-                            <Text style={[styles.loadingNoticeText, { color: textSub }]}>
-                                Preparing scannable layout for Camera Grader...
-                            </Text>
-                        </View>
+                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
+                        <PublishingQuizAnimation
+                            quizTitle={generatedAssessment?.quizTitle || "Assessment"}
+                            accentColor={accentColor}
+                            darkMode={darkMode}
+                        />
                     </View>
                 </View>
             </Modal>
@@ -2324,14 +2298,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: cardBg, maxWidth: 360 }]}>
-                        {isAiBusy && (
-                            <View style={[styles.aiBusyBadge, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B", marginBottom: 12 }]}>
-                                <Ionicons name="cloud-offline-outline" size={13} color="#D97706" />
-                                <Text style={styles.aiBusyBadgeText}>AI is busy right now</Text>
-                            </View>
-                        )}
-
+                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
                         <AssessmentGeneratingAnimation
                             topicOrSubject={subject || classTitle || "Assessment"}
                             questionCount={typeof questionCount === "string" ? questionCount : `${questionCount} Items`}
@@ -2342,16 +2309,6 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             accentColor={accentColor}
                             darkMode={darkMode}
                         />
-
-                        {/* Do not close notice */}
-                        <View style={[styles.loadingNoticeRow, isAiBusy && { backgroundColor: "#FFFBEB" }, { marginTop: 4 }]}>
-                            <Ionicons name={isAiBusy ? "sync-outline" : "hourglass-outline"} size={14} color={isAiBusy ? "#D97706" : "#6B7280"} />
-                            <Text style={[styles.loadingNoticeText, isAiBusy && { color: "#92400E" }]}>
-                                {isAiBusy
-                                    ? "Retrying with backoff before switching to backup AI..."
-                                    : "Please wait while Tseki crafts your assessment."}
-                            </Text>
-                        </View>
                     </View>
                 </View>
             </Modal>
@@ -3558,7 +3515,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         flex: 1,
-        paddingHorizontal: 4,
+        paddingHorizontal: 2,
     },
     previewStatValue: {
         fontSize: 16,
@@ -3566,10 +3523,10 @@ const styles = StyleSheet.create({
         marginBottom: 3,
     },
     previewStatLabel: {
-        fontSize: 10.5,
+        fontSize: 10,
         fontWeight: "600",
         textTransform: "uppercase",
-        letterSpacing: 0.3,
+        letterSpacing: 0.1,
     },
     previewStatDivider: {
         width: 1,
@@ -3956,18 +3913,19 @@ const styles = StyleSheet.create({
         zIndex: 9999,
     },
     loadingCard: {
-        width: "100%",
-        maxWidth: 360,
+        width: "86%",
+        maxWidth: 340,
         backgroundColor: "#FFFFFF",
-        borderRadius: 24,
-        paddingHorizontal: 24,
-        paddingVertical: 32,
+        borderRadius: 20,
+        padding: 22,
         alignItems: "center",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.3,
-        shadowRadius: 24,
-        elevation: 16,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.12,
+        shadowRadius: 20,
+        elevation: 12,
     },
     loadingIconGlow: {
         width: 76,

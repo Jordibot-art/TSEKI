@@ -1404,23 +1404,12 @@ export default function GraderTab({
                 onRequestClose={() => { }}
             >
                 <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: cardBg, maxWidth: 360 }]}>
+                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
                         <PaperScanningAnimation
                             quizTitle={currentQuizValue}
-                            accentColor={accentColor || "#F97316"}
+                            accentColor={accentColor || "#EA580C"}
                             darkMode={darkMode}
                         />
-
-                        <View style={[styles.loadingMetaPill, { backgroundColor: darkMode ? "#374151" : "#F3F4F6", marginTop: 10 }]}>
-                            <Text style={[styles.loadingMetaText, { color: textMain }]} numberOfLines={1}>
-                                {currentQuizValue}
-                            </Text>
-                        </View>
-
-                        <View style={[styles.loadingNoticeRow, { marginTop: 6 }]}>
-                            <Ionicons name="scan-outline" size={14} color={accentColor || "#F97316"} />
-                            <Text style={[styles.loadingNoticeText, { color: textSub }]}>Tseki AI Vision is reading handwritten student answers...</Text>
-                        </View>
                     </View>
                 </View>
             </Modal>
@@ -2160,18 +2149,19 @@ const styles = StyleSheet.create({
         paddingHorizontal: 28,
     },
     loadingCard: {
-        width: "100%",
-        maxWidth: 360,
+        width: "86%",
+        maxWidth: 340,
         backgroundColor: "#FFFFFF",
-        borderRadius: 24,
-        paddingHorizontal: 24,
-        paddingVertical: 32,
+        borderRadius: 20,
+        padding: 22,
         alignItems: "center",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.3,
-        shadowRadius: 24,
-        elevation: 16,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.12,
+        shadowRadius: 20,
+        elevation: 12,
     },
     loadingIconGlow: {
         width: 76,
