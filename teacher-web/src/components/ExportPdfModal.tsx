@@ -3,12 +3,10 @@ import { createPortal } from "react-dom";
 import {
   FileText,
   File,
-  CheckCircle2,
-  Download,
   CheckSquare,
   Square,
   X,
-  Loader2,
+  Download,
 } from "lucide-react";
 import {
   generatePrintPackage,
@@ -17,6 +15,7 @@ import {
   type BondPaperSize,
 } from "../lib/printEngine";
 import { showAlert } from "./CustomAlertModal";
+import { PdfExportingAnimation } from "./PdfExportingAnimation";
 import styles from "./ExportPdfModal.module.css";
 
 export interface ExportPdfModalProps {
@@ -58,9 +57,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         : `Formatting Set ${exportVersion} (${paperSize === "long" ? "Long Bond" : "Short Bond"})...`
     );
 
+    const startTime = Date.now();
+
     try {
-      // Yield to update UI
-      await new Promise((r) => setTimeout(r, 60));
+      // Yield to let React mount the animation smoothly
+      await new Promise((r) => setTimeout(r, 80));
 
       const safeTitle = (assessment.quizTitle || "Assessment").replace(
         /[^a-zA-Z0-9_\-]/g,
@@ -93,8 +94,15 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         throw new Error("Generated PDF has no content.");
       }
 
-      setExportStage("Downloading PDF file...");
-      await new Promise((r) => setTimeout(r, 100));
+      // Ensure user sees the mobile-styled compilation sequence (at least 1.8s)
+      const elapsed = Date.now() - startTime;
+      const minDisplay = 1800;
+      if (elapsed < minDisplay) {
+        await new Promise((r) => setTimeout(r, minDisplay - elapsed));
+      }
+
+      setExportStage("Ready! Downloading PDF...");
+      await new Promise((r) => setTimeout(r, 200));
 
       downloadPdfBytes(bytesToExport, suggestedFileName);
 
@@ -115,156 +123,168 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   return createPortal(
     <div
-      className={styles.overlay}
+      className={styles.exportBackdrop}
       onClick={() => {
         if (!exporting) onClose();
       }}
     >
-      <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-        <button
-          className={styles.closeBtn}
-          onClick={onClose}
-          disabled={exporting}
-          aria-label="Close"
-        >
-          <X size={18} />
-        </button>
-
-        {/* Header */}
-        <div className={styles.header}>
-          <h3 className={styles.title}>Export Paper Sheet Layout</h3>
-          <p className={styles.sub}>
-            Download, print, or share the physical test sheet formatted with
-            scannable answer boxes.
-          </p>
-        </div>
-
-        {/* Anti-Cheating Version Selector */}
-        <div className={styles.versionRow}>
-          <span className={styles.versionLabel}>TEST VERSION (SET):</span>
-          <div className={styles.versionPills}>
-            {(["A", "B", "C"] as const).map((ver) => (
+      <div className={styles.exportSheet} onClick={(e) => e.stopPropagation()}>
+        {exporting ? (
+          <div className={styles.animWrap}>
+            <PdfExportingAnimation
+              quizTitle={assessment.quizTitle}
+              exportVersion={exportVersion}
+              accentColor="#EA580C"
+              statusText={exportStage}
+            />
+          </div>
+        ) : (
+          <>
+            <div className={styles.exportSheetHeaderRow}>
+              <div className={styles.exportSheetHeader}>
+                <h3 className={styles.exportSheetTitle}>
+                  Export Paper Sheet Layout
+                </h3>
+                <p className={styles.exportSheetSub}>
+                  Download, print, or share the physical test sheet formatted with
+                  scannable answer boxes.
+                </p>
+              </div>
               <button
-                key={ver}
                 type="button"
-                className={`${styles.versionPill} ${
-                  exportVersion === ver ? styles.versionPillActive : ""
-                }`}
-                onClick={() => setExportVersion(ver)}
-                disabled={exporting}
+                className={styles.sheetCloseBtn}
+                onClick={onClose}
+                aria-label="Close"
               >
-                Set {ver}
+                <X size={18} />
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Force Separate Mode Toggle */}
-        <div
-          className={styles.toggleRow}
-          onClick={() => {
-            if (!exporting) setForceSeparateMode((prev) => !prev);
-          }}
-        >
-          <span className={styles.toggleText}>
-            Always use separate Question Booklet + Answer Sheet
-          </span>
-          <span
-            className={`${styles.checkboxIcon} ${
-              forceSeparateMode ? styles.checkboxIconActive : ""
-            }`}
-          >
-            {forceSeparateMode ? (
-              <CheckSquare size={20} />
-            ) : (
-              <Square size={20} />
-            )}
-          </span>
-        </div>
+            {/* Anti-Cheating Version Selector (Set A / B / C) */}
+            <div className={styles.versionRow}>
+              <span className={styles.versionLabel}>Test version</span>
+              <div className={styles.segmentedTrack}>
+                {(["A", "B", "C"] as const).map((ver) => {
+                  const isActive = exportVersion === ver;
+                  return (
+                    <button
+                      key={ver}
+                      type="button"
+                      className={`${styles.segmentBtn} ${
+                        isActive ? styles.segmentBtnActive : ""
+                      }`}
+                      onClick={() => setExportVersion(ver)}
+                    >
+                      Set {ver}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-        {/* 3 Export Options */}
-        <div className={styles.optionsList}>
-          {/* Option 1: Short Bond Paper */}
-          <button
-            type="button"
-            className={styles.exportCard}
-            onClick={() => handleExport(false, "short")}
-            disabled={exporting}
-          >
-            <div className={`${styles.iconBox} ${styles.iconPurple}`}>
-              <FileText size={22} />
-            </div>
-            <div className={styles.cardContent}>
-              <h4 className={styles.cardTitle}>
-                Short Bond Paper (8.5" × 11")
-              </h4>
-              <p className={styles.cardSub}>
-                1 single sheet (Letter size) • 2-column scannable layout for 1-shot camera scanning
-              </p>
-            </div>
-            <Download size={20} className={styles.downloadIcon} />
-          </button>
+            {/* Force Separate Answer Sheet Toggle */}
+            <button
+              type="button"
+              className={styles.forceSeparateBtn}
+              onClick={() => setForceSeparateMode((prev) => !prev)}
+            >
+              <span className={styles.forceSeparateText}>
+                Always use separate Question Booklet + Answer Sheet
+              </span>
+              <span
+                className={`${styles.checkboxIcon} ${
+                  forceSeparateMode ? styles.checkboxIconActive : ""
+                }`}
+              >
+                {forceSeparateMode ? (
+                  <CheckSquare size={19} />
+                ) : (
+                  <Square size={19} />
+                )}
+              </span>
+            </button>
 
-          {/* Option 2: Long Bond Paper */}
-          <button
-            type="button"
-            className={styles.exportCard}
-            onClick={() => handleExport(false, "long")}
-            disabled={exporting}
-          >
-            <div className={`${styles.iconBox} ${styles.iconViolet}`}>
-              <File size={22} />
-            </div>
-            <div className={styles.cardContent}>
-              <h4 className={styles.cardTitle}>
-                Long Bond Paper (8.5" × 13")
-              </h4>
-              <p className={styles.cardSub}>
-                1 single sheet (Philippine Folio) • Fits all questions with extra spacing on 1 page
-              </p>
-            </div>
-            <Download size={20} className={styles.downloadIcon} />
-          </button>
+            {/* 3 Mobile-Identical Export Option Cards */}
+            <div className={styles.optionsList}>
+              {/* Option 1: Short Bond Paper */}
+              <button
+                type="button"
+                className={styles.exportOptionBtn}
+                onClick={() => handleExport(false, "short")}
+              >
+                <div className={styles.neutralOptionIcon}>
+                  <FileText size={18} />
+                </div>
+                <div className={styles.optionContent}>
+                  <div className={styles.optionTitleRow}>
+                    <span className={styles.exportOptionTitle}>
+                      Short Bond Paper
+                    </span>
+                    <span className={styles.dimBadge}>8.5" × 11"</span>
+                  </div>
+                  <p className={styles.exportOptionSub}>
+                    {`1 single sheet (Letter size) • Set ${exportVersion} scannable layout for 1-shot camera scanning`}
+                  </p>
+                </div>
+                <Download size={18} className={styles.downloadIcon} />
+              </button>
 
-          {/* Option 3: Teacher Answer Key Paper */}
-          <button
-            type="button"
-            className={styles.exportCard}
-            onClick={() => handleExport(true, "short")}
-            disabled={exporting}
-          >
-            <div className={`${styles.iconBox} ${styles.iconGreen}`}>
-              <CheckCircle2 size={22} />
-            </div>
-            <div className={styles.cardContent}>
-              <h4 className={styles.cardTitle}>Teacher Answer Key Paper (PDF)</h4>
-              <p className={styles.cardSub}>
-                1 single sheet with correct answers pre-printed in the boxes for grading reference
-              </p>
-            </div>
-            <Download size={20} className={styles.downloadIcon} />
-          </button>
-        </div>
+              {/* Option 2: Long Bond Paper */}
+              <button
+                type="button"
+                className={styles.exportOptionBtn}
+                onClick={() => handleExport(false, "long")}
+              >
+                <div className={styles.neutralOptionIcon}>
+                  <File size={18} />
+                </div>
+                <div className={styles.optionContent}>
+                  <div className={styles.optionTitleRow}>
+                    <span className={styles.exportOptionTitle}>
+                      Long Bond Paper
+                    </span>
+                    <span className={styles.dimBadge}>8.5" × 13"</span>
+                  </div>
+                  <p className={styles.exportOptionSub}>
+                    {`1 single sheet (Philippine Folio) • Fits all questions with Set ${exportVersion} spacing`}
+                  </p>
+                </div>
+                <Download size={18} className={styles.downloadIcon} />
+              </button>
 
-        {/* Cancel Button */}
-        <button
-          type="button"
-          className={styles.cancelBtn}
-          onClick={onClose}
-          disabled={exporting}
-        >
-          Cancel
-        </button>
-
-        {/* Loading Overlay inside modal when generating */}
-        {exporting && (
-          <div className={styles.exportingOverlay}>
-            <div className={styles.spinnerCircle}>
-              <Loader2 size={26} className="spinner" />
+              {/* Option 3: Teacher Answer Key */}
+              <button
+                type="button"
+                className={styles.exportOptionBtn}
+                onClick={() => handleExport(true, "short")}
+              >
+                <div className={styles.neutralOptionIcon}>
+                  <CheckSquare size={18} />
+                </div>
+                <div className={styles.optionContent}>
+                  <div className={styles.optionTitleRow}>
+                    <span className={styles.exportOptionTitle}>
+                      Teacher Answer Key
+                    </span>
+                    <span className={styles.dimBadge}>PDF</span>
+                  </div>
+                  <p className={styles.exportOptionSub}>
+                    {`1 single sheet with correct answers pre-printed in boxes for Set ${exportVersion}`}
+                  </p>
+                </div>
+                <Download size={18} className={styles.downloadIcon} />
+              </button>
             </div>
-            <h4 className={styles.exportingTitle}>Preparing Scannable PDF</h4>
-            <p className={styles.exportingStage}>{exportStage}</p>
-          </div>
+
+            {/* Cancel Button */}
+            <button
+              type="button"
+              className={styles.exportCancelBtn}
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+          </>
         )}
       </div>
     </div>,

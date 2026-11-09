@@ -13,6 +13,7 @@ import {
   Loader2,
   Palette,
   GraduationCap,
+  Clock,
 } from "lucide-react";
 import styles from "./ClassroomsPage.module.css";
 import { ClassroomOnboardingModal } from "../components/ClassroomOnboardingModal";
@@ -220,15 +221,17 @@ export default function ClassroomsPage() {
       </div>
 
       {/* Search */}
-      <div className={styles.searchBar}>
-        <Search size={18} className={styles.searchIcon} />
-        <input
-          type="text"
-          placeholder="Search classrooms by name, subject, or section..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className={styles.searchInput}
-        />
+      <div className={styles.searchToolbar}>
+        <div className={styles.searchBar}>
+          <Search size={16} className={styles.searchIcon} />
+          <input
+            type="text"
+            placeholder="Search classrooms by name, subject, or section..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={styles.searchInput}
+          />
+        </div>
       </div>
 
       {/* Grid */}
@@ -240,7 +243,7 @@ export default function ClassroomsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className={styles.emptyState}>
-          <GraduationCap size={52} strokeWidth={1} />
+          <GraduationCap size={44} strokeWidth={1.2} />
           <h3>{searchQuery ? "No classrooms match your search" : "No classrooms yet"}</h3>
           <p>
             {searchQuery
@@ -249,7 +252,7 @@ export default function ClassroomsPage() {
           </p>
           {!searchQuery && (
             <button className={styles.emptyBtn} onClick={() => setShowModal(true)}>
-              <Plus size={16} />
+              <Plus size={15} />
               Create Classroom
             </button>
           )}
@@ -260,38 +263,50 @@ export default function ClassroomsPage() {
             <div
               key={cls.id}
               className={styles.card}
-              style={{ animationDelay: `${idx * 50}ms` }}
+              style={{ animationDelay: `${idx * 40}ms` }}
               onClick={() => navigate(`/classrooms/${cls.id}`)}
             >
-              <div
-                className={styles.cardAccent}
-                style={{ background: cls.color }}
-              />
-              <div className={styles.cardContent}>
-                <h3 className={styles.cardTitle}>{cls.title}</h3>
-                <p className={styles.cardSubject}>
-                  {cls.subject}
-                  {cls.section ? ` · ${cls.section}` : ""}
-                </p>
-                {cls.schedule && (
-                  <p className={styles.cardSchedule}>{cls.schedule}</p>
-                )}
-                <div className={styles.cardBadges}>
-                  <span className={styles.badge}>
-                    <Users size={13} />
-                    {cls.studentCount}
-                  </span>
-                  <span className={styles.badge}>
-                    <FileText size={13} />
-                    {cls.quizCount}
-                  </span>
-                  {cls.flaggedCount > 0 && (
-                    <span className={`${styles.badge} ${styles.badgeAlert}`}>
-                      <AlertTriangle size={13} />
-                      {cls.flaggedCount}
-                    </span>
-                  )}
+              <div className={styles.cardHeaderRow}>
+                <div className={styles.cardHeaderLeft}>
+                  <span
+                    className={styles.cardIndicator}
+                    style={{ background: cls.color }}
+                  />
+                  <span className={styles.cardSubject}>{cls.subject}</span>
                 </div>
+                {cls.section && (
+                  <span className={styles.sectionBadge}>{cls.section}</span>
+                )}
+              </div>
+
+              <h3 className={styles.cardTitle}>{cls.title}</h3>
+
+              {cls.schedule ? (
+                <div className={styles.cardSchedule}>
+                  <Clock size={13} className={styles.scheduleIcon} />
+                  <span>{cls.schedule}</span>
+                </div>
+              ) : (
+                <div className={styles.cardScheduleSpacer} />
+              )}
+
+              <div className={styles.cardFooter}>
+                <div className={styles.footerBadges}>
+                  <span className={styles.badge}>
+                    <Users size={12} />
+                    <span className="tabular-nums">{cls.studentCount} students</span>
+                  </span>
+                  <span className={styles.badge}>
+                    <FileText size={12} />
+                    <span className="tabular-nums">{cls.quizCount} quizzes</span>
+                  </span>
+                </div>
+                {cls.flaggedCount > 0 && (
+                  <span className={`${styles.badge} ${styles.badgeAlert}`}>
+                    <AlertTriangle size={12} />
+                    <span className="tabular-nums">{cls.flaggedCount} at-risk</span>
+                  </span>
+                )}
               </div>
             </div>
           ))}

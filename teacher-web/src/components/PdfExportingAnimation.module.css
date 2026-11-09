@@ -1,0 +1,312 @@
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.stageCard {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  padding: 16px 12px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.paperSheet {
+  width: 240px;
+  height: 184px;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  background-color: #ffffff;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  box-sizing: border-box;
+}
+
+/* 4 Corner Markers */
+.cornerMarker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  animation: cornerPulse 1.6s ease-in-out infinite;
+}
+
+.cornerTL { top: 6px; left: 6px; }
+.cornerTR { top: 6px; right: 6px; }
+.cornerBL { bottom: 6px; left: 6px; }
+.cornerBR { bottom: 6px; right: 6px; }
+
+.solidMarkerBox {
+  width: 8px;
+  height: 8px;
+  background-color: #0f172a;
+  border-radius: 1.5px;
+}
+
+@keyframes cornerPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+/* Sheet Header */
+.sheetHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 6px;
+}
+
+.headerLeft {
+  flex: 1;
+}
+
+.versionBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.skeletonLineMain {
+  width: 86%;
+  height: 5px;
+  background-color: #cbd5e1;
+  border-radius: 3px;
+  margin-top: 4px;
+}
+
+.skeletonLineSub {
+  width: 65%;
+  height: 3.5px;
+  background-color: #e2e8f0;
+  border-radius: 2px;
+  margin-top: 3px;
+}
+
+.miniQrBox {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px dashed rgba(16, 185, 129, 0.4);
+  background-color: rgba(16, 185, 129, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qrIcon {
+  color: #10b981;
+}
+
+/* Item Rows */
+.itemsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 6px;
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  border: 1px solid #f1f5f9;
+  opacity: 0.55;
+  transition: all 0.3s ease;
+}
+
+.itemRowActive {
+  opacity: 1;
+  border-color: #cbd5e1;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.rowNumber {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.skeletonBar {
+  height: 5px;
+  background-color: rgba(16, 185, 129, 0.5);
+  border-radius: 2px;
+}
+
+.bubbleGroup {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.bubble {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubbleText {
+  font-size: 8px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1;
+}
+
+/* Sheet Footer Strip */
+.sheetFooterStrip {
+  position: absolute;
+  bottom: 8px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 5px;
+}
+
+.footerCheckIcon {
+  color: #10b981;
+}
+
+.sheetFooterText {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Sweeping Laser Beam */
+.laserBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: #10b981;
+  box-shadow: 0 0 8px 1px #10b981, 0 0 18px 2px rgba(16, 185, 129, 0.45);
+  z-index: 5;
+  pointer-events: none;
+  animation: laserSweep 2.4s ease-in-out infinite alternate;
+}
+
+.laserTrail {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 18px;
+  background: linear-gradient(to top, rgba(16, 185, 129, 0.18), transparent);
+}
+
+@keyframes laserSweep {
+  0% {
+    top: 8px;
+  }
+  100% {
+    top: 170px;
+  }
+}
+
+/* 2. Typography Block */
+.statusArea {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 14px;
+}
+
+.stageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.pulseDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
+}
+
+.stageTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.stageSub {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* 3. Smooth Progress Bar */
+.progressTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: #f1f5f9;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stepCounterRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+}
+
+.stepText {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.percentText {
+  color: #0f172a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}

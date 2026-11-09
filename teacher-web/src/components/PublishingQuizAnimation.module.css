@@ -1,0 +1,265 @@
+/* ══════════════════════════════════════════════════════════════
+   TSEKI PUBLISHING QUIZ ANIMATION (Parity with TSEKI Mobile)
+   ══════════════════════════════════════════════════════════════ */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 20px 16px;
+}
+
+.stageCard {
+  width: 100%;
+  background: var(--zinc-50, #F8FAFC);
+  border: 1px solid var(--zinc-200, #E2E8F0);
+  border-radius: 16px;
+  padding: 18px 12px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.paperSheet {
+  width: 240px;
+  height: 182px;
+  background: #FFFFFF;
+  border: 1.5px solid var(--zinc-200, #E2E8F0);
+  border-radius: 12px;
+  padding: 14px 16px;
+  position: relative;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+/* 4 Solid Corner Calibration Markers */
+.cornerMarker {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: var(--zinc-900, #0F172A);
+  border-radius: 1.5px;
+  z-index: 5;
+}
+
+.topLeft {
+  top: 5px;
+  left: 5px;
+}
+
+.topRight {
+  top: 5px;
+  right: 5px;
+}
+
+.bottomLeft {
+  bottom: 5px;
+  left: 5px;
+}
+
+.bottomRight {
+  bottom: 5px;
+  right: 5px;
+}
+
+.sheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.masterBadge {
+  display: inline-flex;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.skeletonLine {
+  border-radius: 2px;
+  background: var(--zinc-200, #E2E8F0);
+}
+
+.miniQrBox {
+  width: 26px;
+  height: 26px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.keyGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.keyRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rowNumber {
+  font-size: 9px;
+  font-weight: 800;
+  width: 14px;
+}
+
+.checkCircle {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--zinc-300, #CBD5E1);
+  background: var(--zinc-50, #F8FAFC);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.checkCircleLocked {
+  background: #10B981;
+  border-color: #10B981;
+}
+
+.pendingDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--zinc-300, #CBD5E1);
+}
+
+.keyPill {
+  margin-left: auto;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+/* Sweeping Laser Beam */
+.laserBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #10B981;
+  box-shadow: 0 0 10px #10B981;
+  opacity: 0.85;
+  pointer-events: none;
+  animation: laserSweep 2s ease-in-out infinite alternate;
+}
+
+.laserTrail {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  height: 16px;
+  background: linear-gradient(to bottom, rgba(16, 185, 129, 0.25), transparent);
+}
+
+.statusArea {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.stageTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.pulseDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  animation: pulseDot 1.2s ease-in-out infinite;
+}
+
+.stageTitle {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--zinc-900, #0F172A);
+  letter-spacing: -0.2px;
+}
+
+.stageSub {
+  font-size: 12.5px;
+  color: var(--zinc-500, #64748B);
+  line-height: 18px;
+  min-height: 36px;
+  max-width: 380px;
+}
+
+.progressTrack {
+  width: 100%;
+  height: 6px;
+  background: var(--zinc-100, #F1F5F9);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stepCounterRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.stepText {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--zinc-500, #64748B);
+}
+
+.percentText {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--zinc-900, #0F172A);
+}
+
+@keyframes laserSweep {
+  0% {
+    top: 6px;
+  }
+  100% {
+    top: 170px;
+  }
+}
+
+@keyframes pulseDot {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}

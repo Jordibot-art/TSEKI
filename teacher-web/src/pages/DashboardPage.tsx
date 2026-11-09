@@ -157,29 +157,25 @@ export default function DashboardPage() {
       label: "Classrooms",
       value: stats.totalClassrooms,
       icon: GraduationCap,
-      color: "#3B82F6",
-      bg: "var(--blue-100)",
+      isAtRisk: false,
     },
     {
       label: "Students",
       value: stats.totalStudents,
       icon: Users,
-      color: "#10B981",
-      bg: "var(--emerald-100)",
+      isAtRisk: false,
     },
     {
       label: "Assessments",
       value: stats.totalQuizzes,
       icon: FileText,
-      color: "#8B5CF6",
-      bg: "var(--purple-100)",
+      isAtRisk: false,
     },
     {
       label: "At-Risk Students",
       value: stats.atRiskStudents,
       icon: AlertTriangle,
-      color: "#EF4444",
-      bg: "var(--red-100)",
+      isAtRisk: true,
     },
   ];
 
@@ -204,8 +200,11 @@ export default function DashboardPage() {
       {/* Greeting */}
       <div className={styles.greeting}>
         <div>
+          <div className={styles.dateLabel}>
+            Academic Year 2026 · {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </div>
           <h1 className={styles.greetingTitle}>
-            {getGreeting()}, {teacherName}! 👋
+            {getGreeting()}, {teacherName}
           </h1>
           <p className={styles.greetingSub}>
             Here's an overview of your teaching activity
@@ -215,24 +214,31 @@ export default function DashboardPage() {
           className={styles.quickAction}
           onClick={() => navigate("/classrooms")}
         >
-          <Plus size={18} />
+          <Plus size={16} />
           <span>New Classroom</span>
         </button>
       </div>
 
       {/* Stats Grid */}
       <div className={styles.statsGrid}>
-        {STAT_CARDS.map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className={styles.statCard}>
-            <div className={styles.statIcon} style={{ background: bg, color }}>
-              <Icon size={22} />
+        {STAT_CARDS.map(({ label, value, icon: Icon, isAtRisk }) => {
+          const hasRisk = isAtRisk && value > 0;
+          return (
+            <div key={label} className={styles.statCard}>
+              <div className={styles.statTopRow}>
+                <span className={styles.statLabel}>{label}</span>
+                <Icon size={16} className={hasRisk ? styles.statIconAlert : styles.statIconMuted} />
+              </div>
+              <div
+                className={`${styles.statValue} tabular-nums ${
+                  hasRisk ? styles.statValueAlert : ""
+                }`}
+              >
+                {value}
+              </div>
             </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statValue}>{value}</span>
-              <span className={styles.statLabel}>{label}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Content Grid */}
@@ -241,20 +247,20 @@ export default function DashboardPage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <h3>
-              <GraduationCap size={18} />
+              <GraduationCap size={16} className={styles.panelIcon} />
               Your Classrooms
             </h3>
             <button
               className={styles.viewAll}
               onClick={() => navigate("/classrooms")}
             >
-              View All <ArrowRight size={14} />
+              View All <ArrowRight size={13} />
             </button>
           </div>
           <div className={styles.cardBody}>
             {classrooms.length === 0 ? (
               <div className={styles.emptyState}>
-                <BookOpen size={40} strokeWidth={1.2} />
+                <BookOpen size={36} strokeWidth={1.2} />
                 <p>No classrooms yet</p>
                 <span>Create your first classroom to get started</span>
               </div>
@@ -264,7 +270,7 @@ export default function DashboardPage() {
                   <div
                     key={cls.id}
                     className={styles.classroomRow}
-                    style={{ animationDelay: `${idx * 60}ms` }}
+                    style={{ animationDelay: `${idx * 50}ms` }}
                     onClick={() => navigate(`/classrooms/${cls.id}`)}
                   >
                     <div
@@ -278,7 +284,7 @@ export default function DashboardPage() {
                         {cls.section ? ` · ${cls.section}` : ""}
                       </span>
                     </div>
-                    <div className={styles.classroomStats}>
+                    <div className={`${styles.classroomStats} tabular-nums`}>
                       <span>{cls.studentCount} students</span>
                       <span>{cls.quizCount} quizzes</span>
                     </div>
@@ -293,20 +299,20 @@ export default function DashboardPage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <h3>
-              <Sparkles size={18} />
+              <Sparkles size={16} className={styles.panelIcon} />
               Recent Assessments
             </h3>
             <button
               className={styles.viewAll}
               onClick={() => navigate("/assessments")}
             >
-              View All <ArrowRight size={14} />
+              View All <ArrowRight size={13} />
             </button>
           </div>
           <div className={styles.cardBody}>
             {recentQuizzes.length === 0 ? (
               <div className={styles.emptyState}>
-                <FileText size={40} strokeWidth={1.2} />
+                <FileText size={36} strokeWidth={1.2} />
                 <p>No assessments yet</p>
                 <span>Generate quizzes from the mobile app</span>
               </div>
@@ -316,30 +322,29 @@ export default function DashboardPage() {
                   <div
                     key={q.id}
                     className={styles.quizRow}
-                    style={{ animationDelay: `${idx * 60}ms`, cursor: "pointer" }}
+                    style={{ animationDelay: `${idx * 50}ms`, cursor: "pointer" }}
                     onClick={() => navigate("/assessments")}
                   >
-                    <div className={styles.quizIcon}>
-                      <FileText size={18} />
-                    </div>
                     <div className={styles.quizInfo}>
                       <span className={styles.quizName}>{q.quiz_title}</span>
-                      <span className={styles.quizMeta}>
-                        {q.subject || "General"}
+                      <div className={styles.quizMeta}>
+                        <span className={styles.subjectBadge}>
+                          {q.subject || "General"}
+                        </span>
                         {q.status && (
                           <span
                             className={`${styles.statusBadge} ${
-                              q.status === "PUBLISHED"
+                              q.status === "PUBLISHED" || q.status === "ARCHIVE"
                                 ? styles.published
                                 : styles.draft
                             }`}
                           >
-                            {q.status}
+                            {q.status === "ARCHIVE" ? "PUBLISHED" : q.status}
                           </span>
                         )}
-                      </span>
+                      </div>
                     </div>
-                    <span className={styles.quizDate}>
+                    <span className={`${styles.quizDate} tabular-nums`}>
                       <Clock size={12} />
                       {new Date(q.created_at).toLocaleDateString()}
                     </span>

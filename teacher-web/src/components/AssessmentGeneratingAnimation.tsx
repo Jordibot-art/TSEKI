@@ -1,217 +1,272 @@
 import { useEffect, useState } from "react";
-import {
-  Sparkles,
-  Check,
-  Loader2,
-  BookOpen,
-  Cpu,
-  Layers,
-  FileCheck2,
-} from "lucide-react";
+import { Sparkles, Check } from "lucide-react";
 import styles from "./AssessmentGeneratingAnimation.module.css";
 
-interface AssessmentGeneratingAnimationProps {
+export interface AssessmentGeneratingAnimationProps {
   statusText?: string;
   isBusy?: boolean;
   subject?: string;
   gradeLevel?: string;
-  questionCount?: number;
+  questionCount?: number | string;
   difficulty?: string;
+  questionType?: string;
+  accentColor?: string;
 }
-
-const STAGES = [
-  {
-    title: "Curriculum & Competency Alignment",
-    desc: "Calibrating cognitive levels against DepEd standards",
-    icon: BookOpen,
-  },
-  {
-    title: "Question & Stem Crafting",
-    desc: "Drafting unambiguous prompts & scannable items",
-    icon: Cpu,
-  },
-  {
-    title: "Distractor & Answer Calibration",
-    desc: "Synthesizing plausible distractors & key validation",
-    icon: Layers,
-  },
-  {
-    title: "Bubble Matrix & Anti-Cheat Grid",
-    desc: "Arranging optical recognition coordinates & QR layout",
-    icon: FileCheck2,
-  },
-];
-
-const SAMPLE_QUESTIONS = [
-  {
-    num: 1,
-    text: "Which cellular organelle is the primary site of adenosine triphosphate (ATP) synthesis?",
-    choices: ["A. Ribosome", "B. Mitochondrion", "C. Golgi Apparatus", "D. Endoplasmic Reticulum"],
-  },
-  {
-    num: 2,
-    text: "What is the standard acceleration due to gravity on Earth's surface?",
-    choices: ["A. 9.8 m/s²", "B. 8.9 m/s²", "C. 12.4 m/s²", "D. 6.2 m/s²"],
-  },
-  {
-    num: 3,
-    text: "In economics, what fundamental problem arises due to unlimited wants and scarce resources?",
-    choices: ["A. Inflation", "B. Scarcity", "C. Recession", "D. Monopoly"],
-  },
-  {
-    num: 4,
-    text: "Which figure of speech involves comparing two unlike things using 'like' or 'as'?",
-    choices: ["A. Metaphor", "B. Simile", "C. Personification", "D. Hyperbole"],
-  },
-];
 
 export function AssessmentGeneratingAnimation({
   statusText,
-  isBusy,
-  subject,
+  isBusy = false,
+  subject = "Lesson",
   gradeLevel,
-  questionCount,
-  difficulty,
+  questionCount = "10 Items",
+  difficulty = "Medium",
+  accentColor = "#EA580C",
 }: AssessmentGeneratingAnimationProps) {
-  const [activeStage, setActiveStage] = useState(0);
-  const [progress, setProgress] = useState(8);
-  const [sampleIdx, setSampleIdx] = useState(0);
+  // Continuous forward-moving progress display (8% -> 95%)
+  const [percentDisplay, setPercentDisplay] = useState<number>(8);
 
-  // Smooth progress increment
+  // Cycling question number in the preview card (1..5)
+  const [questionNum, setQuestionNum] = useState<number>(1);
+
+  // Dynamic 4 stages matching TSEKI Mobile
+  const [stageIndex, setStageIndex] = useState<number>(0);
+
+  const formattedCount =
+    typeof questionCount === "number" ? `${questionCount} Items` : questionCount;
+
+  const STAGES = [
+    {
+      title: "Analyzing Curriculum & Lesson Materials",
+      sub: "Aligning with DepEd Bloom's Taxonomy standards",
+    },
+    {
+      title: "Crafting Higher-Order Thinking Questions",
+      sub: `Formulating ${formattedCount} tailored for ${difficulty} level`,
+    },
+    {
+      title: "Generating Plausible Distractors & Keys",
+      sub: "Building fair, misconception-tested answer choices",
+    },
+    {
+      title: "Formatting Scannable Test Paper Grid",
+      sub: "Embedding 4-corner markers & verification blocks",
+    },
+  ];
+
+  const isSuccess = Boolean(
+    statusText && statusText.toLowerCase().includes("successfully")
+  );
+
+  // 1. Smooth progress timer (never resets backwards)
   useEffect(() => {
     const timer = setInterval(() => {
-      setProgress((prev) => {
-        if (prev < 30) return prev + 3;
-        if (prev < 65) return prev + 2;
+      setPercentDisplay((prev) => {
+        if (prev < 32) return prev + 3;
+        if (prev < 68) return prev + 2;
         if (prev < 88) return prev + 1;
-        if (prev < 94) return prev + 0.4;
+        if (prev < 95) return Math.min(prev + 0.5, 95);
         return prev;
       });
-    }, 450);
+    }, 400);
 
     return () => clearInterval(timer);
   }, []);
 
-  // Stage transitions based on progress
+  // 2. Cycle question number every 2.6s (Question 1 -> 2 -> 3 -> 4 -> 5)
   useEffect(() => {
-    if (progress < 25) {
-      setActiveStage(0);
-    } else if (progress < 55) {
-      setActiveStage(1);
-    } else if (progress < 80) {
-      setActiveStage(2);
-    } else {
-      setActiveStage(3);
-    }
-  }, [progress]);
+    const qTimer = setInterval(() => {
+      setQuestionNum((prev) => (prev >= 5 ? 1 : prev + 1));
+    }, 2600);
 
-  // Rotate simulated question card previews
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSampleIdx((prev) => (prev + 1) % SAMPLE_QUESTIONS.length);
-    }, 2400);
-
-    return () => clearInterval(interval);
+    return () => clearInterval(qTimer);
   }, []);
 
-  const currentSample = SAMPLE_QUESTIONS[sampleIdx];
+  // 3. Advance stages sequentially every 2.7s (holds on final stage)
+  useEffect(() => {
+    const sTimer = setInterval(() => {
+      setStageIndex((prev) => (prev < STAGES.length - 1 ? prev + 1 : prev));
+    }, 2700);
+
+    return () => clearInterval(sTimer);
+  }, [STAGES.length]);
+
+  // 4. Snap to 100% on success
+  useEffect(() => {
+    if (isSuccess) {
+      setStageIndex(STAGES.length - 1);
+      setPercentDisplay(100);
+    }
+  }, [isSuccess, STAGES.length]);
+
+  const activeColor = isSuccess ? "#10B981" : isBusy ? "#F59E0B" : accentColor;
+  const currentStage = STAGES[stageIndex];
+  const greenOptionIdx = questionNum % 2 === 1 ? 1 : 0; // alternates between B (idx 1) and A (idx 0)
 
   return (
     <div className={styles.container}>
-      {/* ── Glowing AI Core & Orbital Pulse ── */}
-      <div className={styles.orbWrapper}>
-        <div className={styles.pulsingRingOuter} />
-        <div className={styles.pulsingRingInner} />
-        <div className={styles.aiCore}>
-          <Sparkles size={36} className={styles.aiSparkleIcon} />
-        </div>
-      </div>
+      {/* ── 1. Top Animated Stage: Rich Floating Question Card Preview (animation1.mp4 from TSEKI Mobile) ── */}
+      <div className={styles.stageCard}>
+        {/* Subtle Stacked Back Card Silhouette */}
+        <div className={styles.backDeckCard} />
 
-      <h3 className={styles.title}>Generating AI Assessment...</h3>
-      <p className={styles.statusText}>
-        {statusText || (isBusy ? "AI Service busy — queueing request..." : "Calibrating DepEd competency matrix...")}
-      </p>
-
-      {/* ── Parameter Badges ── */}
-      {(subject || gradeLevel || questionCount || difficulty) && (
-        <div className={styles.badgeRow}>
-          {subject && <span className={styles.badge}>📘 {subject}</span>}
-          {gradeLevel && <span className={styles.badge}>🎓 {gradeLevel}</span>}
-          {questionCount && <span className={styles.badge}>📝 {questionCount} Items</span>}
-          {difficulty && <span className={styles.badge}>⚡ {difficulty}</span>}
-        </div>
-      )}
-
-      {/* ── Progress Bar ── */}
-      <div className={styles.progressSection}>
-        <div className={styles.progressTrack}>
-          <div
-            className={styles.progressFill}
-            style={{ width: `${Math.min(progress, 100)}%` }}
-          />
-        </div>
-        <div className={styles.progressMeta}>
-          <span>Crafting Question Items & Optical Grid</span>
-          <span>{Math.round(progress)}%</span>
-        </div>
-      </div>
-
-      {/* ── Stages Stepper List ── */}
-      <div className={styles.stagesList}>
-        {STAGES.map((stg, idx) => {
-          const isDone = activeStage > idx;
-          const isActive = activeStage === idx;
-          const IconComp = stg.icon;
-
-          return (
+        {/* Floating Simulated Question Card */}
+        <div className={styles.previewQuestionCard} key={questionNum}>
+          {/* Card Header: Question Tag + Point Badge */}
+          <div className={styles.questionHeaderRow}>
             <div
-              key={stg.title}
-              className={`${styles.stageItem} ${
-                isDone
-                  ? styles.stageItemDone
-                  : isActive
-                  ? styles.stageItemActive
-                  : styles.stageItemUpcoming
-              }`}
+              className={styles.questionTag}
+              style={{
+                backgroundColor: `${activeColor}18`,
+                color: activeColor,
+              }}
             >
-              <div className={styles.stageIconWrap}>
-                {isDone ? (
-                  <Check size={14} />
-                ) : isActive ? (
-                  <Loader2 size={14} className="spinner" />
-                ) : (
-                  <IconComp size={14} />
-                )}
-              </div>
-              <div className={styles.stageTextWrap}>
-                <span className={styles.stageTitle}>{stg.title}</span>
-                <span className={styles.stageDesc}>{stg.desc}</span>
+              <Sparkles size={11} color={activeColor} />
+              <span>{isBusy ? "Retrying" : `Question ${questionNum}`}</span>
+            </div>
+            <div className={styles.questionHeaderRight}>
+              <div
+                className={styles.skeletonText}
+                style={{
+                  width: 38,
+                  height: 6,
+                  backgroundColor: `${activeColor}38`,
+                }}
+              />
+              <div className={styles.ptBadge}>
+                <span>1 pt</span>
               </div>
             </div>
-          );
-        })}
+          </div>
+
+          {/* Question Stem Skeleton Lines */}
+          <div
+            className={styles.skeletonText}
+            style={{ width: "94%", height: 6.5, marginTop: 9 }}
+          />
+          <div
+            className={styles.skeletonText}
+            style={{ width: "70%", height: 6.5, marginTop: 5 }}
+          />
+
+          {/* Simulated Multiple Choice Options (A, B, C with Green Key Checkmark) */}
+          <div className={styles.optionsList}>
+            {["A", "B", "C"].map((letter, idx) => {
+              const isCorrect = idx === greenOptionIdx;
+              const barWidths = ["54%", "66%", "48%"];
+
+              return (
+                <div
+                  key={letter}
+                  className={`${styles.optionRow} ${
+                    isCorrect ? styles.optionRowCorrect : ""
+                  }`}
+                >
+                  <div
+                    className={`${styles.optionDot} ${
+                      isCorrect ? styles.optionDotCorrect : ""
+                    }`}
+                  >
+                    {isCorrect ? (
+                      <Check size={9} strokeWidth={3} color="#FFFFFF" />
+                    ) : (
+                      <span className={styles.optionLetter}>{letter}</span>
+                    )}
+                  </div>
+                  <div
+                    className={styles.skeletonText}
+                    style={{
+                      width: barWidths[idx],
+                      height: 5.5,
+                      backgroundColor: isCorrect
+                        ? "rgba(16, 185, 129, 0.45)"
+                        : "var(--zinc-200, #E2E8F0)",
+                    }}
+                  />
+                  {isCorrect && <span className={styles.keyLabel}>Key ✓</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sweeping AI Synthesis Beam Overlay */}
+          <div
+            className={styles.sweepBar}
+            style={{
+              backgroundColor: activeColor,
+              boxShadow: `0 0 10px ${activeColor}`,
+            }}
+          >
+            <div
+              className={styles.sweepTrail}
+              style={{
+                background: `linear-gradient(to bottom, ${activeColor}24, transparent)`,
+              }}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* ── Simulated Question Card Live Preview ── */}
-      <div className={styles.previewCard} key={sampleIdx}>
-        <div className={styles.previewHeader}>
-          <span className={styles.previewPill}>Previewing Item #{currentSample.num}</span>
-          <span className={styles.previewTime}>DepEd Scannable Format</span>
+      {/* ── 2. Parameter Badges ── */}
+      <div className={styles.badgeRow}>
+        {subject && <span className={styles.badge}>📘 {subject}</span>}
+        {gradeLevel && <span className={styles.badge}>🎓 {gradeLevel}</span>}
+        {formattedCount && <span className={styles.badge}>📝 {formattedCount}</span>}
+        {difficulty && <span className={styles.badge}>⚡ {difficulty}</span>}
+      </div>
+
+      {/* ── 3. Status Text & Stages ── */}
+      <div className={styles.statusArea}>
+        <div className={styles.stageTitleRow}>
+          <div
+            className={styles.pulseDot}
+            style={{ backgroundColor: activeColor }}
+          />
+          <h4 className={styles.stageHeading}>
+            {isBusy ? "AI Server Busy — Auto-Retrying" : currentStage.title}
+          </h4>
         </div>
-        <div className={styles.previewQuestionText}>
-          {currentSample.num}. {currentSample.text}
-        </div>
-        <div className={styles.previewChoices}>
-          {currentSample.choices.map((c, i) => (
-            <div key={i} className={styles.choiceItem}>
-              <span className={styles.choiceBubble}>
-                {String.fromCharCode(65 + i)}
-              </span>
-              <span>{c.slice(3)}</span>
-            </div>
-          ))}
-        </div>
+        <p
+          className={styles.stageSubtitle}
+          style={{
+            color: isSuccess
+              ? "#10B981"
+              : isBusy
+              ? "#D97706"
+              : "var(--zinc-500, #64748B)",
+            fontWeight: isSuccess ? 600 : 400,
+          }}
+        >
+          {statusText ||
+            (isBusy
+              ? "Waiting with exponential backoff before engaging backup model..."
+              : currentStage.sub)}
+        </p>
+      </div>
+
+      {/* ── 4. Smooth Continuous Progress Bar + Step & Live Percentage Row ── */}
+      <div className={styles.progressTrack}>
+        <div
+          className={styles.progressFill}
+          style={{
+            backgroundColor: activeColor,
+            width: `${Math.min(percentDisplay, 100)}%`,
+          }}
+        />
+      </div>
+
+      <div className={styles.stepCounterRow}>
+        <span className={styles.stepText}>
+          Step {stageIndex + 1} of {STAGES.length}
+        </span>
+        <span
+          className={`${styles.percentText} tabular-nums`}
+          style={{ color: isSuccess ? "#10B981" : "var(--zinc-900, #0F172A)" }}
+        >
+          {isSuccess ? "100%" : `${Math.round(percentDisplay)}%`}
+        </span>
       </div>
     </div>
   );
 }
+
+export default AssessmentGeneratingAnimation;

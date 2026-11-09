@@ -13,9 +13,9 @@ import {
   X,
   Sun,
   Moon,
-  CheckCircle2,
   ChevronLeft,
 } from "lucide-react";
+import tsekiLogo from "../assets/tseki-mascot.png";
 import styles from "./AppLayout.module.css";
 
 const NAV_ITEMS = [
@@ -69,7 +69,7 @@ export default function AppLayout() {
         <div className={styles.sidebarHeader}>
           <div className={styles.logoArea}>
             <div className={styles.logoIcon}>
-              <CheckCircle2 size={22} color="#fff" strokeWidth={2.5} />
+              <img src={tsekiLogo} alt="TSEKI" className={styles.logoImg} />
             </div>
             {!collapsed && <span className={styles.logoText}>TSEKI</span>}
           </div>
@@ -107,7 +107,7 @@ export default function AppLayout() {
               onClick={() => setMobileOpen(false)}
               title={collapsed ? label : undefined}
             >
-              <Icon size={20} strokeWidth={1.8} />
+              <Icon size={17} strokeWidth={1.8} />
               {!collapsed && <span>{label}</span>}
             </NavLink>
           ))}
@@ -120,7 +120,7 @@ export default function AppLayout() {
             onClick={toggleDarkMode}
             title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            {darkMode ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
             {!collapsed && <span>{darkMode ? "Light Mode" : "Dark Mode"}</span>}
           </button>
 
@@ -132,12 +132,16 @@ export default function AppLayout() {
                 <span className={styles.userRole}>Teacher</span>
               </div>
             )}
+            <button
+              className={styles.signOutBtn}
+              onClick={handleSignOut}
+              title="Sign Out"
+              aria-label="Sign Out"
+            >
+              <LogOut size={15} strokeWidth={1.8} />
+              {collapsed ? null : <span className={styles.signOutLabel}>Sign Out</span>}
+            </button>
           </div>
-
-          <button className={styles.signOutBtn} onClick={handleSignOut} title="Sign Out">
-            <LogOut size={18} />
-            {!collapsed && <span>Sign Out</span>}
-          </button>
         </div>
       </aside>
 
@@ -153,7 +157,7 @@ export default function AppLayout() {
             <Menu size={22} />
           </button>
           <div className={styles.topLogo}>
-            <CheckCircle2 size={20} color="var(--orange-500)" strokeWidth={2.5} />
+            <img src={tsekiLogo} alt="TSEKI" className={styles.topLogoImg} />
             <span>TSEKI</span>
           </div>
           <div style={{ width: 36 }} />

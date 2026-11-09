@@ -1,307 +1,279 @@
-.overlay {
+.exportBackdrop {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(15, 23, 42, 0.55);
+  background-color: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: 150000;
   padding: 16px;
   animation: fadeIn 0.2s ease-out;
 }
 
-.modalCard {
+.exportSheet {
   background: #ffffff;
-  border-radius: 24px;
+  border-radius: 20px;
   width: 100%;
   max-width: 480px;
   padding: 24px;
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.05);
   position: relative;
   animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
 }
 
-.closeBtn {
-  position: absolute;
-  top: 18px;
-  right: 18px;
+.exportSheetHeaderRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.exportSheetHeader {
+  flex: 1;
+}
+
+.exportSheetTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.01em;
+}
+
+.exportSheetSub {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+  line-height: 18px;
+}
+
+.sheetCloseBtn {
   background: transparent;
   border: none;
   color: #94a3b8;
   cursor: pointer;
   padding: 6px;
-  border-radius: 50%;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
-.closeBtn:hover {
+.sheetCloseBtn:hover {
   background: #f1f5f9;
   color: #475569;
 }
 
-.header {
-  margin-bottom: 20px;
-  padding-right: 28px;
-}
-
-.title {
-  font-size: 19px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 6px 0;
-  letter-spacing: -0.01em;
-}
-
-.sub {
-  font-size: 13px;
-  color: #64748b;
-  margin: 0;
-  line-height: 1.45;
-}
-
-/* Anti-Cheating Version Selector */
+/* ── Anti-Cheating Version Selector (Set A / B / C) ── */
 .versionRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .versionLabel {
-  font-size: 12px;
-  font-weight: 700;
-  color: #1e293b;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.versionPills {
-  display: flex;
-  gap: 8px;
-}
-
-.versionPill {
-  padding: 6px 14px;
-  border-radius: 8px;
-  border: 1.5px solid #e2e8f0;
-  background: #f8fafc;
+  font-size: 14px;
+  font-weight: 500;
   color: #334155;
-  font-size: 13px;
-  font-weight: 700;
+}
+
+.segmentedTrack {
+  display: flex;
+  background-color: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.segmentBtn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.versionPill:hover {
+.segmentBtn:hover:not(.segmentBtnActive) {
+  color: #334155;
+}
+
+.segmentBtnActive {
+  background-color: #ffffff;
   border-color: #cbd5e1;
-  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
-.versionPillActive {
-  border-color: #7c3aed;
-  background: #f5f3ff;
-  color: #7c3aed;
-}
-
-/* Force Separate Toggle */
-.toggleRow {
+/* ── Force Separate Answer Sheet Toggle ── */
+.forceSeparateBtn {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  margin-bottom: 16px;
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.15s ease;
-}
-
-.toggleRow:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-}
-
-.toggleText {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-  flex: 1;
-  margin-right: 12px;
-}
-
-.checkboxIcon {
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.checkboxIconActive {
-  color: #7c3aed;
-}
-
-/* Export Cards */
-.optionsList {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.exportCard {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 12px;
   cursor: pointer;
   text-align: left;
-  width: 100%;
   transition: all 0.15s ease;
   box-sizing: border-box;
 }
 
-.exportCard:hover:not(:disabled) {
-  background: #ffffff;
-  border-color: #7c3aed;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.08);
-  transform: translateY(-1px);
+.forceSeparateBtn:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
-.exportCard:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.forceSeparateText {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  flex: 1;
 }
 
-.iconBox {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+.checkboxIcon {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #94a3b8;
+  margin-left: 8px;
+}
+
+.checkboxIconActive {
+  color: #ea580c;
+}
+
+/* ── Export Option Cards (Matching Mobile TSEKI) ── */
+.optionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.exportOptionBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.exportOptionBtn:hover {
+  background-color: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.exportOptionBtn:hover .downloadIcon {
+  color: #ea580c;
+  transform: translateY(1px);
+}
+
+.neutralOptionIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0f172a;
   flex-shrink: 0;
 }
 
-.iconPurple {
-  background: #ede9fe;
-  color: #7c3aed;
-}
-
-.iconViolet {
-  background: #f5f3ff;
-  color: #8b5cf6;
-}
-
-.iconGreen {
-  background: #dcfce7;
-  color: #10b981;
-}
-
-.cardContent {
+.optionContent {
   flex: 1;
   min-width: 0;
 }
 
-.cardTitle {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 3px 0;
+.optionTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
 }
 
-.cardSub {
+.exportOptionTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dimBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.exportOptionSub {
   font-size: 12px;
   color: #64748b;
+  line-height: 16px;
   margin: 0;
-  line-height: 1.35;
 }
 
 .downloadIcon {
-  color: #64748b;
+  color: #94a3b8;
   flex-shrink: 0;
-  transition: transform 0.15s ease, color 0.15s ease;
+  transition: all 0.15s ease;
 }
 
-.exportCard:hover:not(:disabled) .downloadIcon {
-  color: #7c3aed;
-  transform: translateY(1px);
-}
-
-/* Cancel Button */
-.cancelBtn {
+/* ── Cancel Button ── */
+.exportCancelBtn {
   width: 100%;
-  padding: 12px;
+  height: 44px;
+  border-radius: 12px;
   background: transparent;
   border: none;
   font-size: 14px;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
-  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.15s ease;
 }
 
-.cancelBtn:hover {
+.exportCancelBtn:hover {
   background: #f1f5f9;
-  color: #1e293b;
+  color: #0f172a;
 }
 
-/* Exporting Overlay Inside Modal */
-.exportingOverlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(4px);
-  border-radius: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 24px;
-  z-index: 10;
-  text-align: center;
-}
-
-.spinnerCircle {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  background: #ede9fe;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #7c3aed;
-  margin-bottom: 4px;
-}
-
-.exportingTitle {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0;
-}
-
-.exportingStage {
-  font-size: 13px;
-  color: #64748b;
-  margin: 0;
+.animWrap {
+  padding: 4px 0;
 }
 
 @keyframes fadeIn {
@@ -312,7 +284,7 @@
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: scale(0.96) translateY(8px);
+    transform: scale(0.97) translateY(8px);
   }
   to {
     opacity: 1;

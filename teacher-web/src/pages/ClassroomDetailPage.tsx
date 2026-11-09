@@ -831,12 +831,12 @@ export default function ClassroomDetailPage() {
                     <FileText size={20} className={styles.quizCardIcon} />
                     <span
                       className={`${styles.quizBadge} ${
-                        quiz.status === "PUBLISHED"
+                        quiz.status === "PUBLISHED" || quiz.status === "ARCHIVE"
                           ? styles.quizPublished
                           : styles.quizDraft
                       }`}
                     >
-                      {quiz.status}
+                      {quiz.status === "ARCHIVE" ? "PUBLISHED" : quiz.status}
                     </span>
                   </div>
                   <h4 className={styles.quizCardTitle}>{quiz.quiz_title}</h4>

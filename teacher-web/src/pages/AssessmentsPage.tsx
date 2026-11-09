@@ -42,6 +42,7 @@ import { shuffleAssessmentForVersion } from "../lib/versionShuffle";
 import { showAlert, showConfirm } from "../components/CustomAlertModal";
 import { ExportPdfModal } from "../components/ExportPdfModal";
 import { AssessmentGeneratingAnimation } from "../components/AssessmentGeneratingAnimation";
+import { PublishingQuizAnimation } from "../components/PublishingQuizAnimation";
 import type { GeneratedAssessment } from "../lib/printEngine";
 import styles from "./AssessmentsPage.module.css";
 
@@ -129,35 +130,58 @@ export default function AssessmentsPage() {
   const [exportGradeLevel, setExportGradeLevel] = useState<string>("");
   const [exportQuizId, setExportQuizId] = useState<string>("");
 
+  function isQuizDraft(quiz?: { status?: string | null; classroom_id?: string | null } | null): boolean {
+    if (!quiz) return false;
+    const s = (quiz.status || "").toUpperCase();
+    return s === "DRAFT";
+  }
+
+  function isQuizPublished(quiz?: { status?: string | null; classroom_id?: string | null } | null): boolean {
+    if (!quiz) return false;
+    const s = (quiz.status || "").toUpperCase();
+    if (s === "DRAFT") return false;
+    return s === "PUBLISHED" || s === "ARCHIVE" || Boolean(quiz.classroom_id);
+  }
+
+  function handleResumeDraft(draftQuiz: StoredQuiz) {
+    setQuizTitle(draftQuiz.quiz_title);
+    setTopicPrompt(draftQuiz.quiz_title);
+    setSubject(draftQuiz.subject || "General Science");
+    setGradeLevel(draftQuiz.grade_level || "Grade 10");
+    setDifficulty(draftQuiz.difficulty || "Medium");
+    setTargetClassroom(draftQuiz.classroom_id || "");
+    setDraftQuestions(draftQuiz.questions);
+    setDraftAnswerKey(draftQuiz.answer_key);
+    setStep("preview");
+    setShowCreateModal(true);
+  }
+
   const handleOpenExportModal = (
     quiz: StoredQuiz | GeneratedAssessment,
     classroomName?: string
   ) => {
-    if ("quizTitle" in quiz && "questions" in quiz) {
-      const gen = quiz as GeneratedAssessment;
-      setExportAssessment(gen);
-      setExportClassTitle(
-        classroomName ||
-          classrooms.find((c) => c.id === targetClassroom)?.title ||
-          "Classroom Assessment"
-      );
-      setExportSubject(subject || "General Education");
-      setExportGradeLevel(gradeLevel || gen.gradeLevel || "Grade 10");
-      setExportQuizId(`QZ-${Date.now().toString().slice(-6)}`);
-    } else {
-      const stored = quiz as StoredQuiz;
-      setExportAssessment({
-        quizTitle: stored.quiz_title,
-        gradeLevel: stored.grade_level || undefined,
-        difficulty: stored.difficulty || undefined,
-        questions: stored.questions,
-        answerKey: stored.answer_key,
+    // Only published assessments can be exported to PDF; drafts cannot be exported
+    if (!("status" in quiz) || !isQuizPublished(quiz as StoredQuiz)) {
+      showAlert({
+        title: "Publish Required to Export",
+        message: "Assessments must be published to a classroom before exporting or printing scannable paper sheets. Drafts cannot be exported.",
+        type: "info",
       });
-      setExportClassTitle(stored.classroom_name || "Classroom Assessment");
-      setExportSubject(stored.subject || "General Education");
-      setExportGradeLevel(stored.grade_level || "Grade 10");
-      setExportQuizId(stored.id || `QZ-${Date.now().toString().slice(-6)}`);
+      return;
     }
+
+    const stored = quiz as StoredQuiz;
+    setExportAssessment({
+      quizTitle: stored.quiz_title,
+      gradeLevel: stored.grade_level || undefined,
+      difficulty: stored.difficulty || undefined,
+      questions: stored.questions,
+      answerKey: stored.answer_key,
+    });
+    setExportClassTitle(stored.classroom_name || classroomName || "Classroom Assessment");
+    setExportSubject(stored.subject || "General Education");
+    setExportGradeLevel(stored.grade_level || "Grade 10");
+    setExportQuizId(stored.id || `QZ-${Date.now().toString().slice(-6)}`);
     setShowExportModal(true);
   };
 
@@ -593,8 +617,8 @@ export default function AssessmentsPage() {
       statusFilter === "ALL"
         ? true
         : statusFilter === "DRAFT"
-        ? q.status === "DRAFT"
-        : q.status === "PUBLISHED" || q.status === "ARCHIVE";
+        ? isQuizDraft(q)
+        : isQuizPublished(q);
 
     const matchesClass =
       classroomFilter === "ALL" ? true : q.classroom_id === classroomFilter;
@@ -620,37 +644,35 @@ export default function AssessmentsPage() {
             refreshQuota();
           }}
         >
-          <Sparkles size={18} />
-          Create with AI Builder
+          <Sparkles size={16} />
+          <span>Create with AI Builder</span>
         </button>
       </div>
 
       {/* ── Daily AI Generation Quota Banner ── */}
       {quota && (
-        <div className={styles.quotaBanner}>
-          <div className={styles.quotaLeft}>
-            <div className={styles.quotaIcon}>
-              <Sparkles size={18} />
+        <div className={styles.quotaStrip}>
+          <div className={styles.quotaStripLeft}>
+            <Sparkles size={14} className={styles.quotaStripIcon} />
+            <span className={styles.quotaStripLabel}>Daily AI Quota:</span>
+            <div className={styles.quotaProgressBar}>
+              <div
+                className={styles.quotaProgressFill}
+                style={{
+                  width: `${Math.max(
+                    0,
+                    Math.min(100, (quota.remainingToday / quota.dailyLimit) * 100)
+                  )}%`,
+                }}
+              />
             </div>
-            <div>
-              <div className={styles.quotaTitle}>
-                <span>Daily AI Quota:</span>
-                <span
-                  className={`${styles.quotaCountBadge} ${
-                    quota.remainingToday <= 0 ? styles.quotaCountBadgeZero : ""
-                  }`}
-                >
-                  {quota.remainingToday} / {quota.dailyLimit} remaining today
-                </span>
-              </div>
-              <div className={styles.quotaSub}>
-                Each teacher has 10 AI quiz generations per day.
-              </div>
-            </div>
+            <span className={`${styles.quotaStripCount} tabular-nums`}>
+              {quota.remainingToday} / {quota.dailyLimit} remaining today
+            </span>
           </div>
-          <div className={styles.quotaResetNote}>
-            Resets daily at <strong>12:00 AM midnight</strong> (Manila, Philippines)
-          </div>
+          <span className={styles.quotaStripReset}>
+            Resets daily at 12:00 AM Manila
+          </span>
         </div>
       )}
 
@@ -702,12 +724,12 @@ export default function AssessmentsPage() {
       {/* Quizzes List */}
       {loading ? (
         <div className={styles.loadingState}>
-          <Loader2 size={32} className="spinner" />
+          <Loader2 size={28} className="spinner" />
           <p>Loading your assessments...</p>
         </div>
       ) : filteredQuizzes.length === 0 ? (
         <div className={styles.emptyState}>
-          <FileText size={48} strokeWidth={1} />
+          <FileText size={44} strokeWidth={1.2} />
           <h3>No assessments found</h3>
           <p>
             {searchQuery
@@ -722,7 +744,7 @@ export default function AssessmentsPage() {
                 setShowCreateModal(true);
               }}
             >
-              <Sparkles size={16} />
+              <Sparkles size={15} />
               Open AI Builder
             </button>
           )}
@@ -730,47 +752,43 @@ export default function AssessmentsPage() {
       ) : (
         <div className={styles.quizGrid}>
           {filteredQuizzes.map((quiz) => {
-            const isDraft = quiz.status === "DRAFT";
+            const isDraft = isQuizDraft(quiz);
             const countdown = isDraft ? getDraftCountdown(quiz.created_at) : null;
 
             return (
               <div key={quiz.id} className={styles.quizCard}>
                 <div className={styles.cardTopRow}>
-                  <div className={styles.quizIconSquare}>
-                    <FileText size={20} />
-                  </div>
-                  <div className={styles.cardHeaderRight}>
-                    <div className={styles.badgeRow}>
-                      <span
-                        className={`${styles.statusBadge} ${
-                          isDraft ? styles.statusDraft : styles.statusPublished
-                        }`}
-                      >
-                        {isDraft ? (
-                          <>
-                            <Clock size={12} />
-                            Draft {countdown ? `(${countdown.text})` : ""}
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 size={12} />
-                            Published
-                          </>
-                        )}
-                      </span>
-                      <span className={styles.gradeBadge}>
-                        {quiz.grade_level || "Grade 10"}
-                      </span>
-                    </div>
-
-                    <button
-                      className={styles.deleteBtn}
-                      onClick={() => handleDeleteQuiz(quiz.id)}
-                      title="Delete assessment"
+                  <div className={styles.badgeRow}>
+                    <span
+                      className={`${styles.statusBadge} ${
+                        isDraft ? styles.statusDraft : styles.statusPublished
+                      }`}
                     >
-                      <Trash2 size={15} />
-                    </button>
+                      {isDraft ? (
+                        <>
+                          <Clock size={11} />
+                          Draft {countdown ? `(${countdown.text})` : ""}
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={11} />
+                          Published
+                        </>
+                      )}
+                    </span>
+                    <span className={styles.gradeBadge}>
+                      {quiz.grade_level || "Grade 10"}
+                    </span>
                   </div>
+
+                  <button
+                    className={styles.deleteBtn}
+                    onClick={() => handleDeleteQuiz(quiz.id)}
+                    title="Delete assessment"
+                    aria-label="Delete assessment"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
 
                 <h3 className={styles.cardTitle}>{quiz.quiz_title}</h3>
@@ -783,12 +801,12 @@ export default function AssessmentsPage() {
 
                 <div className={styles.cardDetails}>
                   <div className={styles.detailItem}>
-                    <GraduationCap size={14} />
+                    <GraduationCap size={13} />
                     <span>{quiz.classroom_name || "Unassigned"}</span>
                   </div>
                   <div className={styles.detailItem}>
-                    <Layers size={14} />
-                    <span>{quiz.questions.length} Questions</span>
+                    <Layers size={13} />
+                    <span className="tabular-nums">{quiz.questions.length} Questions</span>
                   </div>
                 </div>
 
@@ -797,16 +815,27 @@ export default function AssessmentsPage() {
                     className={styles.actionBtnOutline}
                     onClick={() => setSelectedQuiz(quiz)}
                   >
-                    <Eye size={15} />
+                    <Eye size={14} />
                     View & Questions
                   </button>
-                  <button
-                    className={styles.actionBtnSolid}
-                    onClick={() => handleOpenExportModal(quiz, quiz.classroom_name)}
-                  >
-                    <Printer size={15} />
-                    Print Sheets
-                  </button>
+                  {isQuizPublished(quiz) ? (
+                    <button
+                      className={styles.actionBtnSolid}
+                      onClick={() => handleOpenExportModal(quiz, quiz.classroom_name)}
+                    >
+                      <Printer size={14} />
+                      Print Sheets
+                    </button>
+                  ) : (
+                    <button
+                      className={styles.actionBtnPublish}
+                      onClick={() => handleResumeDraft(quiz)}
+                      title="Publish this draft to a classroom to enable PDF export"
+                    >
+                      <CheckCircle2 size={14} />
+                      Publish Draft
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -821,38 +850,36 @@ export default function AssessmentsPage() {
             <div className={styles.modalHeader}>
               <div className={styles.headerTitleWrap}>
                 <div className={styles.modalIconWrap}>
-                  <Sparkles size={20} />
+                  <Sparkles size={16} />
                 </div>
                 <div>
-                  <h2>AI Assessment Builder</h2>
-                  <p>Calibrated to Bloom's Taxonomy & Optical Paper Sheet Layout</p>
+                  <h2>{generatorLoading ? "Generating AI Assessment..." : "AI Assessment Builder"}</h2>
+                  <p>
+                    {generatorLoading
+                      ? "Synthesizing question items & scannable layout..."
+                      : "Calibrated to Bloom's Taxonomy & Optical Paper Sheet Layout"}
+                  </p>
                 </div>
               </div>
-              <button
-                className={styles.closeBtn}
-                onClick={() => !generatorLoading && !isPublishing && setShowCreateModal(false)}
-                disabled={generatorLoading || isPublishing}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Quota Indicator inside modal */}
-            {quota && (
-              <div style={{ padding: "0 28px", marginTop: "12px" }}>
-                <div className={styles.quotaBanner} style={{ margin: 0, padding: "8px 14px" }}>
-                  <div className={styles.quotaLeft}>
-                    <Sparkles size={15} color="var(--orange-500)" />
-                    <span style={{ fontSize: "13px", fontWeight: 600 }}>
-                      Daily Generations: {quota.remainingToday} / {quota.dailyLimit} remaining
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "11.5px", color: "var(--text-tertiary)" }}>
-                    Resets 12:00 AM Manila
+              <div className={styles.modalHeaderRight}>
+                {quota && (
+                  <span className={`${styles.headerQuotaPill} tabular-nums`}>
+                    <Sparkles size={12} />
+                    {quota.remainingToday}/{quota.dailyLimit} left
                   </span>
-                </div>
+                )}
+                {!generatorLoading && (
+                  <button
+                    className={styles.closeBtn}
+                    onClick={() => !isPublishing && setShowCreateModal(false)}
+                    disabled={isPublishing}
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
               </div>
-            )}
+            </div>
 
             {generatorLoading ? (
               <AssessmentGeneratingAnimation
@@ -865,7 +892,8 @@ export default function AssessmentsPage() {
               />
             ) : step === "config" ? (
               /* Step 1: Configuration Form */
-              <div className={styles.modalBody}>
+              <>
+                <div className={styles.modalBody}>
                 {/* Topic / Title */}
                 <div className={styles.formGroup}>
                   <label>Assessment Title / Primary Topic *</label>
@@ -1099,14 +1127,16 @@ export default function AssessmentsPage() {
                     >
                       {isParsingDoc ? (
                         <div className={styles.dropZoneLoading}>
-                          <Loader2 size={24} className="spinner" />
+                          <Loader2 size={18} className="spinner" />
                           <span>Extracting text & curriculum concepts...</span>
                         </div>
                       ) : (
                         <>
-                          <UploadCloud size={28} className={styles.uploadIcon} />
-                          <span className={styles.dropTitle}>Click or drag curriculum file here</span>
-                          <span className={styles.dropSub}>PDF, DOCX, PPTX, or TXT up to 10MB</span>
+                          <UploadCloud size={20} className={styles.uploadIcon} />
+                          <div className={styles.dropZoneText}>
+                            <span className={styles.dropTitle}>Click or drag curriculum file here</span>
+                            <span className={styles.dropSub}>PDF, DOCX, PPTX, or TXT up to 10MB</span>
+                          </div>
                         </>
                       )}
                     </div>
@@ -1144,6 +1174,8 @@ export default function AssessmentsPage() {
                   </div>
                 )}
 
+                </div>
+
                 <div className={styles.modalFooter}>
                   <button
                     type="button"
@@ -1161,21 +1193,22 @@ export default function AssessmentsPage() {
                   >
                     {generatorLoading ? (
                       <>
-                        <Loader2 size={18} className="spinner" />
+                        <Loader2 size={16} className="spinner" />
                         Generating Assessment...
                       </>
                     ) : (
                       <>
-                        <Sparkles size={18} />
+                        <Sparkles size={16} />
                         Generate AI Assessment
                       </>
                     )}
                   </button>
                 </div>
-              </div>
+              </>
             ) : (
               /* Step 2: Interactive Review & Edit */
-              <div className={styles.modalBody}>
+              <>
+                <div className={styles.modalBody}>
                 <div className={styles.previewSummary}>
                   <div>
                     <h4>{quizTitle || topicPrompt}</h4>
@@ -1230,6 +1263,8 @@ export default function AssessmentsPage() {
                   })}
                 </div>
 
+                </div>
+
                 <div className={styles.modalFooter}>
                   <button
                     type="button"
@@ -1238,25 +1273,6 @@ export default function AssessmentsPage() {
                     disabled={isPublishing}
                   >
                     Back
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.exportPaperBtn}
-                    onClick={() => {
-                      if (draftQuestions.length > 0) {
-                        handleOpenExportModal({
-                          quizTitle: quizTitle.trim() || topicPrompt.trim() || "Assessment",
-                          questions: draftQuestions,
-                          answerKey: draftAnswerKey,
-                          gradeLevel,
-                          difficulty,
-                        });
-                      }
-                    }}
-                    disabled={isPublishing}
-                  >
-                    <Printer size={16} />
-                    Export Paper Sheet (PDF)
                   </button>
                   <div className={styles.saveActions}>
                     <button
@@ -1279,7 +1295,7 @@ export default function AssessmentsPage() {
                     </button>
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>,
@@ -1290,13 +1306,10 @@ export default function AssessmentsPage() {
       {isPublishing && createPortal(
         <div className={styles.publishingOverlay}>
           <div className={styles.publishingCard}>
-            <div className={styles.publishingSpinnerWrap}>
-              <Loader2 size={32} className="spinner" />
-            </div>
-            <h3 className={styles.publishingTitle}>Publishing Assessment</h3>
-            <p className={styles.publishingStage}>
-              {publishingStage || "Processing assessment and syncing with your classroom..."}
-            </p>
+            <PublishingQuizAnimation
+              quizTitle={quizTitle || topicPrompt}
+              statusText={publishingStage}
+            />
           </div>
         </div>,
         document.body
@@ -1323,18 +1336,40 @@ export default function AssessmentsPage() {
             </div>
 
             <div className={styles.modalBody}>
-              <div className={styles.actionBanner}>
-                <span>
-                  Ready to print scannable sheets with machine-readable optical boxes?
-                </span>
-                <button
-                  className={styles.printActionBtn}
-                  onClick={() => handleOpenExportModal(selectedQuiz, selectedQuiz.classroom_name)}
-                >
-                  <Printer size={16} />
-                  Print Scannable Sheet (PDF)
-                </button>
-              </div>
+              {isQuizPublished(selectedQuiz) ? (
+                <div className={styles.actionBanner}>
+                  <span>
+                    Ready to print scannable sheets with machine-readable optical boxes?
+                  </span>
+                  <button
+                    className={styles.printActionBtn}
+                    onClick={() => handleOpenExportModal(selectedQuiz, selectedQuiz.classroom_name)}
+                  >
+                    <Printer size={16} />
+                    Print Scannable Sheet (PDF)
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.draftNoticeBanner}>
+                  <div className={styles.draftNoticeContent}>
+                    <Clock size={16} className={styles.draftNoticeIcon} />
+                    <span>
+                      This assessment is currently a <strong>Draft</strong>. Only published classroom assessments can be exported to scannable paper sheets.
+                    </span>
+                  </div>
+                  <button
+                    className={styles.publishDraftBtn}
+                    onClick={() => {
+                      const q = selectedQuiz;
+                      setSelectedQuiz(null);
+                      handleResumeDraft(q);
+                    }}
+                  >
+                    <CheckCircle2 size={15} />
+                    Publish to Classroom
+                  </button>
+                </div>
+              )}
 
               <div className={styles.questionsList}>
                 {selectedQuiz.questions.map((q) => {
