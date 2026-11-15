@@ -48,11 +48,12 @@ function tsekiAdminApiPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
-  // Load all env vars (not only VITE_*) into process.env for server middleware
+export default defineConfig(({ command, mode }) => {
+  // Load all env vars (not only VITE_*) into process.env for server middleware.
+  // In dev (`serve`), refresh values so editing `.env` takes effect on server restart.
   const env = loadEnv(mode, process.cwd(), '');
   for (const [key, value] of Object.entries(env)) {
-    if (!(key in process.env)) {
+    if (command === 'serve' || !(key in process.env)) {
       process.env[key] = value;
     }
   }

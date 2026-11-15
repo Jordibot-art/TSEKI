@@ -141,7 +141,7 @@ function getSecret(): string {
 
 function getGmailConfig(): { user: string; pass: string } | null {
   const user = getEnv('GMAIL_USER');
-  const pass = getEnv('GMAIL_APP_PASSWORD');
+  const pass = getEnv('GMAIL_APP_PASSWORD').replace(/\s+/g, '');
   if (!user || !pass || pass === 'your_16_char_gmail_app_password') {
     return null;
   }
@@ -856,6 +856,20 @@ async function appendActivityLog(entry: {
   return newLog;
 }
 
+function createGmailTransporter(gmail: { user: string; pass: string }) {
+  ensureSystemCaCertificates();
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    auth: {
+      user: gmail.user,
+      pass: gmail.pass,
+    },
+  });
+}
+
 async function sendOtpEmailViaGmail(params: {
   code: string;
   purpose: OtpPurpose;
@@ -883,13 +897,7 @@ async function sendOtpEmailViaGmail(params: {
     };
   }
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: gmail.user,
-      pass: gmail.pass,
-    },
-  });
+  const transporter = createGmailTransporter(gmail);
 
   const targetSuffix = params.teacherName ? `: ${params.teacherName}` : '';
   const actionSuffix = params.actionLabel ? `: ${params.actionLabel}` : '';
