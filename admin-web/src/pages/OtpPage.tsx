@@ -1,20 +1,34 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../App';
-import { Key, ArrowRight, RotateCw, CheckCircle, Moon, Sun } from 'lucide-react';
+import { resendOtp, verifyLoginOtp } from '../lib/adminApi';
+import { Key, ArrowRight, RotateCw, CheckCircle, AlertTriangle, Moon, Sun, ArrowLeft } from 'lucide-react';
 import mascotImg from '../assets/tseki-mascot.png';
 import './OtpPage.css';
 
-const DEFAULT_ADMIN_EMAIL = 'tseki.cecsystem@gmail.com';
-const DEMO_OTP = '123456';
+interface OtpRouteState {
+  challengeToken?: string;
+  systemEmail?: string;
+  sentVia?: 'gmail' | 'dev_fallback';
+  demoOtp?: string;
+  message?: string;
+  rememberMe?: boolean;
+}
 
 export default function OtpPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setAdminAuthenticated, darkMode, toggleDarkMode } = useAuth();
-  const stateAdminEmail = (location.state as any)?.adminEmail;
-  const adminEmail = stateAdminEmail || DEFAULT_ADMIN_EMAIL;
+
+  const initialState = (location.state as OtpRouteState | null) || {};
+  const [challengeToken, setChallengeToken] = useState(initialState.challengeToken || '');
+  const [systemEmail, setSystemEmail] = useState(
+    initialState.systemEmail || 'tseki.cecsystem@gmail.com'
+  );
+  const [sentVia, setSentVia] = useState<'gmail' | 'dev_fallback'>(
+    initialState.sentVia || 'gmail'
+  );
+  const [demoOtp, setDemoOtp] = useState(initialState.demoOtp || '');
 
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,7 +36,13 @@ export default function OtpPage() {
   const [success, setSuccess] = useState('');
   const [resendCountdown, setResendCountdown] = useState(60);
 
-  // Countdown timer for resend
+  // Redirect back to login if opened directly without an active OTP challenge
+  useEffect(() => {
+    if (!challengeToken) {
+      navigate('/login', { replace: true });
+    }
+  }, [challengeToken, navigate]);
+
   useEffect(() => {
     if (resendCountdown <= 0) return;
     const timer = setInterval(() => {
@@ -49,62 +69,44 @@ export default function OtpPage() {
     setError('');
 
     try {
-      // 1. Check demo code first for reliable admin testing
-      if (token === DEMO_OTP) {
-        setSuccess('Verification successful! Access granted.');
-        setAdminAuthenticated(adminEmail);
-        setTimeout(() => {
-          navigate('/', { replace: true });
-        }, 800);
-        return;
-      }
-
-      // 2. Try Supabase verifyOtp
-      let verified = false;
-      try {
-        const { error: verifyError } = await supabase.auth.verifyOtp({
-          email: adminEmail,
-          token,
-          type: 'email',
-        });
-
-        if (!verifyError) {
-          verified = true;
-        } else {
-          // If Supabase failed, check error
-          setError(verifyError.message || 'Invalid or expired verification code.');
-        }
-      } catch (err: any) {
-        setError(err.message || 'Invalid verification code.');
-      }
-
-      if (verified) {
-        setSuccess('Verification successful! Access granted.');
-        setAdminAuthenticated(adminEmail);
-        setTimeout(() => {
-          navigate('/', { replace: true });
-        }, 800);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Verification failed. Please try again.');
+      const result = await verifyLoginOtp(challengeToken, token);
+      setSuccess('Verification successful! Access granted.');
+      setAdminAuthenticated(
+        result.sessionToken,
+        result.adminEmail,
+        Boolean(initialState.rememberMe)
+      );
+      setTimeout(() => {
+        navigate('/', { replace: true });
+      }, 450);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Invalid or expired verification code.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
   async function handleResend() {
-    if (resendCountdown > 0) return;
+    if (resendCountdown > 0 || !challengeToken) return;
     setLoading(true);
     setError('');
+    setSuccess('');
+
     try {
-      await supabase.auth.signInWithOtp({
-        email: adminEmail,
-      });
+      const nextChallenge = await resendOtp(challengeToken);
+      setChallengeToken(nextChallenge.challengeToken);
+      setSystemEmail(nextChallenge.systemEmail);
+      setSentVia(nextChallenge.sentVia);
+      setDemoOtp(nextChallenge.demoOtp || '');
       setResendCountdown(60);
-      setSuccess('A new OTP code has been sent to your admin email!');
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Could not resend OTP code.');
+      setSuccess(
+        nextChallenge.sentVia === 'gmail'
+          ? `A new 6-digit OTP has been sent via Gmail to ${nextChallenge.systemEmail}.`
+          : `New dev fallback OTP generated for ${nextChallenge.systemEmail}.`
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not resend OTP code.');
     } finally {
       setLoading(false);
     }
@@ -123,12 +125,10 @@ export default function OtpPage() {
             <h1 className="brand-title">
               Tseki <span className="brand-badge">ADMIN PORTAL</span>
             </h1>
-            <p className="brand-subtitle">
-              Educational Assessment & Verification
-            </p>
+            <p className="brand-subtitle">Educational Assessment &amp; Verification</p>
           </div>
         </div>
-        <div className="brand-bg-shapes">
+        <div className="brand-bg-shapes" aria-hidden="true">
           <div className="bg-circle bg-circle-1" />
           <div className="bg-circle bg-circle-2" />
           <div className="bg-circle bg-circle-3" />
@@ -137,13 +137,17 @@ export default function OtpPage() {
 
       {/* ── Right Panel: Two-Factor Verification ─────────────── */}
       <div className="otp-form-panel">
-        {/* Top Right Theme Toggle */}
         <div className="otp-top-actions">
+          <Link to="/login" className="otp-back-link">
+            <ArrowLeft size={15} />
+            <span>Back to Sign In</span>
+          </Link>
           <button
             type="button"
             className="theme-toggle-btn"
             onClick={toggleDarkMode}
             title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            aria-label={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
@@ -151,55 +155,80 @@ export default function OtpPage() {
 
         <div className="otp-form-container">
           <div className="otp-header">
-            <h2 className="otp-title">Two-Factor Verification</h2>
+            <h2 className="otp-title" id="otp-heading">
+              Two-Factor Verification
+            </h2>
             <p className="otp-description">
-              A verification code has been dispatched to <strong>{adminEmail}</strong>.
+              A verification code has been dispatched to <strong>{systemEmail}</strong>.
             </p>
           </div>
 
-          {/* Green Notice Banner (Screenshot 1) */}
-          <div className="otp-info-banner">
-            <CheckCircle size={18} className="banner-icon" />
-            <div className="banner-text">
-              <span>OTP Sent! Please check your admin email for the verification code.</span>
-              <span className="demo-hint">(Demo code: <strong>{DEMO_OTP}</strong>)</span>
+          {sentVia === 'gmail' ? (
+            <div className="otp-info-banner" role="status">
+              <CheckCircle size={18} className="banner-icon" aria-hidden="true" />
+              <div className="banner-text">
+                <span>
+                  OTP Sent via Gmail! Please check the system email inbox for your 6-digit
+                  verification code.
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="otp-warning-banner" role="status">
+              <AlertTriangle size={18} className="warning-banner-icon" aria-hidden="true" />
+              <div className="banner-text">
+                <span>
+                  Gmail SMTP not configured yet (set <code>GMAIL_USER</code> &amp;{' '}
+                  <code>GMAIL_APP_PASSWORD</code> in <code>admin-web/.env</code>).
+                </span>
+                {demoOtp && (
+                  <span className="demo-hint">
+                    Local Dev Fallback OTP: <strong>{demoOtp}</strong>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {success && (
-            <div className="otp-success-alert">
-              <CheckCircle size={16} />
+            <div className="otp-success-alert" role="status" aria-live="polite">
+              <CheckCircle size={16} aria-hidden="true" />
               <span>{success}</span>
             </div>
           )}
 
           {error && (
-            <div className="otp-error-alert">
-              <span className="error-dot" />
+            <div className="otp-error-alert" role="alert" aria-live="polite">
+              <span className="error-dot" aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleVerify} className="otp-form">
+          <form onSubmit={handleVerify} className="otp-form" aria-labelledby="otp-heading">
             <div className="form-group">
               <label htmlFor="otp-input" className="otp-field-label">
-                VERIFICATION CODE (OTP)
+                Verification Code (OTP)
               </label>
               <div className="otp-input-wrapper">
-                <Key size={18} className="otp-key-icon" />
+                <Key size={18} className="otp-key-icon" aria-hidden="true" />
                 <input
                   id="otp-input"
+                  name="otp"
                   type="text"
                   inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '').slice(0, 6);
                     setOtpCode(val);
-                    setError('');
+                    if (error) setError('');
                   }}
-                  placeholder="Enter 6-digit code (e.g. 123456)"
+                  placeholder="Enter 6-digit code"
                   className="otp-code-input"
+                  enterKeyHint="done"
+                  required
                   autoFocus
                   disabled={loading}
                 />
@@ -207,7 +236,7 @@ export default function OtpPage() {
             </div>
 
             <div className="otp-resend-row">
-              <span className="resend-text">Didn't receive the code?</span>
+              <span className="resend-text">Didn&apos;t receive the code?</span>
               {resendCountdown > 0 ? (
                 <span className="resend-countdown">Resend in {resendCountdown}s</span>
               ) : (
@@ -217,7 +246,7 @@ export default function OtpPage() {
                   onClick={handleResend}
                   disabled={loading}
                 >
-                  <RotateCw size={13} />
+                  <RotateCw size={13} aria-hidden="true" />
                   Resend code
                 </button>
               )}
@@ -226,7 +255,7 @@ export default function OtpPage() {
             <button
               type="submit"
               className="otp-verify-button"
-              disabled={loading || otpCode.length !== 6}
+              disabled={loading}
             >
               {loading ? (
                 <span className="btn-loading">
@@ -235,15 +264,16 @@ export default function OtpPage() {
                 </span>
               ) : (
                 <span className="btn-content">
-                  Verify Code & Sign In
-                  <ArrowRight size={18} />
+                  Verify Code &amp; Sign In
+                  <ArrowRight size={18} aria-hidden="true" />
                 </span>
               )}
             </button>
           </form>
 
           <div className="otp-copyright">
-            © {new Date().getFullYear()} Tseki Educational Assessment & Verification. All rights reserved.
+            © {new Date().getFullYear()} Tseki Educational Assessment &amp; Verification. All rights
+            reserved.
           </div>
         </div>
       </div>

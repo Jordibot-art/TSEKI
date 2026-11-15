@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/admin/(.*)",
+      "destination": "/api/admin?route=$1"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
