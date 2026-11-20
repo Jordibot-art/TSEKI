@@ -1392,7 +1392,10 @@ export function AssessmentInspectorModal({
             {isDraft ? (
               <>
                 <TouchableOpacity
-                  style={[styles.publishBtn, { backgroundColor: "#EA580C" }]}
+                  style={[
+                    styles.publishBtn,
+                    { backgroundColor: darkMode ? "#334155" : "#1E293B" },
+                  ]}
                   onPress={() => onPublishDraft(quiz)}
                   activeOpacity={0.85}
                 >
@@ -1466,7 +1469,10 @@ export function AssessmentInspectorModal({
               </>
             ) : (
               <TouchableOpacity
-                style={[styles.publishBtn, { backgroundColor: "#EA580C", marginBottom: 0 }]}
+                style={[
+                  styles.publishBtn,
+                  { backgroundColor: darkMode ? "#334155" : "#1E293B", marginBottom: 0 },
+                ]}
                 onPress={() => onExportPdf(quiz)}
                 disabled={exportingPdf}
                 activeOpacity={0.85}
@@ -2510,7 +2516,7 @@ const styles = StyleSheet.create({
   },
   publishText: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#FFFFFF",
   },
   resultActions: {
