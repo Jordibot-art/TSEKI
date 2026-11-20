@@ -518,6 +518,27 @@ export default function ClassroomScreen() {
       middle_name: cleanMiddle,
     });
 
+    const alreadyExists = isDuplicateStudent(
+      {
+        lastName: cleanLast,
+        firstName: cleanFirst,
+        middleName: cleanMiddle,
+        fullName: computedFull,
+        email: email.trim() || null,
+        selected: true,
+      },
+      students
+    );
+
+    if (alreadyExists) {
+      setSaving(false);
+      Alert.alert(
+        "Student Already in Roster",
+        `${computedFull} is already registered in this classroom.`
+      );
+      return;
+    }
+
     let { data, error } = await supabase
       .from("students")
       .insert({
@@ -1523,7 +1544,9 @@ export default function ClassroomScreen() {
               loadClassroomAlerts();
             }}
             onStudentCreated={(newStudent) => {
-              setStudents((prev) => [...prev, newStudent]);
+              setStudents((prev) =>
+                prev.some((s) => s.id === newStudent.id) ? prev : [...prev, newStudent]
+              );
               loadClassroomAlerts();
             }}
           />

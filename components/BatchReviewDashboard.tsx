@@ -16,7 +16,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { BatchSheetItem, StudentRosterItem } from "../lib/batchGradingQueue";
 import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
-import { GradingResultItem } from "../lib/gradingService";
+import { GradingResultItem, isItemUnresolvedFlag } from "../lib/gradingService";
+import { LayoutJSON } from "../lib/printEngine/types";
 
 export interface BatchReviewDashboardProps {
     visible: boolean;
@@ -27,6 +28,7 @@ export interface BatchReviewDashboardProps {
     onRemoveItem: (id: string) => void;
     roster: StudentRosterItem[];
     quizTitle: string;
+    layoutJson?: LayoutJSON;
     classTitle: string;
     classroomId: string;
     accentColor?: string;
@@ -42,6 +44,7 @@ export function BatchReviewDashboard({
     onRemoveItem,
     roster,
     quizTitle,
+    layoutJson,
     classTitle,
     classroomId,
     accentColor = "#F97316",
@@ -146,15 +149,7 @@ export function BatchReviewDashboard({
         };
 
         // Recount remaining flags
-        const remainingFlags = updatedResults.filter(
-            (r) =>
-                (r.flaggedForReview ||
-                    r.flagReason === "double_mark" ||
-                    r.flagReason === "unclear" ||
-                    r.flagReason === "low_confidence" ||
-                    (r.confidence !== undefined && r.confidence < 0.75)) &&
-                !r.isOverridden
-        ).length;
+        const remainingFlags = updatedResults.filter(isItemUnresolvedFlag).length;
 
         const canMarkReady = remainingFlags === 0 && Boolean(activeReviewItem.matchedStudentId);
 
@@ -398,15 +393,7 @@ export function BatchReviewDashboard({
                                 const alertParts: string[] = [];
                                 if (needsReview && (item.flaggedCount || 0) > 0) {
                                     const flaggedQList = (item.gradingResult?.results || [])
-                                        .filter(
-                                            (r) =>
-                                                (r.flaggedForReview ||
-                                                    r.flagReason === "double_mark" ||
-                                                    r.flagReason === "unclear" ||
-                                                    r.flagReason === "low_confidence" ||
-                                                    (r.confidence !== undefined && r.confidence < 0.75)) &&
-                                                !r.isOverridden
-                                        )
+                                        .filter(isItemUnresolvedFlag)
                                         .map((r) => `Q${r.questionNumber}`)
                                         .join(", ");
                                     alertParts.push(
@@ -680,6 +667,7 @@ export function BatchReviewDashboard({
                         }}
                         gradingResult={activeReviewItem.gradingResult || null}
                         scannedImageUri={activeReviewItem.imageUri}
+                        layoutJson={layoutJson}
                         studentName={
                             activeReviewItem.matchedStudentName ||
                             activeReviewItem.studentNameExtracted ||
@@ -689,15 +677,7 @@ export function BatchReviewDashboard({
                         initialFilterOnlyFlagged={reviewOnlyFlagged}
                         initialQuestionNumber={
                             reviewOnlyFlagged
-                                ? activeReviewItem.gradingResult?.results?.find(
-                                      (r) =>
-                                          (r.flaggedForReview ||
-                                              r.flagReason === "double_mark" ||
-                                              r.flagReason === "unclear" ||
-                                              r.flagReason === "low_confidence" ||
-                                              (r.confidence !== undefined && r.confidence < 0.75)) &&
-                                          !r.isOverridden
-                                  )?.questionNumber
+                                ? activeReviewItem.gradingResult?.results?.find(isItemUnresolvedFlag)?.questionNumber
                                 : 1
                         }
                         onSaveReviewedResults={handleSaveReviewedResults}

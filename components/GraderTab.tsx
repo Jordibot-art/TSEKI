@@ -14,15 +14,21 @@ import {
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { saveRosterAlert } from "../lib/alertStore";
-import { gradeStudentTest, GradingResponse, GradingResultItem } from "../lib/gradingService";
+import { gradeStudentTest, GradingResponse, isItemUnresolvedFlag } from "../lib/gradingService";
 import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
 import { saveStudentQuizResult, recalculateStudentAverage } from "../lib/questionAnalysis";
 import { getPublishedQuizzes, saveQuizPerformanceRecord, StoredQuiz } from "../lib/quizStore";
-import { normalizeStudentRecord, splitStudentFullName } from "../lib/classListParserService";
+import {
+    formatMiddleInitial,
+    formatStudentFullName,
+    normalizeStudentRecord,
+    splitStudentFullName,
+    toSmartTitleCase,
+} from "../lib/classListParserService";
 import { supabase } from "../supabase";
 import { BatchScannerModal } from "./BatchScannerModal";
 import { BatchReviewDashboard } from "./BatchReviewDashboard";
-import { BatchGradingQueue, BatchSheetItem } from "../lib/batchGradingQueue";
+import { BatchGradingQueue, BatchSheetItem, matchStudentToRoster } from "../lib/batchGradingQueue";
 import { PaperScanningAnimation } from "./PaperScanningAnimation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -143,6 +149,8 @@ export default function GraderTab({
     // 2. Identify student sheet (functional with real database students)
     const [roster, setRoster] = useState<Student[]>(students);
     const [selectedStudent, setSelectedStudent] = useState("");
+    const [matchedStudentId, setMatchedStudentId] = useState<string | null>(null);
+    const [studentPickerOpen, setStudentPickerOpen] = useState(false);
 
     // ── Grading & Flow States ──────────────────────────────────────────────────
     const [sourceModalOpen, setSourceModalOpen] = useState(false);
@@ -151,6 +159,7 @@ export default function GraderTab({
     const [scannedImageUri, setScannedImageUri] = useState<string | null>(null);
     const [reviewModalOpen, setReviewModalOpen] = useState(false);
     const [reviewInitialQNum, setReviewInitialQNum] = useState<number | undefined>(undefined);
+    const [reviewFilterOnlyFlagged, setReviewFilterOnlyFlagged] = useState<boolean>(true);
     const [savingScore, setSavingScore] = useState(false);
     const [isRecorded, setIsRecorded] = useState(false);
 
@@ -173,7 +182,7 @@ export default function GraderTab({
 
     useEffect(() => {
         if (students !== undefined) {
-            setRoster(students);
+            setRoster(students.map((s) => normalizeStudentRecord(s) as Student));
         } else if (classroomId) {
             supabase
                 .from("students")
@@ -181,10 +190,49 @@ export default function GraderTab({
                 .eq("classroom_id", classroomId)
                 .order("created_at", { ascending: true })
                 .then(({ data }) => {
-                    if (data) setRoster(data as Student[]);
+                    if (data) setRoster(data.map((row) => normalizeStudentRecord(row) as Student));
                 });
         }
     }, [classroomId, students]);
+
+    function toRosterMatchItems(list: Student[]) {
+        return list.map((s) => ({
+            id: s.id,
+            full_name: s.full_name,
+            last_name: s.last_name,
+            first_name: s.first_name,
+            middle_name: s.middle_name,
+            email: s.email,
+            average: s.average,
+        }));
+    }
+
+    async function fetchLatestClassroomRoster(): Promise<Student[]> {
+        const currentNormalized = roster.map((s) => normalizeStudentRecord(s) as Student);
+        if (!classroomId) return currentNormalized;
+        try {
+            const { data, error } = await supabase
+                .from("students")
+                .select("*")
+                .eq("classroom_id", classroomId)
+                .order("created_at", { ascending: true });
+            if (!error && Array.isArray(data)) {
+                const dbStudents = data.map((row) => normalizeStudentRecord(row) as Student);
+                // Merge any local entries not yet returned from Supabase
+                const seenIds = new Set(dbStudents.map((s) => s.id));
+                for (const local of currentNormalized) {
+                    if (!seenIds.has(local.id)) {
+                        dbStudents.push(local);
+                    }
+                }
+                setRoster(dbStudents);
+                return dbStudents;
+            }
+        } catch (err) {
+            console.warn("[Grader] Could not refresh classroom roster from Supabase:", err);
+        }
+        return currentNormalized;
+    }
 
     useEffect(() => {
         loadPublished();
@@ -211,6 +259,11 @@ export default function GraderTab({
         ? selectedQuiz
         : (quizOptions.length > 0 ? quizOptions[0] : "");
 
+    const activePublishedQuiz = useMemo(
+        () => publishedQuizzes.find((q) => q.quizTitle === (selectedQuiz || currentQuizValue)),
+        [publishedQuizzes, selectedQuiz, currentQuizValue]
+    );
+
     const studentOptions = Array.from(
         new Set([
             "Auto-Detect from Test Paper",
@@ -222,29 +275,21 @@ export default function GraderTab({
 
     const currentStudentValue = selectedStudent || "Auto-Detect from Test Paper";
 
-    // Count of items needing teacher review (unclear, double-shaded, low confidence)
+    // Count of items needing teacher review (unclear, crossed-out, double-marked, low confidence)
     const flaggedCount = useMemo(() => {
         if (!gradingResult || !Array.isArray(gradingResult.results)) return 0;
-        return gradingResult.results.filter(
-            (r) =>
-                (r.flaggedForReview ||
-                    r.flagReason === "double_mark" ||
-                    r.flagReason === "unclear" ||
-                    r.flagReason === "low_confidence" ||
-                    (r.confidence !== undefined && r.confidence < 0.75)) &&
-                !r.isOverridden
-        ).length;
+        return gradingResult.results.filter(isItemUnresolvedFlag).length;
     }, [gradingResult]);
 
     // ── Helper to optimize captured test paper for AI Vision ───────────────────
     async function prepareImageForGrading(asset: { uri: string; base64?: string | null }): Promise<{ base64: string; mimeType: "image/jpeg" }> {
         try {
             const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
-            // Resize to max 1280px width (preserves legibility while shrinking payload ~50x)
+            // Resize to 1800px width at 0.90 quality so tiny square answer boxes & cross-out strokes stay razor-sharp
             const manip = await manipulateAsync(
                 asset.uri,
-                [{ resize: { width: 1280 } }],
-                { compress: 0.80, format: SaveFormat.JPEG, base64: true }
+                [{ resize: { width: 1800 } }],
+                { compress: 0.90, format: SaveFormat.JPEG, base64: true }
             );
             if (manip.base64) {
                 return { base64: manip.base64, mimeType: "image/jpeg" };
@@ -302,7 +347,7 @@ export default function GraderTab({
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ["images"],
                 allowsEditing: false,
-                quality: 0.8,
+                quality: 0.92,
                 base64: true,
             });
 
@@ -327,6 +372,7 @@ export default function GraderTab({
     async function processGrading(base64Data: string, mimeType: "image/jpeg" | "image/png") {
         setGradingLoading(true);
         setIsRecorded(false);
+        setMatchedStudentId(null);
         try {
             const activeQuizTitle = selectedQuiz || currentQuizValue;
             const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
@@ -335,42 +381,72 @@ export default function GraderTab({
                 return;
             }
             const activeAnswerKey = published.answerKey;
+            const latestRoster = await fetchLatestClassroomRoster();
 
-            const result = await gradeStudentTest(base64Data, activeAnswerKey, mimeType, published.layoutJson);
-            setGradingResult(result);
+            const result = await gradeStudentTest(
+                base64Data,
+                activeAnswerKey,
+                mimeType,
+                published.layoutJson,
+                latestRoster
+            );
 
-            // Match student if detected name matches a student in classroom roster
-            if (result.studentName && roster.length > 0) {
-                const match = roster.find(
+            // Resolve against existing classroom roster (manual override first, otherwise smart fuzzy match)
+            let resolvedStudent: Student | undefined;
+            const isManualPick = Boolean(
+                selectedStudent && selectedStudent !== "Auto-Detect from Test Paper"
+            );
+            if (isManualPick) {
+                resolvedStudent = latestRoster.find(
                     (s) =>
-                        s.full_name.toLowerCase().includes(result.studentName.toLowerCase()) ||
-                        result.studentName.toLowerCase().includes(s.full_name.toLowerCase())
+                        selectedStudent === `${s.full_name}${s.email ? ` (${s.email})` : ""}` ||
+                        selectedStudent === s.full_name
                 );
-                if (match) {
-                    setSelectedStudent(`${match.full_name}${match.email ? ` (${match.email})` : ""}`);
+            }
+
+            if (!resolvedStudent && latestRoster.length > 0) {
+                const fuzzyMatch = matchStudentToRoster(
+                    result.studentName,
+                    toRosterMatchItems(latestRoster),
+                    {
+                        lastName: result.lastName,
+                        firstName: result.firstName,
+                        middleName: result.middleName,
+                    }
+                );
+                if (fuzzyMatch) {
+                    resolvedStudent = latestRoster.find((s) => s.id === fuzzyMatch.student.id);
                 }
             }
 
-            // Proactively alert the teacher if any answers were scribbled, overwritten, or have low confidence
-            const flaggedAnswers = (result.results || []).filter(
-                (r) =>
-                    r.flaggedForReview ||
-                    r.flagReason === "double_mark" ||
-                    r.flagReason === "unclear" ||
-                    r.flagReason === "low_confidence" ||
-                    (r.confidence !== undefined && r.confidence < 0.75)
-            );
+            if (resolvedStudent) {
+                setMatchedStudentId(resolvedStudent.id);
+                setGradingResult({
+                    ...result,
+                    studentName: resolvedStudent.full_name,
+                    lastName: resolvedStudent.last_name || result.lastName,
+                    firstName: resolvedStudent.first_name || result.firstName,
+                    middleName: formatMiddleInitial(resolvedStudent.middle_name) || result.middleName || null,
+                });
+            } else {
+                setMatchedStudentId(null);
+                setGradingResult(result);
+            }
+
+            // Proactively alert the teacher if any answers were crossed out, scribbled, overwritten, or have low confidence
+            const flaggedAnswers = (result.results || []).filter(isItemUnresolvedFlag);
 
             if (flaggedAnswers.length > 0) {
                 const qListText = flaggedAnswers.map((f) => `Q#${f.questionNumber}`).join(", ");
                 const firstFlaggedQ = flaggedAnswers[0].questionNumber;
                 Alert.alert(
                     "⚠️ Answer Review Needed",
-                    `Tseki detected ${flaggedAnswers.length} question${flaggedAnswers.length > 1 ? "s" : ""} (${qListText}) with scribbled, overwritten, or low-confidence marks.\n\nWould you like to review and confirm student intent now?`,
+                    `Tseki detected ${flaggedAnswers.length} question${flaggedAnswers.length > 1 ? "s" : ""} (${qListText}) with crossed-out, overwritten, or low-confidence marks.\n\nInspect the zoomed photo of each flagged answer box and confirm the student's answer now?`,
                     [
                         {
                             text: "Review Now",
                             onPress: () => {
+                                setReviewFilterOnlyFlagged(true);
                                 setReviewInitialQNum(firstFlaggedQ);
                                 setReviewModalOpen(true);
                             },
@@ -416,10 +492,11 @@ export default function GraderTab({
         const updated = gradingResult.results.map((item) => {
             if (item.questionNumber === qNum) {
                 const nextCorrect = !item.isCorrect;
+                const maxPts = item.maxPoints || 1;
                 return {
                     ...item,
                     isCorrect: nextCorrect,
-                    pointsAwarded: nextCorrect ? 1 : 0,
+                    pointsAwarded: nextCorrect ? maxPts : 0,
                 };
             }
             return item;
@@ -438,43 +515,100 @@ export default function GraderTab({
     // ── Approve & Record to Classroom Record ───────────────────────────────────
     async function handleApproveAndRecord() {
         if (!gradingResult) return;
+
+        if (flaggedCount > 0) {
+            const firstFlagged = gradingResult.results.find(isItemUnresolvedFlag);
+            const qList = gradingResult.results
+                .filter(isItemUnresolvedFlag)
+                .map((r) => `Q#${r.questionNumber}`)
+                .join(", ");
+            Alert.alert(
+                "Unreviewed Flagged Answers",
+                `${flaggedCount} question${flaggedCount > 1 ? "s" : ""} (${qList}) still need your verification before recording.`,
+                [
+                    {
+                        text: "Review Now",
+                        onPress: () => {
+                            setReviewFilterOnlyFlagged(true);
+                            setReviewInitialQNum(firstFlagged?.questionNumber);
+                            setReviewModalOpen(true);
+                        },
+                    },
+                    {
+                        text: "Record Anyway",
+                        style: "destructive",
+                        onPress: () => {
+                            void commitSingleRecord();
+                        },
+                    },
+                    { text: "Cancel", style: "cancel" },
+                ]
+            );
+            return;
+        }
+
+        await commitSingleRecord();
+    }
+
+    async function commitSingleRecord() {
+        if (!gradingResult) return;
         setSavingScore(true);
         try {
             const percentage = Math.round((gradingResult.totalScore / (gradingResult.maxScore || 1)) * 100);
+            const latestRoster = await fetchLatestClassroomRoster();
 
-            // Find matching student in roster
-            let student = roster.find(
-                (s) =>
-                    (selectedStudent && selectedStudent.includes(s.full_name)) ||
-                    (gradingResult.studentName && s.full_name.toLowerCase().includes(gradingResult.studentName.toLowerCase())) ||
-                    (gradingResult.studentName && gradingResult.studentName.toLowerCase().includes(s.full_name.toLowerCase()))
-            );
+            // 1. Resolve matching student in existing classroom roster (NEVER create duplicate if registered)
+            let student: Student | undefined;
+            if (matchedStudentId) {
+                student = latestRoster.find((s) => s.id === matchedStudentId);
+            }
 
-            if (student) {
-                // Update existing student in Supabase
-                const { error } = await supabase
-                    .from("students")
-                    .update({ average: percentage })
-                    .eq("id", student.id);
-
-                if (error) throw error;
-
-                setRoster((prev) =>
-                    prev.map((s) => (s.id === student!.id ? { ...s, average: percentage } : s))
+            if (!student && selectedStudent && selectedStudent !== "Auto-Detect from Test Paper") {
+                student = latestRoster.find(
+                    (s) =>
+                        selectedStudent === `${s.full_name}${s.email ? ` (${s.email})` : ""}` ||
+                        selectedStudent === s.full_name
                 );
-                onScoreRecorded?.(student.id, percentage);
-            } else if (classroomId) {
-                // Student not yet in roster, create new student record
-                const newName = gradingResult.studentName && gradingResult.studentName !== "Unknown"
-                    ? gradingResult.studentName
-                    : `Student ${roster.length + 1}`;
-                const parsedParts = splitStudentFullName(newName);
-                const resolvedLastName = gradingResult.lastName?.trim() || parsedParts.last_name;
-                const resolvedFirstName = gradingResult.firstName?.trim() || parsedParts.first_name;
-                const resolvedMiddleName = (gradingResult.middleName ?? parsedParts.middle_name) || null;
-                const formattedFullName = resolvedLastName && resolvedFirstName
-                    ? `${resolvedLastName}, ${resolvedFirstName}${resolvedMiddleName ? ` ${resolvedMiddleName}` : ""}`
-                    : newName;
+            }
+
+            if (!student && latestRoster.length > 0) {
+                const fuzzyMatch = matchStudentToRoster(
+                    gradingResult.studentName,
+                    toRosterMatchItems(latestRoster),
+                    {
+                        lastName: gradingResult.lastName,
+                        firstName: gradingResult.firstName,
+                        middleName: gradingResult.middleName,
+                    }
+                );
+                if (fuzzyMatch) {
+                    student = latestRoster.find((s) => s.id === fuzzyMatch.student.id);
+                }
+            }
+
+            if (!student && classroomId) {
+                // Genuinely new student not in classroom roster — format strictly as "Lastname, Firstname M."
+                const rawNewName =
+                    gradingResult.studentName &&
+                    gradingResult.studentName !== "Unknown" &&
+                    gradingResult.studentName !== "Student"
+                        ? gradingResult.studentName
+                        : `Student ${latestRoster.length + 1}`;
+                const parsedParts = splitStudentFullName(rawNewName);
+                const resolvedLastName = toSmartTitleCase(
+                    gradingResult.lastName?.trim() || parsedParts.last_name || ""
+                );
+                const resolvedFirstName = toSmartTitleCase(
+                    gradingResult.firstName?.trim() || parsedParts.first_name || ""
+                );
+                const resolvedMiddleInitial =
+                    formatMiddleInitial(gradingResult.middleName ?? parsedParts.middle_name) || null;
+                const formattedFullName = formatStudentFullName({
+                    last_name: resolvedLastName,
+                    first_name: resolvedFirstName,
+                    middle_name: resolvedMiddleInitial,
+                    full_name: rawNewName,
+                }) || rawNewName;
 
                 let { data, error } = await supabase
                     .from("students")
@@ -482,7 +616,7 @@ export default function GraderTab({
                         classroom_id: classroomId,
                         last_name: resolvedLastName,
                         first_name: resolvedFirstName,
-                        middle_name: resolvedMiddleName,
+                        middle_name: resolvedMiddleInitial,
                         full_name: formattedFullName,
                         email: null,
                         attendance: 100,
@@ -491,7 +625,7 @@ export default function GraderTab({
                     .select()
                     .single();
 
-                if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+                if (error && (error.code === "PGRST204" || error.message?.includes("last_name") || error.message?.includes("first_name"))) {
                     const fallback = await supabase
                         .from("students")
                         .insert({
@@ -511,14 +645,16 @@ export default function GraderTab({
                 if (data) {
                     const newStudent = normalizeStudentRecord(data) as Student;
                     student = newStudent;
-                    setRoster((prev) => [...prev, newStudent]);
+                    setMatchedStudentId(newStudent.id);
+                    setRoster((prev) => (prev.some((s) => s.id === newStudent.id) ? prev : [...prev, newStudent]));
                     onStudentCreated?.(newStudent);
-                    onScoreRecorded?.(newStudent.id, percentage);
                 }
+            } else if (student) {
+                setMatchedStudentId(student.id);
             }
 
             // Record to quiz performance history for tracker trend
-            const quizTitleToRecord = selectedQuiz || "Assessment 1";
+            const quizTitleToRecord = selectedQuiz || currentQuizValue || "Assessment 1";
             if (classroomId) {
                 await saveQuizPerformanceRecord(classroomId, quizTitleToRecord, percentage);
 
@@ -551,15 +687,20 @@ export default function GraderTab({
                     gradedAt: new Date().toISOString(),
                 });
 
-                // Automatically update student's cumulative average in roster state
+                // Automatically update student's cumulative average across all recorded assessments
                 if (student) {
                     const updatedCumulativeAvg = await recalculateStudentAverage(student.id, classroomId);
-                    if (updatedCumulativeAvg > 0) {
-                        setRoster((prev) =>
-                            prev.map((s) => (s.id === student!.id ? { ...s, average: updatedCumulativeAvg } : s))
-                        );
-                        onScoreRecorded?.(student.id, updatedCumulativeAvg);
+                    const finalAvg = updatedCumulativeAvg >= 0 ? updatedCumulativeAvg : percentage;
+                    if (updatedCumulativeAvg < 0) {
+                        await supabase
+                            .from("students")
+                            .update({ average: finalAvg })
+                            .eq("id", student.id);
                     }
+                    setRoster((prev) =>
+                        prev.map((s) => (s.id === student!.id ? { ...s, average: finalAvg } : s))
+                    );
+                    onScoreRecorded?.(student.id, finalAvg);
                 }
 
                 // If student score is 50% or below, trigger system at-risk notification alert
@@ -593,21 +734,17 @@ export default function GraderTab({
     }
 
     // ── Batch Queue Management ────────────────────────────────────────────────
-    const getOrCreateBatchQueue = () => {
+    const getOrCreateBatchQueue = (rosterOverride?: Student[]) => {
         const activeQuizTitle = selectedQuiz || currentQuizValue;
         const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
         const activeAnswerKey = published?.answerKey || [];
+        const matchRoster = toRosterMatchItems(rosterOverride || roster);
 
         if (!batchQueueRef.current) {
             batchQueueRef.current = new BatchGradingQueue({
                 answerKey: activeAnswerKey,
                 layoutJson: published?.layoutJson,
-                roster: roster.map((s) => ({
-                    id: s.id,
-                    full_name: s.full_name,
-                    email: s.email,
-                    average: s.average,
-                })),
+                roster: matchRoster,
                 onProgress: (updatedItems) => {
                     setBatchItems([...updatedItems]);
                 },
@@ -617,18 +754,13 @@ export default function GraderTab({
             batchQueueRef.current.updateOptions({
                 answerKey: activeAnswerKey,
                 layoutJson: published?.layoutJson,
-                roster: roster.map((s) => ({
-                    id: s.id,
-                    full_name: s.full_name,
-                    email: s.email,
-                    average: s.average,
-                })),
+                roster: matchRoster,
             });
         }
         return batchQueueRef.current;
     };
 
-    const handleStartBatchScanner = () => {
+    const handleStartBatchScanner = async () => {
         if (publishedQuizzes.length === 0) {
             Alert.alert(
                 "No Quizzes Available",
@@ -636,7 +768,8 @@ export default function GraderTab({
             );
             return;
         }
-        getOrCreateBatchQueue();
+        const latestRoster = await fetchLatestClassroomRoster();
+        getOrCreateBatchQueue(latestRoster);
         setScannerMode("batch");
         setBatchScannerOpen(true);
     };
@@ -698,7 +831,7 @@ export default function GraderTab({
         const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
 
         try {
-            let updatedRoster = [...roster];
+            let updatedRoster = await fetchLatestClassroomRoster();
 
             for (const item of approvedItems) {
                 if (!item.gradingResult) continue;
@@ -707,36 +840,48 @@ export default function GraderTab({
                     (item.gradingResult.totalScore / (item.gradingResult.maxScore || 1)) * 100
                 );
 
-                let student = updatedRoster.find(
-                    (s) =>
-                        (item.matchedStudentId && s.id === item.matchedStudentId) ||
-                        (item.matchedStudentName && s.full_name.toLowerCase() === item.matchedStudentName.toLowerCase()) ||
-                        (item.studentNameExtracted && s.full_name.toLowerCase() === item.studentNameExtracted.toLowerCase())
-                );
+                let student: Student | undefined = item.matchedStudentId
+                    ? updatedRoster.find((s) => s.id === item.matchedStudentId)
+                    : undefined;
 
-                if (student) {
-                    await supabase
-                        .from("students")
-                        .update({ average: percentage })
-                        .eq("id", student.id);
-
-                    updatedRoster = updatedRoster.map((s) =>
-                        s.id === student!.id ? { ...s, average: percentage } : s
+                if (!student && updatedRoster.length > 0) {
+                    const fuzzyMatch = matchStudentToRoster(
+                        item.matchedStudentName || item.studentNameExtracted,
+                        toRosterMatchItems(updatedRoster),
+                        {
+                            lastName: item.gradingResult.lastName,
+                            firstName: item.gradingResult.firstName,
+                            middleName: item.gradingResult.middleName,
+                        }
                     );
-                    onScoreRecorded?.(student.id, percentage);
-                } else if (classroomId) {
-                    const newName =
+                    if (fuzzyMatch) {
+                        student = updatedRoster.find((s) => s.id === fuzzyMatch.student.id);
+                    }
+                }
+
+                if (!student && classroomId) {
+                    const rawNewName =
                         item.matchedStudentName ||
-                        (item.studentNameExtracted && item.studentNameExtracted !== "Unknown"
+                        (item.studentNameExtracted &&
+                        item.studentNameExtracted !== "Unknown" &&
+                        item.studentNameExtracted !== "Student"
                             ? item.studentNameExtracted
                             : `Student ${updatedRoster.length + 1}`);
-                    const parsedParts = splitStudentFullName(newName);
-                    const resolvedLastName = item.gradingResult.lastName?.trim() || parsedParts.last_name;
-                    const resolvedFirstName = item.gradingResult.firstName?.trim() || parsedParts.first_name;
-                    const resolvedMiddleName = (item.gradingResult.middleName ?? parsedParts.middle_name) || null;
-                    const formattedFullName = resolvedLastName && resolvedFirstName
-                        ? `${resolvedLastName}, ${resolvedFirstName}${resolvedMiddleName ? ` ${resolvedMiddleName}` : ""}`
-                        : newName;
+                    const parsedParts = splitStudentFullName(rawNewName);
+                    const resolvedLastName = toSmartTitleCase(
+                        item.gradingResult.lastName?.trim() || parsedParts.last_name || ""
+                    );
+                    const resolvedFirstName = toSmartTitleCase(
+                        item.gradingResult.firstName?.trim() || parsedParts.first_name || ""
+                    );
+                    const resolvedMiddleInitial =
+                        formatMiddleInitial(item.gradingResult.middleName ?? parsedParts.middle_name) || null;
+                    const formattedFullName = formatStudentFullName({
+                        last_name: resolvedLastName,
+                        first_name: resolvedFirstName,
+                        middle_name: resolvedMiddleInitial,
+                        full_name: rawNewName,
+                    }) || rawNewName;
 
                     let { data, error } = await supabase
                         .from("students")
@@ -744,7 +889,7 @@ export default function GraderTab({
                             classroom_id: classroomId,
                             last_name: resolvedLastName,
                             first_name: resolvedFirstName,
-                            middle_name: resolvedMiddleName,
+                            middle_name: resolvedMiddleInitial,
                             full_name: formattedFullName,
                             email: null,
                             attendance: 100,
@@ -753,7 +898,7 @@ export default function GraderTab({
                         .select()
                         .single();
 
-                    if (error && (error.message?.includes("last_name") || error.message?.includes("first_name"))) {
+                    if (error && (error.code === "PGRST204" || error.message?.includes("last_name") || error.message?.includes("first_name"))) {
                         const fallback = await supabase
                             .from("students")
                             .insert({
@@ -772,7 +917,6 @@ export default function GraderTab({
                         student = normalizeStudentRecord(data) as Student;
                         updatedRoster.push(student);
                         onStudentCreated?.(student);
-                        onScoreRecorded?.(student.id, percentage);
                     }
                 }
 
@@ -805,14 +949,19 @@ export default function GraderTab({
                         gradedAt: new Date().toISOString(),
                     });
 
-                    // Automatically update student's cumulative average in updatedRoster state
+                    // Automatically update student's cumulative average across all assessments
                     const updatedCumulativeAvg = await recalculateStudentAverage(student.id, classroomId);
-                    if (updatedCumulativeAvg > 0) {
-                        updatedRoster = updatedRoster.map((s) =>
-                            s.id === student!.id ? { ...s, average: updatedCumulativeAvg } : s
-                        );
-                        onScoreRecorded?.(student.id, updatedCumulativeAvg);
+                    const finalAvg = updatedCumulativeAvg >= 0 ? updatedCumulativeAvg : percentage;
+                    if (updatedCumulativeAvg < 0) {
+                        await supabase
+                            .from("students")
+                            .update({ average: finalAvg })
+                            .eq("id", student.id);
                     }
+                    updatedRoster = updatedRoster.map((s) =>
+                        s.id === student!.id ? { ...s, average: finalAvg } : s
+                    );
+                    onScoreRecorded?.(student.id, finalAvg);
 
                     if (percentage <= 50) {
                         await saveRosterAlert({
@@ -913,11 +1062,50 @@ export default function GraderTab({
                     <View style={[styles.scannedCard, { backgroundColor: cardBg, borderColor: border }]}>
                         {/* Dark Header Banner */}
                         <View style={[styles.darkCardHeader, darkMode && { backgroundColor: "#111827" }]}>
-                            <View style={{ flex: 1 }}>
+                            <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
                                 <Text style={styles.cardHeaderSub}>SCANNED STUDENT SHEET</Text>
                                 <Text style={styles.cardStudentName} numberOfLines={1}>
-                                    {gradingResult.studentName || "Student"}
+                                    {(matchedStudentId && roster.find((s) => s.id === matchedStudentId)?.full_name) ||
+                                        gradingResult.studentName ||
+                                        "Student"}
                                 </Text>
+                                {roster.length > 0 && !isRecorded && (
+                                    <TouchableOpacity
+                                        onPress={() => setStudentPickerOpen(true)}
+                                        activeOpacity={0.75}
+                                        style={{
+                                            flexDirection: "row",
+                                            alignItems: "center",
+                                            alignSelf: "flex-start",
+                                            gap: 5,
+                                            marginTop: 6,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 3,
+                                            borderRadius: 6,
+                                            backgroundColor: matchedStudentId
+                                                ? "rgba(16, 185, 129, 0.18)"
+                                                : "rgba(245, 158, 11, 0.20)",
+                                        }}
+                                    >
+                                        <Ionicons
+                                            name={matchedStudentId ? "checkmark-circle" : "person-add-outline"}
+                                            size={12}
+                                            color={matchedStudentId ? "#34D399" : "#FBBF24"}
+                                        />
+                                        <Text
+                                            style={{
+                                                fontSize: 11,
+                                                fontWeight: "600",
+                                                color: matchedStudentId ? "#A7F3D0" : "#FDE68A",
+                                            }}
+                                            numberOfLines={1}
+                                        >
+                                            {matchedStudentId
+                                                ? "Matched to Roster · Change"
+                                                : "New Student · Link to Roster"}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                             <View style={[styles.scoreBadgePill, { backgroundColor: accentColor || "#F97316" }]}>
                                 <Text style={styles.scoreBadgePillText}>
@@ -989,15 +1177,8 @@ export default function GraderTab({
                                     <TouchableOpacity
                                         style={[styles.compactAlertBtn, { backgroundColor: "#F59E0B" }]}
                                         onPress={() => {
-                                            const firstFlagged = gradingResult?.results?.find(
-                                                (r) =>
-                                                    (r.flaggedForReview ||
-                                                        r.flagReason === "double_mark" ||
-                                                        r.flagReason === "unclear" ||
-                                                        r.flagReason === "low_confidence" ||
-                                                        (r.confidence !== undefined && r.confidence < 0.75)) &&
-                                                    !r.isOverridden
-                                            );
+                                            const firstFlagged = gradingResult?.results?.find(isItemUnresolvedFlag);
+                                            setReviewFilterOnlyFlagged(true);
                                             setReviewInitialQNum(firstFlagged ? firstFlagged.questionNumber : undefined);
                                             setReviewModalOpen(true);
                                         }}
@@ -1013,9 +1194,37 @@ export default function GraderTab({
                                 <Text style={[styles.gradingLogTitle, { color: textSub }]}>
                                     Interactive Grading Log
                                 </Text>
-                                <Text style={[styles.gradingLogCount, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
-                                    {gradingResult.results.length} questions
-                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                    {scannedImageUri && (
+                                        <TouchableOpacity
+                                            style={{
+                                                flexDirection: "row",
+                                                alignItems: "center",
+                                                gap: 4,
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 3,
+                                                borderRadius: 6,
+                                                borderWidth: 1,
+                                                borderColor: border,
+                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                            }}
+                                            onPress={() => {
+                                                setReviewFilterOnlyFlagged(false);
+                                                setReviewInitialQNum(1);
+                                                setReviewModalOpen(true);
+                                            }}
+                                            activeOpacity={0.75}
+                                        >
+                                            <Ionicons name="scan-outline" size={12} color={textSub} />
+                                            <Text style={{ fontSize: 11, fontWeight: "600", color: textMain }}>
+                                                Inspect Sheet
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
+                                    <Text style={[styles.gradingLogCount, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                                        {gradingResult.results.length} questions
+                                    </Text>
+                                </View>
                             </View>
                         </View>
 
@@ -1031,20 +1240,21 @@ export default function GraderTab({
                             ]}
                         >
                             {gradingResult.results.map((item, idx) => {
-                                const isFlagged = Boolean(
-                                    (item.flaggedForReview ||
-                                        item.flagReason === "double_mark" ||
-                                        item.flagReason === "unclear" ||
-                                        item.flagReason === "low_confidence" ||
-                                        (item.confidence !== undefined && item.confidence < 0.75)) &&
-                                        !item.isOverridden
-                                );
+                                const isFlagged = isItemUnresolvedFlag(item);
                                 const isLast = idx === gradingResult.results.length - 1;
 
                                 let studentDisplay = item.studentAnswer || "—";
                                 let studentColor = "#475569";
                                 if (isFlagged) {
-                                    studentDisplay = `${item.studentAnswer || "—"}?`;
+                                    const rawAns = (item.studentAnswer || "").trim();
+                                    if (!rawAns || rawAns === "?") {
+                                        studentDisplay =
+                                            item.detectedOptions && item.detectedOptions.length >= 2
+                                                ? `${item.detectedOptions.slice(0, 2).join("/")}?`
+                                                : "Unclear";
+                                    } else {
+                                        studentDisplay = rawAns.endsWith("?") ? rawAns : `${rawAns}?`;
+                                    }
                                     studentColor = "#D97706";
                                 } else {
                                     studentColor = item.isCorrect ? "#16A34A" : "#DC2626";
@@ -1067,6 +1277,7 @@ export default function GraderTab({
                                         ]}
                                         onPress={() => {
                                             if (isFlagged) {
+                                                setReviewFilterOnlyFlagged(true);
                                                 setReviewInitialQNum(item.questionNumber);
                                                 setReviewModalOpen(true);
                                             } else {
@@ -1426,8 +1637,15 @@ export default function GraderTab({
                 onClose={() => setReviewModalOpen(false)}
                 gradingResult={gradingResult}
                 scannedImageUri={scannedImageUri}
+                layoutJson={activePublishedQuiz?.layoutJson}
+                studentName={
+                    (matchedStudentId && roster.find((s) => s.id === matchedStudentId)?.full_name) ||
+                    gradingResult?.studentName ||
+                    undefined
+                }
                 accentColor={accentColor}
                 initialQuestionNumber={reviewInitialQNum}
+                initialFilterOnlyFlagged={reviewFilterOnlyFlagged}
                 onSaveReviewedResults={(updatedResults, newTotalScore) => {
                     if (!gradingResult) return;
                     setGradingResult({
@@ -1465,18 +1683,74 @@ export default function GraderTab({
                 items={batchItems}
                 onUpdateItem={handleUpdateBatchItem}
                 onRemoveItem={handleRemoveBatchItem}
-                roster={roster.map((s) => ({
-                    id: s.id,
-                    full_name: s.full_name,
-                    email: s.email,
-                    average: s.average,
-                }))}
+                roster={toRosterMatchItems(roster)}
                 quizTitle={selectedQuiz || currentQuizValue || "Assessment"}
+                layoutJson={activePublishedQuiz?.layoutJson}
                 classTitle={classTitle || "Classroom"}
                 classroomId={classroomId}
                 accentColor={accentColor}
                 onCommitBatch={handleCommitBatch}
             />
+
+            {/* ── Link / Switch Roster Student Modal (Single Paper) ── */}
+            <Modal
+                visible={studentPickerOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setStudentPickerOpen(false)}
+            >
+                <TouchableOpacity
+                    style={styles.ddOverlay}
+                    activeOpacity={1}
+                    onPress={() => setStudentPickerOpen(false)}
+                >
+                    <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
+                        <Text style={[styles.ddTitle, { color: accentColor }]}>
+                            Link Sheet to Classroom Student
+                        </Text>
+                        <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                            {roster.map((s) => {
+                                const isSelected = matchedStudentId === s.id;
+                                return (
+                                    <TouchableOpacity
+                                        key={s.id}
+                                        style={[
+                                            styles.ddItem,
+                                            isSelected && { backgroundColor: accentColor + "18" },
+                                        ]}
+                                        onPress={() => {
+                                            setMatchedStudentId(s.id);
+                                            if (gradingResult) {
+                                                setGradingResult({
+                                                    ...gradingResult,
+                                                    studentName: s.full_name,
+                                                    lastName: s.last_name || gradingResult.lastName,
+                                                    firstName: s.first_name || gradingResult.firstName,
+                                                    middleName: formatMiddleInitial(s.middle_name) || gradingResult.middleName || null,
+                                                });
+                                            }
+                                            setStudentPickerOpen(false);
+                                        }}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.ddItemText,
+                                                { color: textMain },
+                                                isSelected && { color: accentColor, fontWeight: "700" },
+                                            ]}
+                                        >
+                                            {s.full_name}
+                                        </Text>
+                                        {isSelected && (
+                                            <Ionicons name="checkmark" size={16} color={accentColor} />
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </ScrollView>
     );
 }

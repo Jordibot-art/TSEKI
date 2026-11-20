@@ -157,49 +157,87 @@ export async function saveStudentQuizResult(
 
 /**
  * Recalculates and updates a student's cumulative average grade in the `students` table
- * based on all their records in `student_quiz_results` for the specified classroom.
- * Returns the newly computed average (0-100).
+ * based on all their quiz results (merging Supabase `student_quiz_results` and local cache)
+ * for the specified classroom. Returns the newly computed average (0-100), or -1 if no records exist.
  */
 export async function recalculateStudentAverage(
   studentId: string,
   classroomId: string
 ): Promise<number> {
   try {
-    const { supabase } = await import("../supabase");
-    const { data: allScores, error } = await supabase
-      .from("student_quiz_results")
-      .select("score_percentage, total_score, max_score")
-      .eq("student_id", studentId)
-      .eq("classroom_id", classroomId);
+    const scoreByQuiz = new Map<string, number>();
 
-    if (error || !allScores || allScores.length === 0) {
-      return 0;
+    // 1. Read local AsyncStorage results first (always available immediately after save)
+    try {
+      const json = await AsyncStorage.getItem(getStorageKey(classroomId));
+      if (json) {
+        const localAll: StudentQuizResult[] = JSON.parse(json);
+        for (const r of localAll) {
+          if (r.studentId !== studentId) continue;
+          const pct =
+            typeof r.scorePercentage === "number" && !Number.isNaN(r.scorePercentage)
+              ? r.scorePercentage
+              : r.maxScore > 0
+                ? (r.totalScore / r.maxScore) * 100
+                : null;
+          if (pct !== null) {
+            scoreByQuiz.set((r.quizTitle || "").trim().toLowerCase(), pct);
+          }
+        }
+      }
+    } catch {
+      // ignore local parse errors
+    }
+
+    // 2. Merge Supabase `student_quiz_results` (cross-device source of truth)
+    let supabaseRef: any = null;
+    try {
+      const mod = await import("../supabase");
+      supabaseRef = mod.supabase;
+      const { data: allScores, error } = await supabaseRef
+        .from("student_quiz_results")
+        .select("quiz_title, score_percentage, total_score, max_score")
+        .eq("student_id", studentId)
+        .eq("classroom_id", classroomId);
+
+      if (!error && Array.isArray(allScores)) {
+        for (const s of allScores) {
+          const pct =
+            typeof s.score_percentage === "number" && !Number.isNaN(s.score_percentage)
+              ? s.score_percentage
+              : s.max_score && s.max_score > 0
+                ? (s.total_score / s.max_score) * 100
+                : null;
+          if (pct !== null) {
+            scoreByQuiz.set(String(s.quiz_title || "").trim().toLowerCase(), pct);
+          }
+        }
+      }
+    } catch {
+      // offline or table not migrated yet
+    }
+
+    if (scoreByQuiz.size === 0) {
+      return -1;
     }
 
     let sumPct = 0;
-    let count = 0;
-    for (const s of allScores) {
-      if (typeof s.score_percentage === "number" && !Number.isNaN(s.score_percentage)) {
-        sumPct += s.score_percentage;
-        count++;
-      } else if (s.max_score && s.max_score > 0) {
-        sumPct += (s.total_score / s.max_score) * 100;
-        count++;
-      }
+    for (const pct of scoreByQuiz.values()) {
+      sumPct += pct;
     }
 
-    if (count > 0) {
-      const calculatedAvg = Math.round(sumPct / count);
-      await supabase
+    const calculatedAvg = Math.round(sumPct / scoreByQuiz.size);
+    if (supabaseRef) {
+      await supabaseRef
         .from("students")
         .update({ average: calculatedAvg })
         .eq("id", studentId);
-      return calculatedAvg;
     }
+    return calculatedAvg;
   } catch (err) {
     console.warn("Failed to recalculate student average:", err);
   }
-  return 0;
+  return -1;
 }
 
 // ── Load All Results for a Classroom ──────────────────────────────────────────

@@ -394,7 +394,7 @@ function drawGradingGuidelines(
     );
 
     page.drawText(
-        '• Flagged for teacher review when OCR confidence < 0.75.',
+        '• Flagged for teacher review when OCR confidence < 0.80.',
         {
             x: x + 8,
             y: y - 32,
