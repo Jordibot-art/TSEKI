@@ -19,6 +19,8 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useTheme } from "../context/ThemeContext";
 import { BatchSheetItem } from "../lib/batchGradingQueue";
+import { AUTO_DETECT_ASSESSMENT, matchAssessmentByQr } from "../lib/assessmentDetector";
+import type { StoredQuiz } from "../lib/quizStore";
 import { PhotoGuidanceModal } from "./PhotoGuidanceModal";
 import {
     cropCapturedSheetToReticle,
@@ -34,16 +36,17 @@ const RETICLE_HEIGHT = Math.min(SCREEN_WIDTH * 0.88 * 1.30, SCREEN_HEIGHT * 0.54
 export interface BatchScannerModalProps {
     visible: boolean;
     onClose: () => void;
-    onCaptureSheet: (uri: string) => void;
+    onCaptureSheet: (uri: string, qrData?: string | null) => void;
     onBatchImportSheets: (uris: string[]) => void;
     onFinishAndReview: () => void;
     onRemoveSheet?: (id: string) => void;
     items?: BatchSheetItem[];
     quizTitle: string;
+    publishedQuizzes?: StoredQuiz[];
     classTitle: string;
     accentColor?: string;
     mode?: "single" | "batch";
-    onCaptureSingleSheet?: (uri: string) => void;
+    onCaptureSingleSheet?: (uri: string, qrData?: string | null) => void;
 }
 
 export function BatchScannerModal({
@@ -55,6 +58,7 @@ export function BatchScannerModal({
     onRemoveSheet,
     items = [],
     quizTitle,
+    publishedQuizzes = [],
     classTitle,
     accentColor = "#F97316",
     mode = "batch",
@@ -80,8 +84,9 @@ export function BatchScannerModal({
     const [cameraReady, setCameraReady] = useState<boolean>(false);
     const [liveHoverStatus, setLiveHoverStatus] = useState<LiveHoverDiagnostics | null>(null);
 
-    // Motion blur detection & Tap-to-Focus
+    // Motion blur detection, live QR assessment match & Tap-to-Focus
     const lastQrDataRef = useRef<string | null>(null);
+    const [liveDetectedQuizTitle, setLiveDetectedQuizTitle] = useState<string | null>(null);
     const lastCenterRef = useRef<{ x: number; y: number; time: number } | null>(null);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
@@ -210,6 +215,8 @@ export function BatchScannerModal({
             setQrDetectedLive(false);
             setLiveHoverStatus(null);
             setActiveQualityAlert(null);
+            setLiveDetectedQuizTitle(null);
+            lastQrDataRef.current = null;
             qrObsRef.current = { detected: false, lastSeenMs: 0 };
             if (qrTimerRef.current) {
                 clearTimeout(qrTimerRef.current);
@@ -301,6 +308,10 @@ export function BatchScannerModal({
                 lastCenterRef.current = null;
             }
             lastQrDataRef.current = result.data;
+            if (publishedQuizzes.length > 0) {
+                const liveMatch = matchAssessmentByQr(result.data, publishedQuizzes);
+                setLiveDetectedQuizTitle(liveMatch ? liveMatch.quiz.quizTitle : null);
+            }
 
             setQrDetectedLive(true);
             const diag = evaluateLiveHoverQuality(null, qrObsRef.current, now);
@@ -328,6 +339,7 @@ export function BatchScannerModal({
             qrTimerRef.current = setTimeout(() => {
                 lastQrDataRef.current = null;
                 lastCenterRef.current = null;
+                setLiveDetectedQuizTitle(null);
                 qrObsRef.current = {
                     detected: false,
                     lastSeenMs: 0,
@@ -375,6 +387,7 @@ export function BatchScannerModal({
             });
 
             if (photo && photo.uri) {
+                const capturedQrData = lastQrDataRef.current;
                 // Auto-crop the raw sensor image to the exact on-screen reticle that the teacher framed,
                 // trimming away surrounding laptop keyboard, desk, and legs so the test sheet fills the photo.
                 const cropped = await cropCapturedSheetToReticle(photo, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -382,16 +395,17 @@ export function BatchScannerModal({
 
                 if (isSingle) {
                     if (onCaptureSingleSheet) {
-                        onCaptureSingleSheet(finalUri);
+                        onCaptureSingleSheet(finalUri, capturedQrData);
                     } else {
-                        onCaptureSheet(finalUri);
+                        onCaptureSheet(finalUri, capturedQrData);
                     }
                     onClose();
                 } else {
-                    onCaptureSheet(finalUri);
+                    onCaptureSheet(finalUri, capturedQrData);
                     // Instantly reset live hover diagnostics for the next sheet!
                     lastQrDataRef.current = null;
                     lastCenterRef.current = null;
+                    setLiveDetectedQuizTitle(null);
                     qrObsRef.current = {
                         detected: false,
                         lastSeenMs: 0,
@@ -419,7 +433,7 @@ export function BatchScannerModal({
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ["images"],
                 allowsMultipleSelection: !isSingle,
-                quality: 0.8,
+                quality: 0.92,
                 selectionLimit: isSingle ? 1 : 50,
             });
 
@@ -490,10 +504,20 @@ export function BatchScannerModal({
 
                             <View style={styles.headerInfo}>
                                 <Text style={styles.headerTitle} numberOfLines={1}>
-                                    {isSingle ? `Scan Sheet: ${quizTitle || "Test"}` : `Batch: ${quizTitle || "Test"}`}
+                                    {liveDetectedQuizTitle
+                                        ? `Auto-Detected: ${liveDetectedQuizTitle}`
+                                        : quizTitle === AUTO_DETECT_ASSESSMENT
+                                        ? isSingle
+                                            ? "Auto-Detect Assessment"
+                                            : "Batch: Auto-Detect"
+                                        : isSingle
+                                        ? `Scan Sheet: ${quizTitle || "Test"}`
+                                        : `Batch: ${quizTitle || "Test"}`}
                                 </Text>
                                 <Text style={styles.headerSub} numberOfLines={1}>
-                                    {classTitle}
+                                    {liveDetectedQuizTitle
+                                        ? `${classTitle} · QR Locked`
+                                        : classTitle}
                                 </Text>
                             </View>
 

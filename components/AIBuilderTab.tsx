@@ -1257,6 +1257,10 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
             await new Promise((r) => setTimeout(r, 200));
             const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
+            const resolvedExportQuizId =
+                (generatedAssessment as any).id ||
+                (generatedAssessment as any).layoutJson?.quizId ||
+                `QZ-${Date.now().toString().slice(-6)}`;
             const printPkg = await generatePrintPackage(generatedAssessment, {
                 paperSize,
                 version: activeVersion,
@@ -1264,7 +1268,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 subject,
                 gradeLevel,
                 forceSeparate: forceSeparateMode,
-                quizId: `QZ-${Date.now().toString().slice(-6)}`,
+                quizId: resolvedExportQuizId,
                 target,
             });
 
@@ -1332,7 +1336,10 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             // Allow the Publishing Loading Modal to mount & animate smoothly before computing
             await new Promise((r) => setTimeout(r, 60));
 
-            const quizId = `QZ-${Date.now().toString().slice(-6)}`;
+            const quizId =
+                (generatedAssessment as any).id ||
+                (generatedAssessment as any).layoutJson?.quizId ||
+                `QZ-${Date.now().toString().slice(-6)}`;
 
             // 1. Instant layout-only pass (< 5 ms using built-in font metrics, does not build PDF)
             const printPkg = await generatePrintPackage(generatedAssessment, {
@@ -1349,6 +1356,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
             const quizWithMeta = {
                 ...generatedAssessment,
+                id: quizId,
                 subject,
                 difficulty,
                 questionType,
@@ -1357,6 +1365,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 answerVariants: printPkg.layoutJson.answerVariants,
             };
             await savePublishedQuiz(classroomId, quizWithMeta, classTitle);
+            setGeneratedAssessment(quizWithMeta as any);
 
             setPublishingQuiz(false);
             setPublishingStage("");

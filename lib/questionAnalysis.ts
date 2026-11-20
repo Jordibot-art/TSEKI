@@ -95,16 +95,90 @@ function getStorageKey(classroomId: string): string {
   return `${RESULTS_PREFIX}${classroomId}`;
 }
 
+function isUuidLike(val?: string | null): boolean {
+  return Boolean(
+    val &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim())
+  );
+}
+
+/**
+ * Prevents two distinct assessments that happen to share the exact same title
+ * (e.g., a 20-item quiz and a 5-item quiz with the same topic title) from overwriting
+ * each other in AsyncStorage or Supabase's UNIQUE(student_id, classroom_id, quiz_title).
+ * Re-scanning the exact same assessment (matching quizId or matching title + maxScore)
+ * still updates cleanly in place.
+ */
+export function resolveNonCollidingQuizTitle(
+  existingStudentResults: StudentQuizResult[],
+  incoming: Pick<StudentQuizResult, "quizId" | "quizTitle" | "maxScore" | "gradedAt">
+): string {
+  const baseTitle = (incoming.quizTitle || "Assessment").trim();
+  const normBase = baseTitle.toLowerCase();
+  const incomingId = (incoming.quizId || "").trim();
+
+  // 1. If an existing entry already matches this exact quizId, reuse its stored title so re-grading updates in place
+  if (incomingId) {
+    const sameIdMatch = existingStudentResults.find(
+      (r) => (r.quizId || "").trim() === incomingId
+    );
+    if (sameIdMatch?.quizTitle) {
+      return sameIdMatch.quizTitle;
+    }
+  }
+
+  // 2. Check if baseTitle is unused or belongs to the exact same assessment (same maxScore & no conflicting quizId)
+  const sameTitleExisting = existingStudentResults.find(
+    (r) => (r.quizTitle || "").trim().toLowerCase() === normBase
+  );
+  if (!sameTitleExisting) {
+    return baseTitle;
+  }
+
+  const existingId = (sameTitleExisting.quizId || "").trim();
+  const hasConflictingId = Boolean(incomingId && existingId && incomingId !== existingId);
+  const hasDifferentMaxScore =
+    Number(sameTitleExisting.maxScore || 0) > 0 &&
+    Number(incoming.maxScore || 0) > 0 &&
+    Number(sameTitleExisting.maxScore) !== Number(incoming.maxScore);
+
+  if (!hasConflictingId && !hasDifferentMaxScore) {
+    return sameTitleExisting.quizTitle || baseTitle;
+  }
+
+  // 3. Different assessment sharing the same title -> disambiguate with item/point count
+  const withPts = `${baseTitle} (${incoming.maxScore} pts)`;
+  const normWithPts = withPts.toLowerCase();
+  const ptsCollision = existingStudentResults.find(
+    (r) => (r.quizTitle || "").trim().toLowerCase() === normWithPts
+  );
+  if (
+    !ptsCollision ||
+    (!incomingId && Number(ptsCollision.maxScore) === Number(incoming.maxScore)) ||
+    (incomingId && (ptsCollision.quizId || "").trim() === incomingId)
+  ) {
+    return withPts;
+  }
+
+  const dateTag = new Date(incoming.gradedAt || Date.now()).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  return `${baseTitle} (${incoming.maxScore} pts · ${dateTag})`;
+}
+
 // ── Save Per-Student Quiz Results ─────────────────────────────────────────────
 /**
  * Persists a student's per-question grading results for later analysis.
- * Stores one entry per student per quiz (updates if regraded) in both local
+ * Stores one entry per student per distinct quiz (updates if regraded) in both local
  * AsyncStorage and Supabase `student_quiz_results`.
  */
 export async function saveStudentQuizResult(
   result: StudentQuizResult
 ): Promise<void> {
   const key = getStorageKey(result.classroomId);
+  let effectiveResult: StudentQuizResult = { ...result };
+
   try {
     let existing: StudentQuizResult[] = [];
     try {
@@ -114,16 +188,21 @@ export async function saveStudentQuizResult(
       existing = [];
     }
 
-    // Remove previous entry for same student + quiz (if regraded)
+    const sameStudentExisting = existing.filter((r) => r.studentId === result.studentId);
+    const resolvedTitle = resolveNonCollidingQuizTitle(sameStudentExisting, result);
+    effectiveResult = { ...result, quizTitle: resolvedTitle };
+
+    // Remove previous entry for same student + resolved quiz (if regraded)
+    const normResolved = resolvedTitle.trim().toLowerCase();
     const filtered = existing.filter(
       (r) =>
         !(
-          r.studentId === result.studentId &&
-          r.quizTitle === result.quizTitle
+          r.studentId === effectiveResult.studentId &&
+          (r.quizTitle || "").trim().toLowerCase() === normResolved
         )
     );
 
-    filtered.push(result);
+    filtered.push(effectiveResult);
     await AsyncStorage.setItem(key, JSON.stringify(filtered));
   } catch (err) {
     console.error("Failed to save student quiz result locally:", err);
@@ -131,24 +210,33 @@ export async function saveStudentQuizResult(
 
   // Also sync to Supabase `student_quiz_results` table if available
   try {
-    if (process.env.EXPO_PUBLIC_SUPABASE_URL && result.studentId && result.classroomId) {
+    if (process.env.EXPO_PUBLIC_SUPABASE_URL && effectiveResult.studentId && effectiveResult.classroomId) {
       const { supabase } = await import("../supabase");
-      await supabase.from("student_quiz_results").upsert(
-        {
-          student_id: result.studentId,
-          classroom_id: result.classroomId,
-          quiz_title: result.quizTitle,
-          total_score: result.totalScore,
-          max_score: result.maxScore,
-          score_percentage: result.scorePercentage,
-          item_results: result.results || [],
-          graded_at: result.gradedAt || new Date().toISOString(),
-        },
+      const payload: any = {
+        student_id: effectiveResult.studentId,
+        classroom_id: effectiveResult.classroomId,
+        quiz_id: effectiveResult.quizId || null,
+        quiz_title: effectiveResult.quizTitle,
+        total_score: effectiveResult.totalScore,
+        max_score: effectiveResult.maxScore,
+        score_percentage: effectiveResult.scorePercentage,
+        item_results: effectiveResult.results || [],
+        graded_at: effectiveResult.gradedAt || new Date().toISOString(),
+      };
+      const { error: upsertErr } = await supabase.from("student_quiz_results").upsert(
+        payload,
         { onConflict: "student_id,classroom_id,quiz_title" }
       );
+      if (upsertErr && (upsertErr.code === "PGRST204" || upsertErr.message?.includes("quiz_id"))) {
+        const { quiz_id, ...fallbackPayload } = payload;
+        await supabase.from("student_quiz_results").upsert(
+          fallbackPayload,
+          { onConflict: "student_id,classroom_id,quiz_title" }
+        );
+      }
 
       // Recalculate student's average across all quizzes in this classroom
-      await recalculateStudentAverage(result.studentId, result.classroomId);
+      await recalculateStudentAverage(effectiveResult.studentId, effectiveResult.classroomId);
     }
   } catch (cloudErr) {
     console.warn("Could not sync student quiz result to Supabase:", cloudErr);
@@ -268,15 +356,16 @@ export async function getAllStudentQuizResults(
       if (!error && Array.isArray(data) && data.length > 0) {
         const mergedMap = new Map<string, StudentQuizResult>();
         for (const lr of localResults) {
-          mergedMap.set(`${lr.studentId}:::${lr.quizTitle}`, lr);
+          mergedMap.set(`${lr.studentId}:::${(lr.quizTitle || "").trim().toLowerCase()}`, lr);
         }
         for (const row of data) {
-          const k = `${row.student_id}:::${row.quiz_title}`;
+          const k = `${row.student_id}:::${String(row.quiz_title || "").trim().toLowerCase()}`;
           const existing = mergedMap.get(k);
           mergedMap.set(k, {
             studentId: row.student_id,
             studentName: existing?.studentName || "",
             classroomId: row.classroom_id,
+            quizId: row.quiz_id || existing?.quizId || null,
             quizTitle: row.quiz_title,
             scorePercentage: Number(row.score_percentage) || 0,
             totalScore: Number(row.total_score) || 0,
@@ -300,10 +389,27 @@ export async function getAllStudentQuizResults(
 // ── Get Results for a Specific Student ────────────────────────────────────────
 export async function getStudentResults(
   classroomId: string,
-  studentId: string
+  studentId: string,
+  studentName?: string
 ): Promise<StudentQuizResult[]> {
   const all = await getAllStudentQuizResults(classroomId);
-  return all.filter((r) => r.studentId === studentId);
+  const normName = (studentName || "").trim().toLowerCase();
+
+  const matching = all.filter((r) => {
+    if (r.studentId === studentId) return true;
+    // Rescue legacy results saved before student UUID matching existed
+    if (normName && !isUuidLike(r.studentId)) {
+      const legacyIdNorm = (r.studentId || "").trim().toLowerCase();
+      const legacyNameNorm = (r.studentName || "").trim().toLowerCase();
+      return legacyIdNorm === normName || legacyNameNorm === normName;
+    }
+    return false;
+  });
+
+  // Sort newest recorded assessment first so teachers immediately see latest graded sheets at the top
+  return matching.sort(
+    (a, b) => new Date(b.gradedAt || 0).getTime() - new Date(a.gradedAt || 0).getTime()
+  );
 }
 
 // ── Get Results for a Specific Quiz ───────────────────────────────────────────

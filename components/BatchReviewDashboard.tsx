@@ -453,7 +453,7 @@ export function BatchReviewDashboard({
                                                     >
                                                         <Ionicons name="person-add-outline" size={12} color="#D97706" />
                                                         <Text style={styles.unmatchedPromptText} numberOfLines={1}>
-                                                            Link "{item.studentNameExtracted || "Unknown"}" to Roster ›
+                                                            {`Link "${item.studentNameExtracted || "Unknown"}" to Roster ›`}
                                                         </Text>
                                                     </TouchableOpacity>
                                                 ) : (
@@ -473,6 +473,23 @@ export function BatchReviewDashboard({
                                                                 {"  ·  Matched to Roster"}
                                                             </Text>
                                                         )}
+                                                    </Text>
+                                                )}
+
+                                                {item.matchedQuizTitle && !isGrading && !isError && (
+                                                    <Text
+                                                        style={{
+                                                            fontSize: 11,
+                                                            color: item.isAssessmentAutoDetected
+                                                                ? (darkMode ? "#60A5FA" : "#2563EB")
+                                                                : textSub,
+                                                            marginTop: 2,
+                                                            fontWeight: "500",
+                                                        }}
+                                                        numberOfLines={1}
+                                                    >
+                                                        {item.isAssessmentAutoDetected ? "Auto-Detected: " : ""}
+                                                        {item.matchedQuizTitle}
                                                     </Text>
                                                 )}
                                             </View>
@@ -667,7 +684,7 @@ export function BatchReviewDashboard({
                         }}
                         gradingResult={activeReviewItem.gradingResult || null}
                         scannedImageUri={activeReviewItem.imageUri}
-                        layoutJson={layoutJson}
+                        layoutJson={activeReviewItem.matchedLayoutJson || layoutJson}
                         studentName={
                             activeReviewItem.matchedStudentName ||
                             activeReviewItem.studentNameExtracted ||

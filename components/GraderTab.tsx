@@ -14,6 +14,12 @@ import {
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { saveRosterAlert } from "../lib/alertStore";
+import {
+    AUTO_DETECT_ASSESSMENT,
+    getDisambiguatedQuizLabel,
+    identifyAssessmentFromImage,
+    matchAssessmentByQr,
+} from "../lib/assessmentDetector";
 import { gradeStudentTest, GradingResponse, isItemUnresolvedFlag } from "../lib/gradingService";
 import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
 import { saveStudentQuizResult, recalculateStudentAverage } from "../lib/questionAnalysis";
@@ -142,9 +148,13 @@ export default function GraderTab({
     onScoreRecorded,
     onStudentCreated,
 }: Props) {
-    // 1. Grade against quiz
+    // 1. Grade against quiz (defaults to Auto-Detect from Test Paper unless explicitly launched for a quiz)
     const [publishedQuizzes, setPublishedQuizzes] = useState<StoredQuiz[]>([]);
-    const [selectedQuiz, setSelectedQuiz] = useState(defaultSelectedQuiz || "");
+    const [selectedQuiz, setSelectedQuiz] = useState(defaultSelectedQuiz || AUTO_DETECT_ASSESSMENT);
+    const [gradedQuiz, setGradedQuiz] = useState<StoredQuiz | null>(null);
+    const [wasAssessmentAutoDetected, setWasAssessmentAutoDetected] = useState(false);
+    const [assessmentPickerOpen, setAssessmentPickerOpen] = useState(false);
+    const lastGradedImageRef = useRef<{ base64: string; mimeType: "image/jpeg" | "image/png" } | null>(null);
 
     // 2. Identify student sheet (functional with real database students)
     const [roster, setRoster] = useState<Student[]>(students);
@@ -242,27 +252,61 @@ export default function GraderTab({
         if (!classroomId) return;
         const stored = await getPublishedQuizzes(classroomId);
         setPublishedQuizzes(stored);
-        if (defaultSelectedQuiz && stored.some((q) => q.quizTitle === defaultSelectedQuiz)) {
-            setSelectedQuiz(defaultSelectedQuiz);
-        } else if (stored.length > 0) {
-            setSelectedQuiz(stored[0].quizTitle);
+        if (defaultSelectedQuiz) {
+            const matched = stored.find((q) => q.quizTitle === defaultSelectedQuiz);
+            if (matched) {
+                setSelectedQuiz(getDisambiguatedQuizLabel(matched, stored));
+                return;
+            }
+        }
+        if (stored.length > 0) {
+            setSelectedQuiz((prev) => {
+                if (!prev || prev === AUTO_DETECT_ASSESSMENT) return AUTO_DETECT_ASSESSMENT;
+                const stillExists = stored.some(
+                    (q) => q.quizTitle === prev || getDisambiguatedQuizLabel(q, stored) === prev
+                );
+                return stillExists ? prev : AUTO_DETECT_ASSESSMENT;
+            });
         } else {
             setSelectedQuiz("");
         }
     }
 
-    const quizOptions = Array.from(
-        new Set(publishedQuizzes.map((q) => q.quizTitle).filter(Boolean))
+    const quizOptionEntries = useMemo(
+        () =>
+            publishedQuizzes.map((q) => ({
+                label: getDisambiguatedQuizLabel(q, publishedQuizzes),
+                quiz: q,
+            })),
+        [publishedQuizzes]
     );
 
-    const currentQuizValue = selectedQuiz && quizOptions.includes(selectedQuiz)
-        ? selectedQuiz
-        : (quizOptions.length > 0 ? quizOptions[0] : "");
+    const quizOptions = useMemo(() => {
+        if (quizOptionEntries.length === 0) return [];
+        return [
+            AUTO_DETECT_ASSESSMENT,
+            ...Array.from(new Set(quizOptionEntries.map((e) => e.label).filter(Boolean))),
+        ];
+    }, [quizOptionEntries]);
 
-    const activePublishedQuiz = useMemo(
-        () => publishedQuizzes.find((q) => q.quizTitle === (selectedQuiz || currentQuizValue)),
-        [publishedQuizzes, selectedQuiz, currentQuizValue]
-    );
+    const currentQuizValue =
+        selectedQuiz && quizOptions.includes(selectedQuiz)
+            ? selectedQuiz
+            : quizOptions.length > 0
+            ? AUTO_DETECT_ASSESSMENT
+            : "";
+
+    const isAutoDetectQuiz = currentQuizValue === AUTO_DETECT_ASSESSMENT;
+
+    const activePublishedQuiz = useMemo(() => {
+        if (isAutoDetectQuiz) {
+            return gradedQuiz || publishedQuizzes[0];
+        }
+        const entry = quizOptionEntries.find(
+            (e) => e.label === currentQuizValue || e.quiz.quizTitle === currentQuizValue
+        );
+        return entry?.quiz || publishedQuizzes[0];
+    }, [isAutoDetectQuiz, gradedQuiz, quizOptionEntries, currentQuizValue, publishedQuizzes]);
 
     const studentOptions = Array.from(
         new Set([
@@ -306,9 +350,7 @@ export default function GraderTab({
     // ── Open Camera (Single Paper with Photo Guidance) ─────────────────────────
     async function handleOpenCamera() {
         setSourceModalOpen(false);
-        const activeQuizTitle = selectedQuiz || currentQuizValue;
-        const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
-        if (!published && publishedQuizzes.length === 0) {
+        if (publishedQuizzes.length === 0) {
             Alert.alert(
                 "No Quizzes Available",
                 "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
@@ -319,13 +361,13 @@ export default function GraderTab({
         setBatchScannerOpen(true);
     }
 
-    // Single sheet capture callback from Camera Grader
-    async function handleCaptureSingleSheet(uri: string) {
+    // Single sheet capture callback from Camera Grader (carries live scanned QR payload if seen)
+    async function handleCaptureSingleSheet(uri: string, qrData?: string | null) {
         try {
             setScannedImageUri(uri);
             const optimized = await prepareImageForGrading({ uri });
             if (optimized.base64) {
-                processGrading(optimized.base64, optimized.mimeType);
+                processGrading(optimized.base64, optimized.mimeType, qrData);
             } else {
                 Alert.alert("Image Error", "Could not read camera capture data.");
             }
@@ -369,17 +411,67 @@ export default function GraderTab({
 
 
     // ── Run AI Grading ─────────────────────────────────────────────────────────
-    async function processGrading(base64Data: string, mimeType: "image/jpeg" | "image/png") {
+    async function processGrading(
+        base64Data: string,
+        mimeType: "image/jpeg" | "image/png",
+        qrData?: string | null,
+        forcedQuiz?: StoredQuiz
+    ) {
         setGradingLoading(true);
         setIsRecorded(false);
         setMatchedStudentId(null);
+        lastGradedImageRef.current = { base64: base64Data, mimeType };
         try {
-            const activeQuizTitle = selectedQuiz || currentQuizValue;
-            const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
+            if (publishedQuizzes.length === 0) {
+                Alert.alert("No Quiz Selected", "Please select or create a quiz in the AI Builder tab first.");
+                return;
+            }
+
+            // Resolve WHICH published assessment the paper belongs to (Auto-Detect or Manual)
+            let published: StoredQuiz | undefined = forcedQuiz;
+            let autoDetected = false;
+
+            if (!published) {
+                if (currentQuizValue === AUTO_DETECT_ASSESSMENT) {
+                    const detected = await identifyAssessmentFromImage({
+                        base64Image: base64Data,
+                        mimeType,
+                        publishedQuizzes,
+                        qrData,
+                    });
+                    if (detected?.quiz) {
+                        published = detected.quiz;
+                        autoDetected = true;
+                    } else {
+                        published = publishedQuizzes[0];
+                        autoDetected = false;
+                    }
+                } else {
+                    const entry = quizOptionEntries.find(
+                        (e) => e.label === currentQuizValue || e.quiz.quizTitle === currentQuizValue
+                    );
+                    published = entry?.quiz || publishedQuizzes[0];
+
+                    // Even in manual mode, if the live camera QR code unmistakably identifies a different
+                    // published assessment in this classroom, auto-switch so it never grades with the wrong key!
+                    if (qrData) {
+                        const qrMatch = matchAssessmentByQr(qrData, publishedQuizzes);
+                        if (qrMatch?.quiz && qrMatch.quiz.id !== published?.id) {
+                            published = qrMatch.quiz;
+                            autoDetected = true;
+                        }
+                    }
+                }
+            }
+
             if (!published) {
                 Alert.alert("No Quiz Selected", "Please select or create a quiz in the AI Builder tab first.");
                 return;
             }
+
+            setGradedQuiz(published);
+            setWasAssessmentAutoDetected(autoDetected);
+
             const activeAnswerKey = published.answerKey;
             const latestRoster = await fetchLatestClassroomRoster();
 
@@ -654,24 +746,29 @@ export default function GraderTab({
             }
 
             // Record to quiz performance history for tracker trend
-            const quizTitleToRecord = selectedQuiz || currentQuizValue || "Assessment 1";
+            const targetQuiz = gradedQuiz || activePublishedQuiz;
+            const quizTitleToRecord =
+                targetQuiz?.quizTitle ||
+                (currentQuizValue && currentQuizValue !== AUTO_DETECT_ASSESSMENT
+                    ? currentQuizValue
+                    : "Assessment 1");
             if (classroomId) {
                 await saveQuizPerformanceRecord(classroomId, quizTitleToRecord, percentage);
 
                 // Persist per-question results for pedagogical analysis
                 const resolvedStudentId = student ? student.id : (gradingResult.studentName || "student");
                 const resolvedStudentName = student ? student.full_name : (gradingResult.studentName && gradingResult.studentName !== "Unknown" ? gradingResult.studentName : "Student");
-                const activePublished = publishedQuizzes.find((q) => q.quizTitle === quizTitleToRecord);
                 await saveStudentQuizResult({
                     studentId: resolvedStudentId,
                     studentName: resolvedStudentName,
                     classroomId,
+                    quizId: targetQuiz?.id || null,
                     quizTitle: quizTitleToRecord,
                     scorePercentage: percentage,
                     totalScore: gradingResult.totalScore,
                     maxScore: gradingResult.maxScore,
                     results: gradingResult.results.map((r) => {
-                        const matchedQuestion = activePublished?.questions?.find(
+                        const matchedQuestion = targetQuiz?.questions?.find(
                             (q) => q.questionNumber === r.questionNumber
                         );
                         return {
@@ -735,8 +832,7 @@ export default function GraderTab({
 
     // ── Batch Queue Management ────────────────────────────────────────────────
     const getOrCreateBatchQueue = (rosterOverride?: Student[]) => {
-        const activeQuizTitle = selectedQuiz || currentQuizValue;
-        const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
+        const published = activePublishedQuiz;
         const activeAnswerKey = published?.answerKey || [];
         const matchRoster = toRosterMatchItems(rosterOverride || roster);
 
@@ -744,6 +840,10 @@ export default function GraderTab({
             batchQueueRef.current = new BatchGradingQueue({
                 answerKey: activeAnswerKey,
                 layoutJson: published?.layoutJson,
+                selectedQuizId: published?.id,
+                selectedQuizTitle: published?.quizTitle,
+                autoDetectAssessment: isAutoDetectQuiz,
+                publishedQuizzes,
                 roster: matchRoster,
                 onProgress: (updatedItems) => {
                     setBatchItems([...updatedItems]);
@@ -754,6 +854,10 @@ export default function GraderTab({
             batchQueueRef.current.updateOptions({
                 answerKey: activeAnswerKey,
                 layoutJson: published?.layoutJson,
+                selectedQuizId: published?.id,
+                selectedQuizTitle: published?.quizTitle,
+                autoDetectAssessment: isAutoDetectQuiz,
+                publishedQuizzes,
                 roster: matchRoster,
             });
         }
@@ -774,9 +878,9 @@ export default function GraderTab({
         setBatchScannerOpen(true);
     };
 
-    const handleBatchCaptureSheet = (uri: string) => {
+    const handleBatchCaptureSheet = (uri: string, qrData?: string | null) => {
         const q = getOrCreateBatchQueue();
-        q.enqueueImages([uri]);
+        q.enqueueImages([{ uri, qrData }]);
     };
 
     const handleBatchImportSheets = (uris: string[]) => {
@@ -827,8 +931,12 @@ export default function GraderTab({
 
     const handleCommitBatch = async (approvedItems: BatchSheetItem[]) => {
         if (approvedItems.length === 0) return;
-        const activeQuizTitle = selectedQuiz || currentQuizValue || "Assessment";
-        const published = publishedQuizzes.find((q) => q.quizTitle === activeQuizTitle || q.quizTitle === selectedQuiz);
+        const fallbackQuiz = activePublishedQuiz;
+        const fallbackQuizTitle =
+            fallbackQuiz?.quizTitle ||
+            (currentQuizValue && currentQuizValue !== AUTO_DETECT_ASSESSMENT
+                ? currentQuizValue
+                : "Assessment");
 
         try {
             let updatedRoster = await fetchLatestClassroomRoster();
@@ -920,20 +1028,27 @@ export default function GraderTab({
                     }
                 }
 
-                // Record quiz trend and question analysis
+                // Record quiz trend and question analysis (under each sheet's own auto-detected or selected assessment)
                 if (classroomId && student) {
-                    await saveQuizPerformanceRecord(classroomId, activeQuizTitle, percentage);
+                    const itemQuiz =
+                        (item.matchedQuizId && publishedQuizzes.find((q) => q.id === item.matchedQuizId)) ||
+                        (item.matchedQuizTitle && publishedQuizzes.find((q) => q.quizTitle === item.matchedQuizTitle)) ||
+                        fallbackQuiz;
+                    const itemQuizTitle = item.matchedQuizTitle || itemQuiz?.quizTitle || fallbackQuizTitle;
+
+                    await saveQuizPerformanceRecord(classroomId, itemQuizTitle, percentage);
 
                     await saveStudentQuizResult({
                         studentId: student.id,
                         studentName: student.full_name,
                         classroomId,
-                        quizTitle: activeQuizTitle,
+                        quizId: itemQuiz?.id || item.matchedQuizId || null,
+                        quizTitle: itemQuizTitle,
                         scorePercentage: percentage,
                         totalScore: item.gradingResult.totalScore,
                         maxScore: item.gradingResult.maxScore,
                         results: item.gradingResult.results.map((r) => {
-                            const matchedQuestion = published?.questions?.find(
+                            const matchedQuestion = itemQuiz?.questions?.find(
                                 (q) => q.questionNumber === r.questionNumber
                             );
                             return {
@@ -973,7 +1088,7 @@ export default function GraderTab({
                             classroomRoom: "",
                             classroomColor: accentColor || "#3B82F6",
                             scorePercentage: percentage,
-                            quizTitle: activeQuizTitle,
+                            quizTitle: itemQuizTitle,
                             alertType: percentage <= 40 ? "HIGH RISK" : "URGENT REVIEW",
                             message: `${student.full_name} has dropped to an average of ${percentage}%. Performance Flagged: At-Risk.`,
                         });
@@ -1069,6 +1184,50 @@ export default function GraderTab({
                                         gradingResult.studentName ||
                                         "Student"}
                                 </Text>
+                                {(gradedQuiz || activePublishedQuiz) && (
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            if (!isRecorded && publishedQuizzes.length > 1) {
+                                                setAssessmentPickerOpen(true);
+                                            }
+                                        }}
+                                        disabled={isRecorded || publishedQuizzes.length <= 1}
+                                        activeOpacity={0.75}
+                                        style={{
+                                            flexDirection: "row",
+                                            alignItems: "center",
+                                            alignSelf: "flex-start",
+                                            gap: 5,
+                                            marginTop: 6,
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 3,
+                                            borderRadius: 6,
+                                            backgroundColor: wasAssessmentAutoDetected
+                                                ? "rgba(59, 130, 246, 0.22)"
+                                                : "rgba(148, 163, 184, 0.18)",
+                                            maxWidth: "100%",
+                                        }}
+                                    >
+                                        <Ionicons
+                                            name={wasAssessmentAutoDetected ? "sparkles" : "document-text-outline"}
+                                            size={11}
+                                            color={wasAssessmentAutoDetected ? "#93C5FD" : "#CBD5E1"}
+                                        />
+                                        <Text
+                                            style={{
+                                                fontSize: 11,
+                                                fontWeight: "600",
+                                                color: wasAssessmentAutoDetected ? "#BFDBFE" : "#E2E8F0",
+                                                flexShrink: 1,
+                                            }}
+                                            numberOfLines={1}
+                                        >
+                                            {wasAssessmentAutoDetected ? "Auto-Detected: " : ""}
+                                            {(gradedQuiz || activePublishedQuiz)?.quizTitle}
+                                            {!isRecorded && publishedQuizzes.length > 1 ? " · Change" : ""}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
                                 {roster.length > 0 && !isRecorded && (
                                     <TouchableOpacity
                                         onPress={() => setStudentPickerOpen(true)}
@@ -1078,7 +1237,7 @@ export default function GraderTab({
                                             alignItems: "center",
                                             alignSelf: "flex-start",
                                             gap: 5,
-                                            marginTop: 6,
+                                            marginTop: 5,
                                             paddingHorizontal: 8,
                                             paddingVertical: 3,
                                             borderRadius: 6,
@@ -1189,42 +1348,43 @@ export default function GraderTab({
                                 </View>
                             )}
 
-                            {/* Section Header: Interactive Grading Log & Total Question Count */}
-                            <View style={styles.gradingLogHeader}>
-                                <Text style={[styles.gradingLogTitle, { color: textSub }]}>
-                                    Interactive Grading Log
-                                </Text>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                                    {scannedImageUri && (
-                                        <TouchableOpacity
-                                            style={{
-                                                flexDirection: "row",
-                                                alignItems: "center",
-                                                gap: 4,
-                                                paddingHorizontal: 8,
-                                                paddingVertical: 3,
-                                                borderRadius: 6,
-                                                borderWidth: 1,
-                                                borderColor: border,
-                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                            }}
-                                            onPress={() => {
-                                                setReviewFilterOnlyFlagged(false);
-                                                setReviewInitialQNum(1);
-                                                setReviewModalOpen(true);
-                                            }}
-                                            activeOpacity={0.75}
-                                        >
-                                            <Ionicons name="scan-outline" size={12} color={textSub} />
-                                            <Text style={{ fontSize: 11, fontWeight: "600", color: textMain }}>
-                                                Inspect Sheet
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-                                    <Text style={[styles.gradingLogCount, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
-                                        {gradingResult.results.length} questions
+                            {/* Section Header: Interactive Grading Log & Inspect Sheet CTA */}
+                            <View style={[styles.gradingLogHeader, { gap: 10 }]}>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[styles.gradingLogTitle, { color: textSub }]} numberOfLines={1}>
+                                        Interactive Grading Log
+                                    </Text>
+                                    <Text style={[styles.gradingLogCount, { color: darkMode ? "#94A3B8" : "#64748B", marginTop: 1 }]}>
+                                        {gradingResult.results.length} {gradingResult.results.length === 1 ? "question" : "questions"}
                                     </Text>
                                 </View>
+                                {scannedImageUri && (
+                                    <TouchableOpacity
+                                        style={{
+                                            flexDirection: "row",
+                                            alignItems: "center",
+                                            gap: 5,
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 6,
+                                            borderRadius: 8,
+                                            borderWidth: 1,
+                                            borderColor: border,
+                                            backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
+                                            flexShrink: 0,
+                                        }}
+                                        onPress={() => {
+                                            setReviewFilterOnlyFlagged(false);
+                                            setReviewInitialQNum(1);
+                                            setReviewModalOpen(true);
+                                        }}
+                                        activeOpacity={0.75}
+                                    >
+                                        <Ionicons name="scan-outline" size={13} color={textSub} />
+                                        <Text style={{ fontSize: 11.5, fontWeight: "600", color: textMain }}>
+                                            Inspect Sheet
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </View>
 
@@ -1352,7 +1512,7 @@ export default function GraderTab({
                                     <View style={styles.approvedScanInfo}>
                                         <Text style={[styles.approvedScanTitle, { color: textMain }]}>Tseki Approved Scan</Text>
                                         <Text style={[styles.approvedScanSub, { color: textSub }]}>
-                                            This answer sheet has been verified against the standard {currentQuizValue || "assessment"}. Ready for class record update.
+                                            This answer sheet has been verified against {(gradedQuiz || activePublishedQuiz)?.quizTitle || "the assessment"}. Ready for class record update.
                                         </Text>
                                     </View>
                                 </View>
@@ -1623,7 +1783,11 @@ export default function GraderTab({
                 <View style={styles.loadingOverlay}>
                     <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
                         <PaperScanningAnimation
-                            quizTitle={currentQuizValue}
+                            quizTitle={
+                                isAutoDetectQuiz
+                                    ? "Auto-Detecting Assessment..."
+                                    : (activePublishedQuiz?.quizTitle || currentQuizValue)
+                            }
                             accentColor={accentColor || "#EA580C"}
                             darkMode={darkMode}
                         />
@@ -1637,7 +1801,7 @@ export default function GraderTab({
                 onClose={() => setReviewModalOpen(false)}
                 gradingResult={gradingResult}
                 scannedImageUri={scannedImageUri}
-                layoutJson={activePublishedQuiz?.layoutJson}
+                layoutJson={(gradedQuiz || activePublishedQuiz)?.layoutJson}
                 studentName={
                     (matchedStudentId && roster.find((s) => s.id === matchedStudentId)?.full_name) ||
                     gradingResult?.studentName ||
@@ -1668,7 +1832,8 @@ export default function GraderTab({
                 onFinishAndReview={handleFinishAndReview}
                 onRemoveSheet={handleRemoveBatchItem}
                 items={batchItems}
-                quizTitle={selectedQuiz || currentQuizValue || "Assessment"}
+                quizTitle={currentQuizValue || "Assessment"}
+                publishedQuizzes={publishedQuizzes}
                 classTitle={classTitle || "Classroom"}
                 accentColor={accentColor}
                 mode={scannerMode}
@@ -1684,7 +1849,7 @@ export default function GraderTab({
                 onUpdateItem={handleUpdateBatchItem}
                 onRemoveItem={handleRemoveBatchItem}
                 roster={toRosterMatchItems(roster)}
-                quizTitle={selectedQuiz || currentQuizValue || "Assessment"}
+                quizTitle={isAutoDetectQuiz ? "Auto-Detected Assessments" : (activePublishedQuiz?.quizTitle || currentQuizValue || "Assessment")}
                 layoutJson={activePublishedQuiz?.layoutJson}
                 classTitle={classTitle || "Classroom"}
                 classroomId={classroomId}
@@ -1741,6 +1906,74 @@ export default function GraderTab({
                                         >
                                             {s.full_name}
                                         </Text>
+                                        {isSelected && (
+                                            <Ionicons name="checkmark" size={16} color={accentColor} />
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* ── Switch Assessment & Re-Grade Modal (Single Paper) ── */}
+            <Modal
+                visible={assessmentPickerOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setAssessmentPickerOpen(false)}
+            >
+                <TouchableOpacity
+                    style={styles.ddOverlay}
+                    activeOpacity={1}
+                    onPress={() => setAssessmentPickerOpen(false)}
+                >
+                    <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
+                        <Text style={[styles.ddTitle, { color: accentColor }]}>
+                            Switch Assessment &amp; Re-Grade Sheet
+                        </Text>
+                        <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+                            {quizOptionEntries.map(({ label, quiz }) => {
+                                const isSelected = (gradedQuiz || activePublishedQuiz)?.id === quiz.id;
+                                const itemCount = quiz.questions?.length || quiz.answerKey?.length || 0;
+                                return (
+                                    <TouchableOpacity
+                                        key={quiz.id}
+                                        style={[
+                                            styles.ddItem,
+                                            isSelected && { backgroundColor: accentColor + "18" },
+                                        ]}
+                                        onPress={() => {
+                                            setAssessmentPickerOpen(false);
+                                            if (isSelected) return;
+                                            setGradedQuiz(quiz);
+                                            setWasAssessmentAutoDetected(false);
+                                            if (lastGradedImageRef.current) {
+                                                void processGrading(
+                                                    lastGradedImageRef.current.base64,
+                                                    lastGradedImageRef.current.mimeType,
+                                                    null,
+                                                    quiz
+                                                );
+                                            }
+                                        }}
+                                    >
+                                        <View style={{ flex: 1, marginRight: 8 }}>
+                                            <Text
+                                                style={[
+                                                    styles.ddItemText,
+                                                    { color: textMain },
+                                                    isSelected && { color: accentColor, fontWeight: "700" },
+                                                ]}
+                                                numberOfLines={2}
+                                            >
+                                                {label}
+                                            </Text>
+                                            <Text style={{ fontSize: 11, color: textSub, marginTop: 2 }}>
+                                                {itemCount} {itemCount === 1 ? "item" : "items"}
+                                            </Text>
+                                        </View>
                                         {isSelected && (
                                             <Ionicons name="checkmark" size={16} color={accentColor} />
                                         )}

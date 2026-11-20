@@ -271,10 +271,12 @@ export default function ClassroomScreen() {
     loadClassroomAlerts();
   }, [loadClassroomAlerts]);
 
-  // Load per-question results for selected student profile (for advice engine)
+  // Load all recorded per-assessment results for selected student profile (newest first)
   useEffect(() => {
     if (selectedProfile && id) {
-      getStudentResults(id, selectedProfile.id).then(setStudentQuizResults);
+      getStudentResults(id as string, selectedProfile.id, selectedProfile.full_name).then(
+        setStudentQuizResults
+      );
     } else {
       setStudentQuizResults([]);
     }
@@ -1541,6 +1543,14 @@ export default function ClassroomScreen() {
               setStudents((prev) =>
                 prev.map((s) => (s.id === studentId ? { ...s, average: newAvg } : s))
               );
+              setSelectedProfile((prev) =>
+                prev && prev.id === studentId ? { ...prev, average: newAvg } : prev
+              );
+              if (id && selectedProfile?.id === studentId) {
+                getStudentResults(id as string, studentId, selectedProfile.full_name).then(
+                  setStudentQuizResults
+                );
+              }
               loadClassroomAlerts();
             }}
             onStudentCreated={(newStudent) => {
@@ -2005,7 +2015,10 @@ export default function ClassroomScreen() {
             const firstName = selectedProfile.first_name || selectedProfile.full_name.replace(/,/g, " ").trim().split(/\s+/)[0];
             const profileAvatar = getStudentAvatar(selectedProfile.full_name);
 
-            const latestResult = studentQuizResults.length > 0 ? studentQuizResults[0] : null;
+            const sortedStudentResults = [...studentQuizResults].sort(
+              (a, b) => new Date(b.gradedAt || 0).getTime() - new Date(a.gradedAt || 0).getTime()
+            );
+            const latestResult = sortedStudentResults.length > 0 ? sortedStudentResults[0] : null;
             const quizTitleDisplay =
               latestResult?.quizTitle ||
               publishedQuizzes[0]?.quizTitle ||
@@ -2019,6 +2032,15 @@ export default function ClassroomScreen() {
             const quizPercentage = quizTotalPoints > 0
               ? Math.round((quizScore / quizTotalPoints) * 100)
               : profileAvg;
+            const belowPassingAssessments = sortedStudentResults.filter((r) => {
+              const pct =
+                typeof r.scorePercentage === "number" && !Number.isNaN(r.scorePercentage)
+                  ? r.scorePercentage
+                  : r.maxScore > 0
+                  ? Math.round((r.totalScore / r.maxScore) * 100)
+                  : 0;
+              return pct < 75;
+            });
 
             return (
               <View style={[styles.profileModalCard, { backgroundColor: cardBg }]}>
@@ -2129,40 +2151,111 @@ export default function ClassroomScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.atRiskTitle, { color: darkMode ? "#FCA5A5" : "#991B1B" }]}>At-Risk Behavioral Flag</Text>
                         <Text style={[styles.atRiskSub, { color: darkMode ? "#F87171" : "#DC2626" }]}>
-                          {quizTitleDisplay} score below 75% passing threshold
+                          {belowPassingAssessments.length > 1
+                            ? `${belowPassingAssessments.length} of ${sortedStudentResults.length} recorded assessments below 75% passing threshold (Overall avg: ${profileAvg}%)`
+                            : `${belowPassingAssessments[0]?.quizTitle || quizTitleDisplay} score below 75% passing threshold`}
                         </Text>
                       </View>
                     </View>
                   )}
 
-                  {/* Quiz Grade Sheet */}
+                  {/* Quiz Grade Sheet — Lists ALL recorded assessments for this student */}
                   <View style={styles.quizSheetSection}>
-                    <View style={styles.quizSheetHeader}>
-                      <Ionicons name="book-outline" size={14} color={textSub} />
-                      <Text style={[styles.quizSheetTitle, { color: textSub }]}>QUIZ GRADE SHEET</Text>
-                    </View>
-                    <View style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}>
-                      <View style={{ flex: 1, marginRight: 12 }}>
-                        <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={1}>
-                          {quizTitleDisplay}
+                    <View style={[styles.quizSheetHeader, { justifyContent: "space-between" }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Ionicons name="book-outline" size={14} color={textSub} />
+                        <Text style={[styles.quizSheetTitle, { color: textSub }]}>QUIZ GRADE SHEET</Text>
+                      </View>
+                      {sortedStudentResults.length > 0 && (
+                        <Text style={{ fontSize: 11.5, fontWeight: "600", color: textSub }}>
+                          {sortedStudentResults.length}{" "}
+                          {sortedStudentResults.length === 1 ? "Assessment" : "Assessments"}
                         </Text>
-                        <Text style={[styles.quizScoreSub, { color: textSub }]}>Total weight: {quizTotalPoints} points</Text>
-                      </View>
-                      <View style={{ alignItems: "flex-end" }}>
-                        <View style={styles.quizScoreNumRow}>
-                          <Text style={[styles.quizScoreNum, { color: textMain }]}>
-                            {quizScore} / {quizTotalPoints}
-                          </Text>
-                          <View
-                            style={[
-                              styles.quizScoreDot,
-                              { backgroundColor: isNeedsSupport ? "#EF4444" : "#10B981" },
-                            ]}
-                          />
-                        </View>
-                        <Text style={[styles.quizScorePercent, { color: textSub }]}>({quizPercentage}%)</Text>
-                      </View>
+                      )}
                     </View>
+
+                    {sortedStudentResults.length > 0 ? (
+                      <View style={{ gap: 10 }}>
+                        {sortedStudentResults.map((res, idx) => {
+                          const maxPts = Number(res.maxScore) || 0;
+                          const rawPts = Number(res.totalScore) || 0;
+                          const pct =
+                            typeof res.scorePercentage === "number" && !Number.isNaN(res.scorePercentage)
+                              ? Math.round(res.scorePercentage)
+                              : maxPts > 0
+                              ? Math.round((rawPts / maxPts) * 100)
+                              : 0;
+                          const isBelowPassing = pct < 75;
+                          const gradedDateText = res.gradedAt
+                            ? new Date(res.gradedAt).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "";
+
+                          return (
+                            <View
+                              key={`${res.quizId || res.quizTitle}-${idx}`}
+                              style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}
+                            >
+                              <View style={{ flex: 1, marginRight: 12 }}>
+                                <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={2}>
+                                  {res.quizTitle || "Assessment"}
+                                </Text>
+                                <Text style={[styles.quizScoreSub, { color: textSub }]}>
+                                  {maxPts > 0 ? `Total weight: ${maxPts} ${maxPts === 1 ? "point" : "points"}` : "Recorded assessment"}
+                                  {gradedDateText ? ` · ${gradedDateText}` : ""}
+                                </Text>
+                              </View>
+                              <View style={{ alignItems: "flex-end" }}>
+                                <View style={styles.quizScoreNumRow}>
+                                  <Text style={[styles.quizScoreNum, { color: textMain }]}>
+                                    {rawPts} / {maxPts || "—"}
+                                  </Text>
+                                  <View
+                                    style={[
+                                      styles.quizScoreDot,
+                                      { backgroundColor: isBelowPassing ? "#EF4444" : "#10B981" },
+                                    ]}
+                                  />
+                                </View>
+                                <Text style={[styles.quizScorePercent, { color: textSub }]}>({pct}%)</Text>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : profileAvg > 0 ? (
+                      <View style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}>
+                        <View style={{ flex: 1, marginRight: 12 }}>
+                          <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={2}>
+                            {quizTitleDisplay}
+                          </Text>
+                          <Text style={[styles.quizScoreSub, { color: textSub }]}>Total weight: {quizTotalPoints} points</Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <View style={styles.quizScoreNumRow}>
+                            <Text style={[styles.quizScoreNum, { color: textMain }]}>
+                              {quizScore} / {quizTotalPoints}
+                            </Text>
+                            <View
+                              style={[
+                                styles.quizScoreDot,
+                                { backgroundColor: isNeedsSupport ? "#EF4444" : "#10B981" },
+                              ]}
+                            />
+                          </View>
+                          <Text style={[styles.quizScorePercent, { color: textSub }]}>({quizPercentage}%)</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border, justifyContent: "center" }]}>
+                        <Text style={[styles.quizScoreSub, { color: textSub }]}>
+                          No assessments graded yet for this student.
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {/* Tseki Pedagogical Advice */}

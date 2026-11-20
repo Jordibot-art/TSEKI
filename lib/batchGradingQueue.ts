@@ -1,4 +1,8 @@
 import {
+    identifyAssessmentFromImage,
+    matchAssessmentByQr,
+} from "./assessmentDetector";
+import {
     formatMiddleInitial,
     formatStudentFullName,
     splitStudentFullName,
@@ -11,6 +15,7 @@ import {
     PhotoQualityDiagnostics,
 } from "./gradingService";
 import { LayoutJSON } from "./printEngine/types";
+import type { StoredQuiz } from "./quizStore";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type BatchSheetStatus =
@@ -34,10 +39,15 @@ export interface StudentRosterItem {
 export interface BatchSheetItem {
     id: string;
     imageUri: string;
+    qrData?: string | null;
     status: BatchSheetStatus;
     studentNameExtracted?: string;
     matchedStudentId?: string;
     matchedStudentName?: string;
+    matchedQuizId?: string;
+    matchedQuizTitle?: string;
+    matchedLayoutJson?: LayoutJSON;
+    isAssessmentAutoDetected?: boolean;
     isAutoMatched: boolean;
     gradingResult?: GradingResponse;
     photoQuality?: PhotoQualityDiagnostics;
@@ -52,6 +62,10 @@ export interface BatchSheetItem {
 export interface BatchQueueOptions {
     answerKey: any;
     layoutJson?: LayoutJSON;
+    selectedQuizId?: string;
+    selectedQuizTitle?: string;
+    autoDetectAssessment?: boolean;
+    publishedQuizzes?: StoredQuiz[];
     roster: StudentRosterItem[];
     onProgress?: (items: BatchSheetItem[]) => void;
     concurrency?: number;
@@ -331,17 +345,24 @@ export class BatchGradingQueue {
         return [...this.items];
     }
 
-    public enqueueImages(imageUris: string[]): BatchSheetItem[] {
-        const newItems: BatchSheetItem[] = imageUris.map((uri) => ({
-            id: `sheet-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
-            imageUri: uri,
-            status: "queued",
-            flaggedCount: 0,
-            isApproved: false,
-            isAutoMatched: false,
-            addedAt: Date.now(),
-            retryCount: 0,
-        }));
+    public enqueueImages(
+        inputs: (string | { uri: string; qrData?: string | null })[]
+    ): BatchSheetItem[] {
+        const newItems: BatchSheetItem[] = inputs.map((entry) => {
+            const uri = typeof entry === "string" ? entry : entry.uri;
+            const qrData = typeof entry === "string" ? undefined : entry.qrData;
+            return {
+                id: `sheet-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+                imageUri: uri,
+                qrData,
+                status: "queued",
+                flaggedCount: 0,
+                isApproved: false,
+                isAutoMatched: false,
+                addedAt: Date.now(),
+                retryCount: 0,
+            };
+        });
 
         this.items.push(...newItems);
         this.notify();
@@ -447,14 +468,54 @@ export class BatchGradingQueue {
                 throw new Error("Failed to read image data from capture.");
             }
 
-            // Stage 2: Gemini Vision Grading
+            // Stage 2: Resolve Assessment (Auto-Detect or Selected) + Gemini Vision Grading
             this.updateItem(item.id, { status: "grading" });
+
+            let activeAnswerKey = this.options.answerKey;
+            let activeLayoutJson = this.options.layoutJson;
+            let resolvedQuizId = this.options.selectedQuizId;
+            let resolvedQuizTitle = this.options.selectedQuizTitle;
+            let isAssessmentAutoDetected = false;
+
+            const catalog = this.options.publishedQuizzes || [];
+            if (catalog.length > 0) {
+                if (this.options.autoDetectAssessment) {
+                    const detected = await identifyAssessmentFromImage({
+                        base64Image: base64,
+                        mimeType,
+                        publishedQuizzes: catalog,
+                        qrData: item.qrData,
+                    });
+                    if (detected?.quiz) {
+                        activeAnswerKey = detected.quiz.answerKey;
+                        activeLayoutJson = detected.quiz.layoutJson;
+                        resolvedQuizId = detected.quiz.id;
+                        resolvedQuizTitle = detected.quiz.quizTitle;
+                        isAssessmentAutoDetected = true;
+                    } else if (!activeAnswerKey || (Array.isArray(activeAnswerKey) && activeAnswerKey.length === 0)) {
+                        activeAnswerKey = catalog[0].answerKey;
+                        activeLayoutJson = catalog[0].layoutJson;
+                        resolvedQuizId = catalog[0].id;
+                        resolvedQuizTitle = catalog[0].quizTitle;
+                    }
+                } else if (item.qrData) {
+                    // Even in manual mode, if QR clearly identifies a published quiz, switch cleanly
+                    const qrMatch = matchAssessmentByQr(item.qrData, catalog);
+                    if (qrMatch?.quiz) {
+                        activeAnswerKey = qrMatch.quiz.answerKey;
+                        activeLayoutJson = qrMatch.quiz.layoutJson;
+                        resolvedQuizId = qrMatch.quiz.id;
+                        resolvedQuizTitle = qrMatch.quiz.quizTitle;
+                        isAssessmentAutoDetected = true;
+                    }
+                }
+            }
 
             const gradingResult = await gradeStudentTest(
                 base64,
-                this.options.answerKey,
+                activeAnswerKey,
                 mimeType,
-                this.options.layoutJson,
+                activeLayoutJson,
                 this.options.roster
             );
 
@@ -482,6 +543,10 @@ export class BatchGradingQueue {
                 studentNameExtracted: gradingResult.studentName || "Unknown",
                 matchedStudentId: match?.student.id,
                 matchedStudentName: match?.student.full_name,
+                matchedQuizId: resolvedQuizId,
+                matchedQuizTitle: resolvedQuizTitle,
+                matchedLayoutJson: activeLayoutJson,
+                isAssessmentAutoDetected,
                 isAutoMatched: hasMatched,
                 flaggedCount,
                 completedAt: Date.now(),
