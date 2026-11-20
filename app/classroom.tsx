@@ -50,7 +50,15 @@ import {
   ParsedStudentRow
 } from "../lib/classListParserService";
 import { generateStudentAdvice } from "../lib/pedagogicalAdvice";
-import { getAllStudentQuizResults, getStudentResults, StudentQuizResult } from "../lib/questionAnalysis";
+import {
+  deleteAllResultsForStudent,
+  deleteStudentQuizResult,
+  getAllStudentQuizResults,
+  getStudentResults,
+  StudentQuizResult,
+  updateStudentQuizResult,
+} from "../lib/questionAnalysis";
+import { DeleteEmailVerificationModal } from "../components/DeleteEmailVerificationModal";
 import {
   deleteClassroomQuizzes,
   getPublishedQuizzes,
@@ -173,6 +181,15 @@ export default function ClassroomScreen() {
   const [selectedProfile, setSelectedProfile] = useState<Student | null>(null);
   const [studentQuizResults, setStudentQuizResults] = useState<StudentQuizResult[]>([]);
 
+  // Quiz Grade Sheet Edit & Delete States (inside Student Profile Modal)
+  const [editingGradeEntry, setEditingGradeEntry] = useState<StudentQuizResult | null>(null);
+  const [editGradeTitle, setEditGradeTitle] = useState("");
+  const [editGradeScore, setEditGradeScore] = useState("");
+  const [editGradeMaxScore, setEditGradeMaxScore] = useState("");
+  const [savingGradeEdit, setSavingGradeEdit] = useState(false);
+  const [gradeEntryToDelete, setGradeEntryToDelete] = useState<StudentQuizResult | null>(null);
+  const [deletingGradeEntry, setDeletingGradeEntry] = useState(false);
+
   // Notification Alert state for this classroom
   const [classroomAlerts, setClassroomAlerts] = useState<RosterAlert[]>([]);
   const [classroomUnreadCount, setClassroomUnreadCount] = useState<number>(0);
@@ -279,6 +296,8 @@ export default function ClassroomScreen() {
       );
     } else {
       setStudentQuizResults([]);
+      setEditingGradeEntry(null);
+      setGradeEntryToDelete(null);
     }
   }, [selectedProfile, id]);
 
@@ -332,8 +351,11 @@ export default function ClassroomScreen() {
       const { error } = await supabase.from("students").delete().eq("id", studentId);
       if (error) throw error;
 
-      // 2. Delete related alerts in alertStore
-      await deleteStudentAlerts(studentId);
+      // 2. Delete related alerts and local quiz results cache
+      await Promise.all([
+        deleteStudentAlerts(studentId),
+        id ? deleteAllResultsForStudent(id as string, studentId) : Promise.resolve(),
+      ]);
 
       // 3. Update local state
       setStudents((prev) => prev.filter((s) => s.id !== studentId));
@@ -346,8 +368,91 @@ export default function ClassroomScreen() {
     } catch (err: any) {
       console.error("Failed to delete student:", err);
       Alert.alert("Error Removing Student", err.message || "Failed to remove student from database.");
+      throw err;
     } finally {
       setIsDeletingStudent(false);
+    }
+  }
+
+  // ── Student Quiz Grade Sheet Edit & Delete Handlers ────────────────────────
+  function openEditGradeEntry(entry: StudentQuizResult) {
+    setGradeEntryToDelete(null);
+    setEditingGradeEntry(entry);
+    setEditGradeTitle(entry.quizTitle || "");
+    setEditGradeScore(String(entry.totalScore ?? 0));
+    setEditGradeMaxScore(String(entry.maxScore ?? 1));
+  }
+
+  async function handleSaveGradeEdit() {
+    if (!selectedProfile || !editingGradeEntry || !id || savingGradeEdit) return;
+    const cleanTitle = editGradeTitle.trim();
+    const parsedScore = Number(editGradeScore.trim());
+    const parsedMax = Number(editGradeMaxScore.trim());
+
+    if (!cleanTitle) {
+      Alert.alert("Missing Title", "Please enter an assessment title.");
+      return;
+    }
+    if (!Number.isFinite(parsedMax) || parsedMax <= 0) {
+      Alert.alert("Invalid Total Points", "Total weight / max points must be greater than 0.");
+      return;
+    }
+    if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > parsedMax) {
+      Alert.alert("Invalid Score", `Score must be between 0 and ${parsedMax}.`);
+      return;
+    }
+
+    Keyboard.dismiss();
+    setSavingGradeEdit(true);
+    try {
+      const { results, newAverage } = await updateStudentQuizResult({
+        classroomId: id as string,
+        studentId: selectedProfile.id,
+        studentName: selectedProfile.full_name,
+        original: editingGradeEntry,
+        newQuizTitle: cleanTitle,
+        newTotalScore: parsedScore,
+        newMaxScore: parsedMax,
+      });
+
+      setStudentQuizResults(results);
+      setSelectedProfile((prev) => (prev ? { ...prev, average: newAverage } : prev));
+      setStudents((prev) =>
+        prev.map((s) => (s.id === selectedProfile.id ? { ...s, average: newAverage } : s))
+      );
+      setEditingGradeEntry(null);
+      loadClassroomAlerts();
+    } catch (err: any) {
+      console.error("Failed to update quiz grade entry:", err);
+      Alert.alert("Update Failed", err?.message || "Could not update quiz grade entry.");
+    } finally {
+      setSavingGradeEdit(false);
+    }
+  }
+
+  async function handleConfirmDeleteGradeEntry() {
+    if (!selectedProfile || !gradeEntryToDelete || !id || deletingGradeEntry) return;
+    setDeletingGradeEntry(true);
+    try {
+      const { results, newAverage } = await deleteStudentQuizResult({
+        classroomId: id as string,
+        studentId: selectedProfile.id,
+        studentName: selectedProfile.full_name,
+        target: gradeEntryToDelete,
+      });
+
+      setStudentQuizResults(results);
+      setSelectedProfile((prev) => (prev ? { ...prev, average: newAverage } : prev));
+      setStudents((prev) =>
+        prev.map((s) => (s.id === selectedProfile.id ? { ...s, average: newAverage } : s))
+      );
+      setGradeEntryToDelete(null);
+      loadClassroomAlerts();
+    } catch (err: any) {
+      console.error("Failed to delete quiz grade entry:", err);
+      Alert.alert("Delete Failed", err?.message || "Could not delete quiz grade entry.");
+    } finally {
+      setDeletingGradeEntry(false);
     }
   }
 
@@ -1995,10 +2100,18 @@ export default function ClassroomScreen() {
 
       {/* ── Student Profile Modal (Bottom Sheet) ── */}
       <Modal
-        visible={selectedProfile !== null}
+        visible={selectedProfile !== null && !confirmDeleteStudentModal && !editModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setSelectedProfile(null)}
+        onRequestClose={() => {
+          if (editingGradeEntry) {
+            if (!savingGradeEdit) setEditingGradeEntry(null);
+          } else if (gradeEntryToDelete) {
+            if (!deletingGradeEntry) setGradeEntryToDelete(null);
+          } else {
+            setSelectedProfile(null);
+          }
+        }}
       >
         <View style={styles.profileModalOverlay}>
           {/* Backdrop dismiss touchable */}
@@ -2197,30 +2310,99 @@ export default function ClassroomScreen() {
                           return (
                             <View
                               key={`${res.quizId || res.quizTitle}-${idx}`}
-                              style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}
+                              style={[
+                                styles.quizScoreCard,
+                                {
+                                  backgroundColor: cardBg,
+                                  borderColor: border,
+                                  flexDirection: "column",
+                                  alignItems: "stretch",
+                                  gap: 10,
+                                },
+                              ]}
                             >
-                              <View style={{ flex: 1, marginRight: 12 }}>
-                                <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={2}>
-                                  {res.quizTitle || "Assessment"}
-                                </Text>
-                                <Text style={[styles.quizScoreSub, { color: textSub }]}>
-                                  {maxPts > 0 ? `Total weight: ${maxPts} ${maxPts === 1 ? "point" : "points"}` : "Recorded assessment"}
-                                  {gradedDateText ? ` · ${gradedDateText}` : ""}
-                                </Text>
-                              </View>
-                              <View style={{ alignItems: "flex-end" }}>
-                                <View style={styles.quizScoreNumRow}>
-                                  <Text style={[styles.quizScoreNum, { color: textMain }]}>
-                                    {rawPts} / {maxPts || "—"}
+                              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                                <View style={{ flex: 1, marginRight: 12 }}>
+                                  <Text style={[styles.quizScoreName, { color: textMain }]} numberOfLines={2}>
+                                    {res.quizTitle || "Assessment"}
                                   </Text>
-                                  <View
-                                    style={[
-                                      styles.quizScoreDot,
-                                      { backgroundColor: isBelowPassing ? "#EF4444" : "#10B981" },
-                                    ]}
-                                  />
+                                  <Text style={[styles.quizScoreSub, { color: textSub }]}>
+                                    {maxPts > 0 ? `Total weight: ${maxPts} ${maxPts === 1 ? "point" : "points"}` : "Recorded assessment"}
+                                    {gradedDateText ? ` · ${gradedDateText}` : ""}
+                                  </Text>
                                 </View>
-                                <Text style={[styles.quizScorePercent, { color: textSub }]}>({pct}%)</Text>
+                                <View style={{ alignItems: "flex-end" }}>
+                                  <View style={styles.quizScoreNumRow}>
+                                    <Text style={[styles.quizScoreNum, { color: textMain }]}>
+                                      {rawPts} / {maxPts || "—"}
+                                    </Text>
+                                    <View
+                                      style={[
+                                        styles.quizScoreDot,
+                                        { backgroundColor: isBelowPassing ? "#EF4444" : "#10B981" },
+                                      ]}
+                                    />
+                                  </View>
+                                  <Text style={[styles.quizScorePercent, { color: textSub }]}>({pct}%)</Text>
+                                </View>
+                              </View>
+
+                              {/* Per-Assessment Edit / Delete Controls */}
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  justifyContent: "flex-end",
+                                  gap: 8,
+                                  paddingTop: 8,
+                                  borderTopWidth: 1,
+                                  borderTopColor: darkMode ? "#334155" : "#F1F5F9",
+                                }}
+                              >
+                                <TouchableOpacity
+                                  style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 7,
+                                    borderWidth: 1,
+                                    borderColor: border,
+                                    backgroundColor: darkMode ? "#0F172A" : "#F8FAFC",
+                                  }}
+                                  onPress={() => openEditGradeEntry(res)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Ionicons name="pencil-outline" size={12.5} color={textMain} />
+                                  <Text style={{ fontSize: 11.5, fontWeight: "600", color: textMain }}>
+                                    Edit
+                                  </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 7,
+                                    borderWidth: 1,
+                                    borderColor: darkMode ? "#7F1D1D" : "#FECACA",
+                                    backgroundColor: darkMode ? "#450A0A" : "#FEF2F2",
+                                  }}
+                                  onPress={() => {
+                                    setEditingGradeEntry(null);
+                                    setGradeEntryToDelete(res);
+                                  }}
+                                  activeOpacity={0.75}
+                                >
+                                  <Ionicons name="trash-outline" size={12.5} color={darkMode ? "#FCA5A5" : "#DC2626"} />
+                                  <Text style={{ fontSize: 11.5, fontWeight: "600", color: darkMode ? "#FCA5A5" : "#DC2626" }}>
+                                    Delete
+                                  </Text>
+                                </TouchableOpacity>
                               </View>
                             </View>
                           );
@@ -2331,6 +2513,283 @@ export default function ClassroomScreen() {
               </View>
             );
           })()}
+
+          {/* ── In-Modal Overlay: Edit Quiz Grade Entry ── */}
+          {editingGradeEntry && (() => {
+            const previewScore = Number(editGradeScore);
+            const previewMax = Number(editGradeMaxScore);
+            const previewValid =
+              Number.isFinite(previewScore) &&
+              Number.isFinite(previewMax) &&
+              previewMax > 0 &&
+              previewScore >= 0 &&
+              previewScore <= previewMax;
+            const previewPct = previewValid ? Math.round((previewScore / previewMax) * 100) : null;
+            const previewPassing = previewPct !== null && previewPct >= 75;
+
+            return (
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  {
+                    backgroundColor: "rgba(15, 23, 42, 0.60)",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    padding: 20,
+                    zIndex: 30,
+                  },
+                ]}
+              >
+                <TouchableWithoutFeedback onPress={() => !savingGradeEdit && setEditingGradeEntry(null)}>
+                  <View style={StyleSheet.absoluteFillObject} />
+                </TouchableWithoutFeedback>
+
+                <View
+                  style={[
+                    styles.confirmModalCard,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: darkMode ? "#334155" : "#E2E8F0",
+                      width: "100%",
+                      maxWidth: 400,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.confirmModalTitle, { color: textMain, marginBottom: 4 }]}>
+                    Edit Quiz Grade
+                  </Text>
+                  <Text style={{ fontSize: 12.5, color: textSub, marginBottom: 14 }}>
+                    Adjust the title or score. {selectedProfile?.full_name}&apos;s overall average will recalculate automatically.
+                  </Text>
+
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: textSub, marginBottom: 6 }}>
+                    ASSESSMENT TITLE
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: border,
+                      borderRadius: 10,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      fontSize: 14,
+                      color: textMain,
+                      backgroundColor: darkMode ? "#0F172A" : "#F8FAFC",
+                      marginBottom: 12,
+                    }}
+                    value={editGradeTitle}
+                    onChangeText={setEditGradeTitle}
+                    placeholder="Assessment title"
+                    placeholderTextColor={textSub}
+                    editable={!savingGradeEdit}
+                  />
+
+                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: textSub, marginBottom: 6 }}>
+                        SCORE EARNED
+                      </Text>
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: border,
+                          borderRadius: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          fontSize: 15,
+                          fontWeight: "700",
+                          color: textMain,
+                          backgroundColor: darkMode ? "#0F172A" : "#F8FAFC",
+                        }}
+                        value={editGradeScore}
+                        onChangeText={(t) => setEditGradeScore(t.replace(/[^0-9.]/g, ""))}
+                        keyboardType="decimal-pad"
+                        placeholder="0"
+                        placeholderTextColor={textSub}
+                        editable={!savingGradeEdit}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: textSub, marginBottom: 6 }}>
+                        TOTAL POINTS
+                      </Text>
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: border,
+                          borderRadius: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          fontSize: 15,
+                          fontWeight: "700",
+                          color: textMain,
+                          backgroundColor: darkMode ? "#0F172A" : "#F8FAFC",
+                        }}
+                        value={editGradeMaxScore}
+                        onChangeText={(t) => setEditGradeMaxScore(t.replace(/[^0-9.]/g, ""))}
+                        keyboardType="decimal-pad"
+                        placeholder="10"
+                        placeholderTextColor={textSub}
+                        editable={!savingGradeEdit}
+                      />
+                    </View>
+                  </View>
+
+                  {previewPct !== null && (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                        marginBottom: 16,
+                        backgroundColor: previewPassing
+                          ? darkMode ? "#064E3B40" : "#F0FDF4"
+                          : darkMode ? "#450A0A40" : "#FEF2F2",
+                        borderWidth: 1,
+                        borderColor: previewPassing
+                          ? darkMode ? "#065F46" : "#BBF7D0"
+                          : darkMode ? "#7F1D1D" : "#FECACA",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: "700",
+                          color: previewPassing
+                            ? darkMode ? "#86EFAC" : "#15803D"
+                            : darkMode ? "#FCA5A5" : "#DC2626",
+                        }}
+                      >
+                        Updated Score: {previewScore} / {previewMax} ({previewPct}%)
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: "700",
+                          color: previewPassing
+                            ? darkMode ? "#86EFAC" : "#15803D"
+                            : darkMode ? "#FCA5A5" : "#DC2626",
+                        }}
+                      >
+                        {previewPassing ? "Passing" : "At-Risk"}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.confirmModalActions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmCancelBtn,
+                        { backgroundColor: cardBg, borderColor: darkMode ? "#4B5563" : "#CBD5E1" },
+                      ]}
+                      onPress={() => setEditingGradeEntry(null)}
+                      disabled={savingGradeEdit}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.confirmCancelBtnText, { color: darkMode ? "#E2E8F0" : "#334155" }]}>
+                        Cancel
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmDeleteBtn,
+                        { backgroundColor: darkMode ? "#334155" : "#1E293B" },
+                        (!previewValid || !editGradeTitle.trim() || savingGradeEdit) && styles.btnDisabled,
+                      ]}
+                      onPress={handleSaveGradeEdit}
+                      disabled={!previewValid || !editGradeTitle.trim() || savingGradeEdit}
+                      activeOpacity={0.85}
+                    >
+                      {savingGradeEdit ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.confirmDeleteBtnText}>Save Grade</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
+            );
+          })()}
+
+          {/* ── In-Modal Overlay: Delete Quiz Grade Confirmation ── */}
+          {gradeEntryToDelete && (
+            <View
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  backgroundColor: "rgba(15, 23, 42, 0.60)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  padding: 20,
+                  zIndex: 30,
+                },
+              ]}
+            >
+              <TouchableWithoutFeedback onPress={() => !deletingGradeEntry && setGradeEntryToDelete(null)}>
+                <View style={StyleSheet.absoluteFillObject} />
+              </TouchableWithoutFeedback>
+
+              <View
+                style={[
+                  styles.confirmModalCard,
+                  {
+                    backgroundColor: cardBg,
+                    borderColor: darkMode ? "#334155" : "#E2E8F0",
+                    width: "100%",
+                    maxWidth: 380,
+                  },
+                ]}
+              >
+                <Text style={[styles.confirmModalTitle, { color: textMain }]}>
+                  Delete Quiz Grade?
+                </Text>
+                <Text style={[styles.confirmModalDesc, { color: textSub }]}>
+                  Are you sure you want to delete{" "}
+                  <Text style={{ fontWeight: "700", color: textMain }}>
+                    {`"${gradeEntryToDelete.quizTitle}"`}
+                  </Text>{" "}
+                  ({gradeEntryToDelete.totalScore} / {gradeEntryToDelete.maxScore}) from{" "}
+                  <Text style={{ fontWeight: "700", color: textMain }}>
+                    {selectedProfile?.full_name}
+                  </Text>
+                  ?{"\n\n"}Their overall classroom average will be recalculated automatically.
+                </Text>
+
+                <View style={styles.confirmModalActions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.confirmCancelBtn,
+                      { backgroundColor: cardBg, borderColor: darkMode ? "#4B5563" : "#CBD5E1" },
+                    ]}
+                    onPress={() => setGradeEntryToDelete(null)}
+                    disabled={deletingGradeEntry}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.confirmCancelBtnText, { color: darkMode ? "#E2E8F0" : "#334155" }]}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmDeleteBtn, deletingGradeEntry && styles.btnDisabled]}
+                    onPress={handleConfirmDeleteGradeEntry}
+                    disabled={deletingGradeEntry}
+                    activeOpacity={0.85}
+                  >
+                    {deletingGradeEntry ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.confirmDeleteBtnText}>Delete Grade</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
 
@@ -2415,114 +2874,36 @@ export default function ClassroomScreen() {
         </View>
       </Modal>
 
-      {/* ── Remove Student Confirmation Modal ── */}
-      <Modal
+      {/* ── Remove Student Email-Verified Confirmation Modal ── */}
+      <DeleteEmailVerificationModal
         visible={confirmDeleteStudentModal}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => !isDeletingStudent && setConfirmDeleteStudentModal(false)}
-      >
-        <View style={styles.confirmModalOverlay}>
-          <TouchableWithoutFeedback onPress={() => !isDeletingStudent && setConfirmDeleteStudentModal(false)}>
-            <View style={StyleSheet.absoluteFillObject} />
-          </TouchableWithoutFeedback>
+        entityType="student"
+        targetName={studentToDelete?.full_name || "Student"}
+        description="Removing this student will permanently delete their enrollment, grades, and quiz evaluation records from this classroom."
+        confirmActionLabel="Verify & Remove"
+        onClose={() => {
+          if (!isDeletingStudent) {
+            setConfirmDeleteStudentModal(false);
+            setStudentToDelete(null);
+          }
+        }}
+        onVerifiedDelete={handleConfirmDeleteStudent}
+      />
 
-          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Remove Student?</Text>
-            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
-              Are you sure you want to remove{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>{`"${studentToDelete?.full_name}"`}</Text>{" "}
-              from this classroom?
-              {"\n\n"}Their grades and quiz evaluation records will be permanently deleted.
-            </Text>
-
-            <View style={styles.confirmModalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.confirmCancelBtn,
-                  {
-                    backgroundColor: cardBg,
-                    borderColor: darkMode ? "#4B5563" : "#CBD5E1",
-                  },
-                ]}
-                onPress={() => setConfirmDeleteStudentModal(false)}
-                disabled={isDeletingStudent}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.confirmCancelBtnText, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.confirmDeleteBtn, isDeletingStudent && styles.btnDisabled]}
-                onPress={handleConfirmDeleteStudent}
-                disabled={isDeletingStudent}
-                activeOpacity={0.85}
-              >
-                {isDeletingStudent ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.confirmDeleteBtnText}>Remove</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Delete Classroom Confirmation Modal ── */}
-      <Modal
+      {/* ── Delete Classroom Email-Verified Confirmation Modal ── */}
+      <DeleteEmailVerificationModal
         visible={confirmDeleteClassModal}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => !isDeletingClass && setConfirmDeleteClassModal(false)}
-      >
-        <View style={styles.confirmModalOverlay}>
-          <TouchableWithoutFeedback onPress={() => !isDeletingClass && setConfirmDeleteClassModal(false)}>
-            <View style={StyleSheet.absoluteFillObject} />
-          </TouchableWithoutFeedback>
-
-          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
-            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
-              Are you sure you want to permanently delete{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>{`"${title}"`}</Text>?
-              {"\n\n"}All enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted.
-            </Text>
-
-            <View style={styles.confirmModalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.confirmCancelBtn,
-                  {
-                    backgroundColor: cardBg,
-                    borderColor: darkMode ? "#4B5563" : "#CBD5E1",
-                  },
-                ]}
-                onPress={() => setConfirmDeleteClassModal(false)}
-                disabled={isDeletingClass}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.confirmCancelBtnText, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.confirmDeleteBtn, isDeletingClass && styles.btnDisabled]}
-                onPress={handleConfirmDeleteClassroom}
-                disabled={isDeletingClass}
-                activeOpacity={0.85}
-              >
-                {isDeletingClass ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.confirmDeleteBtnText}>Delete</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        entityType="classroom"
+        targetName={classroomTitle || (title as string) || "Classroom"}
+        description="All enrolled students, quizzes, answer keys, and grade tracking records for this classroom will be permanently deleted."
+        confirmActionLabel="Verify & Delete"
+        onClose={() => {
+          if (!isDeletingClass) {
+            setConfirmDeleteClassModal(false);
+          }
+        }}
+        onVerifiedDelete={handleConfirmDeleteClassroom}
+      />
       {/* ── Export Classroom Records Modal ── */}
       <Modal
         visible={exportModalVisible}

@@ -244,6 +244,215 @@ export async function saveStudentQuizResult(
 }
 
 /**
+ * Pure helper to validate and compute an updated StudentQuizResult entry
+ * when a teacher edits a quiz grade inside the Student Profile grade sheet.
+ */
+export function computeEditedGradeEntry(
+  original: StudentQuizResult,
+  edits: { quizTitle?: string; totalScore: number; maxScore: number }
+): StudentQuizResult {
+  const cleanTitle = (edits.quizTitle || original.quizTitle || "Assessment").trim() || "Assessment";
+  const safeMax = Math.max(1, Math.round(Number(edits.maxScore) * 100) / 100 || 1);
+  const rawScore = Number.isFinite(Number(edits.totalScore)) ? Number(edits.totalScore) : 0;
+  const safeScore = Math.max(0, Math.min(safeMax, Math.round(rawScore * 100) / 100));
+  const newPercentage = Math.round((safeScore / safeMax) * 100);
+
+  return {
+    ...original,
+    quizTitle: cleanTitle,
+    totalScore: safeScore,
+    maxScore: safeMax,
+    scorePercentage: newPercentage,
+  };
+}
+
+/**
+ * Updates an individual quiz grade entry for a student in both AsyncStorage and Supabase
+ * `student_quiz_results`, then recalculates the student's cumulative average in `students`.
+ */
+export async function updateStudentQuizResult(params: {
+  classroomId: string;
+  studentId: string;
+  studentName?: string;
+  original: StudentQuizResult;
+  newQuizTitle: string;
+  newTotalScore: number;
+  newMaxScore: number;
+}): Promise<{ results: StudentQuizResult[]; newAverage: number }> {
+  const { classroomId, studentId, studentName, original, newQuizTitle, newTotalScore, newMaxScore } = params;
+  const key = getStorageKey(classroomId);
+
+  const edited = computeEditedGradeEntry(original, {
+    quizTitle: newQuizTitle,
+    totalScore: newTotalScore,
+    maxScore: newMaxScore,
+  });
+
+  const origNormTitle = (original.quizTitle || "").trim().toLowerCase();
+  const newNormTitle = (edited.quizTitle || "").trim().toLowerCase();
+
+  // 1. Update local AsyncStorage cache
+  try {
+    let existing: StudentQuizResult[] = [];
+    const json = await AsyncStorage.getItem(key);
+    if (json) existing = JSON.parse(json);
+
+    let replaced = false;
+    const nextList: StudentQuizResult[] = [];
+    for (const r of existing) {
+      const sameStudent = r.studentId === original.studentId || r.studentId === studentId;
+      const rNorm = (r.quizTitle || "").trim().toLowerCase();
+      if (sameStudent && rNorm === origNormTitle) {
+        if (!replaced) {
+          nextList.push({ ...edited, studentId });
+          replaced = true;
+        }
+        continue;
+      }
+      // If renamed to match another existing entry, avoid leaving duplicate
+      if (sameStudent && rNorm === newNormTitle && newNormTitle !== origNormTitle) {
+        continue;
+      }
+      nextList.push(r);
+    }
+    if (!replaced) {
+      nextList.push({ ...edited, studentId });
+    }
+    await AsyncStorage.setItem(key, JSON.stringify(nextList));
+  } catch (err) {
+    console.error("Failed to update student quiz result locally:", err);
+  }
+
+  // 2. Sync to Supabase `student_quiz_results`
+  try {
+    if (process.env.EXPO_PUBLIC_SUPABASE_URL && studentId && classroomId) {
+      const { supabase } = await import("../supabase");
+
+      // If the teacher renamed the quiz title, remove the old title key first so no ghost entry remains
+      if (origNormTitle !== newNormTitle) {
+        await supabase
+          .from("student_quiz_results")
+          .delete()
+          .eq("student_id", studentId)
+          .eq("classroom_id", classroomId)
+          .eq("quiz_title", original.quizTitle);
+      }
+
+      const payload: any = {
+        student_id: studentId,
+        classroom_id: classroomId,
+        quiz_id: edited.quizId || null,
+        quiz_title: edited.quizTitle,
+        total_score: edited.totalScore,
+        max_score: edited.maxScore,
+        score_percentage: edited.scorePercentage,
+        item_results: edited.results || [],
+        graded_at: edited.gradedAt || new Date().toISOString(),
+      };
+      const { error: upsertErr } = await supabase
+        .from("student_quiz_results")
+        .upsert(payload, { onConflict: "student_id,classroom_id,quiz_title" });
+      if (upsertErr && (upsertErr.code === "PGRST204" || upsertErr.message?.includes("quiz_id"))) {
+        const { quiz_id, ...fallbackPayload } = payload;
+        await supabase
+          .from("student_quiz_results")
+          .upsert(fallbackPayload, { onConflict: "student_id,classroom_id,quiz_title" });
+      }
+    }
+  } catch (cloudErr) {
+    console.warn("Could not sync edited student quiz result to Supabase:", cloudErr);
+  }
+
+  const recalculated = await recalculateStudentAverage(studentId, classroomId);
+  const finalAvg = recalculated >= 0 ? recalculated : edited.scorePercentage;
+  const refreshed = await getStudentResults(classroomId, studentId, studentName);
+  return { results: refreshed, newAverage: finalAvg };
+}
+
+/**
+ * Deletes a single recorded assessment entry from a student's Quiz Grade Sheet
+ * in both AsyncStorage and Supabase `student_quiz_results`, then recalculates
+ * the student's cumulative average (resetting to 0 when no entries remain).
+ */
+export async function deleteStudentQuizResult(params: {
+  classroomId: string;
+  studentId: string;
+  studentName?: string;
+  target: StudentQuizResult;
+}): Promise<{ results: StudentQuizResult[]; newAverage: number }> {
+  const { classroomId, studentId, studentName, target } = params;
+  const key = getStorageKey(classroomId);
+  const normTargetTitle = (target.quizTitle || "").trim().toLowerCase();
+
+  // 1. Remove from local AsyncStorage cache
+  try {
+    const json = await AsyncStorage.getItem(key);
+    if (json) {
+      const existing: StudentQuizResult[] = JSON.parse(json);
+      const filtered = existing.filter((r) => {
+        const sameStudent = r.studentId === target.studentId || r.studentId === studentId;
+        const sameTitle = (r.quizTitle || "").trim().toLowerCase() === normTargetTitle;
+        return !(sameStudent && sameTitle);
+      });
+      await AsyncStorage.setItem(key, JSON.stringify(filtered));
+    }
+  } catch (err) {
+    console.error("Failed to delete student quiz result locally:", err);
+  }
+
+  // 2. Remove from Supabase `student_quiz_results`
+  try {
+    if (process.env.EXPO_PUBLIC_SUPABASE_URL && studentId && classroomId) {
+      const { supabase } = await import("../supabase");
+      await supabase
+        .from("student_quiz_results")
+        .delete()
+        .eq("student_id", studentId)
+        .eq("classroom_id", classroomId)
+        .eq("quiz_title", target.quizTitle);
+    }
+  } catch (cloudErr) {
+    console.warn("Could not delete student quiz result from Supabase:", cloudErr);
+  }
+
+  // 3. Recalculate cumulative average (or reset to 0 if no assessments remain)
+  const recalculated = await recalculateStudentAverage(studentId, classroomId);
+  const finalAvg = recalculated >= 0 ? recalculated : 0;
+  if (recalculated < 0) {
+    try {
+      if (process.env.EXPO_PUBLIC_SUPABASE_URL && studentId) {
+        const { supabase } = await import("../supabase");
+        await supabase.from("students").update({ average: 0 }).eq("id", studentId);
+      }
+    } catch {
+      // ignore offline update error
+    }
+  }
+
+  const refreshed = await getStudentResults(classroomId, studentId, studentName);
+  return { results: refreshed, newAverage: finalAvg };
+}
+
+/**
+ * Purges all cached quiz results for a permanently removed student from local storage.
+ */
+export async function deleteAllResultsForStudent(
+  classroomId: string,
+  studentId: string
+): Promise<void> {
+  const key = getStorageKey(classroomId);
+  try {
+    const json = await AsyncStorage.getItem(key);
+    if (!json) return;
+    const existing: StudentQuizResult[] = JSON.parse(json);
+    const remaining = existing.filter((r) => r.studentId !== studentId);
+    await AsyncStorage.setItem(key, JSON.stringify(remaining));
+  } catch (err) {
+    console.warn("Failed to purge local quiz results for removed student:", err);
+  }
+}
+
+/**
  * Recalculates and updates a student's cumulative average grade in the `students` table
  * based on all their quiz results (merging Supabase `student_quiz_results` and local cache)
  * for the specified classroom. Returns the newly computed average (0-100), or -1 if no records exist.

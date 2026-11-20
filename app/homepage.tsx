@@ -37,6 +37,7 @@ import {
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
 import { ClassroomOnboardingModal } from "../components/ClassroomOnboardingModal";
+import { DeleteEmailVerificationModal } from "../components/DeleteEmailVerificationModal";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ClassCard = {
@@ -1122,59 +1123,21 @@ export default function HomePage() {
         </View>
       </Modal>
 
-      {/* ── Delete Classroom Confirmation Modal ── */}
-      <Modal
+      {/* ── Delete Classroom Email-Verified Confirmation Modal ── */}
+      <DeleteEmailVerificationModal
         visible={confirmModalVisible}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => !isDeletingClass && setConfirmModalVisible(false)}
-      >
-        <View style={styles.confirmModalOverlay}>
-          <TouchableWithoutFeedback onPress={() => !isDeletingClass && setConfirmModalVisible(false)}>
-            <View style={StyleSheet.absoluteFillObject} />
-          </TouchableWithoutFeedback>
-
-          <View style={[styles.confirmModalCard, { backgroundColor: cardBg, borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-            <Text style={[styles.confirmModalTitle, { color: textMain }]}>Delete Classroom?</Text>
-            <Text style={[styles.confirmModalDesc, { color: textSub }]}>
-              Are you sure you want to permanently delete{" "}
-              <Text style={{ fontWeight: "700", color: textMain }}>&ldquo;{classToDelete?.title}&rdquo;</Text>?
-              {"\n\n"}This will permanently remove all enrolled students, quizzes, answer keys, and grade records.
-            </Text>
-
-            <View style={styles.confirmModalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.confirmCancelBtn,
-                  {
-                    backgroundColor: cardBg,
-                    borderColor: darkMode ? "#4B5563" : "#CBD5E1",
-                  },
-                ]}
-                onPress={() => setConfirmModalVisible(false)}
-                disabled={isDeletingClass}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.confirmCancelBtnText, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.confirmDeleteBtn, isDeletingClass && styles.btnDisabled]}
-                onPress={handleConfirmDeleteClass}
-                disabled={isDeletingClass}
-                activeOpacity={0.85}
-              >
-                {isDeletingClass ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.confirmDeleteBtnText}>Delete</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        entityType="classroom"
+        targetName={classToDelete?.title || "Classroom"}
+        description="This will permanently remove all enrolled students, quizzes, answer keys, and grade records for this classroom."
+        confirmActionLabel="Verify & Delete"
+        onClose={() => {
+          if (!isDeletingClass) {
+            setConfirmModalVisible(false);
+            setClassToDelete(null);
+          }
+        }}
+        onVerifiedDelete={handleConfirmDeleteClass}
+      />
 
       {/* ── Classroom Creation Onboarding Modal ── */}
       <ClassroomOnboardingModal
