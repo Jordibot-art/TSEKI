@@ -49,7 +49,8 @@ export function resolveOllamaUrl(rawUrl: string): string {
 }
 
 /**
- * Strips Markdown code blocks and extracts cleanly formatted JSON.
+ * Strips Markdown code blocks, repairs trailing commas before `]` or `}`,
+ * and extracts cleanly formatted JSON.
  */
 export function extractJsonFromResponse(rawText: string): any {
     const trimmed = rawText.trim();
@@ -60,17 +61,30 @@ export function extractJsonFromResponse(rawText: string): any {
         .replace(/\s*```$/i, "")
         .trim();
 
+    const sanitizeJsonText = (input: string): string =>
+        input
+            .replace(/,\s*([\]}])/g, "$1")
+            .trim();
+
     try {
         return JSON.parse(strippedFences);
     } catch {
-        // 2. Scan for bracket bounds if there was trailing conversational prose
-        const firstBrace = strippedFences.indexOf("{");
-        const lastBrace = strippedFences.lastIndexOf("}");
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-            const bracketSlice = strippedFences.substring(firstBrace, lastBrace + 1);
-            return JSON.parse(bracketSlice);
+        try {
+            return JSON.parse(sanitizeJsonText(strippedFences));
+        } catch {
+            // 2. Scan for bracket bounds if there was trailing conversational prose
+            const firstBrace = strippedFences.indexOf("{");
+            const lastBrace = strippedFences.lastIndexOf("}");
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                const bracketSlice = strippedFences.substring(firstBrace, lastBrace + 1);
+                try {
+                    return JSON.parse(bracketSlice);
+                } catch {
+                    return JSON.parse(sanitizeJsonText(bracketSlice));
+                }
+            }
+            throw new Error(`Failed to parse AI response as valid JSON: ${strippedFences.slice(0, 160)}...`);
         }
-        throw new Error(`Failed to parse AI response as valid JSON: ${strippedFences.slice(0, 160)}...`);
     }
 }
 

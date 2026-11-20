@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiApiKey } from "./ai/geminiKey";
+import { extractJsonFromResponse } from "./ai/openAICompatibleClient";
 import { LayoutJSON } from "./printEngine/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -358,12 +359,9 @@ You MUST return the final result as a strict, valid JSON object with this exact 
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
             "gemini-3.8-flash",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
         ];
-        const MAX_RETRIES_PER_MODEL = 2;
-        const BASE_BACKOFF_MS = 1500;
+        const MAX_RETRIES_PER_MODEL = 1;
+        const BASE_BACKOFF_MS = 800;
 
         for (const modelName of candidateModels) {
             let attempt = 0;
@@ -449,11 +447,7 @@ You MUST return the final result as a strict, valid JSON object with this exact 
     if (result) {
         try {
             const rawText = result.response.text().trim();
-            const cleanJson = rawText
-                .replace(/^```(?:json)?\s*/i, "")
-                .replace(/\s*```$/i, "")
-                .trim();
-            parsed = JSON.parse(cleanJson);
+            parsed = extractJsonFromResponse(rawText);
         } catch (e) {
             console.warn("[Grading] Failed to parse JSON from Gemini:", e);
         }

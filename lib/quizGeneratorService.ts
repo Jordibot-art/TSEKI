@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiApiKey } from "./ai/geminiKey";
+import { extractJsonFromResponse } from "./ai/openAICompatibleClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "identification" | "enumeration" | "word_box";
@@ -221,11 +222,11 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
 
     if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"];
-        const MAX_RETRIES_PER_MODEL = 2; // Up to 2 retries (3 total attempts) if rate-limited / busy
-        const BASE_BACKOFF_MS = 2000;
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash"];
+        const MAX_RETRIES_PER_MODEL = 0; // Fast-fail to next candidate / Groq Backup AI instead of blocking on 503 spikes
+        const BASE_BACKOFF_MS = 800;
 
-        // Try candidate models sequentially with retry and exponential backoff
+        // Try candidate models sequentially and fail over immediately to Groq Backup AI if overloaded
         for (const modelName of candidateModels) {
             let attempt = 0;
 
@@ -243,12 +244,7 @@ You MUST return ONLY a strict, valid JSON object. Do not include markdown format
                     if (result) {
                         try {
                             const rawText = result.response.text().trim();
-                            const cleanJson = rawText
-                                .replace(/^```(?:json)?\s*/i, "")
-                                .replace(/\s*```$/i, "")
-                                .trim();
-
-                            const parsed: GeneratedAssessment = JSON.parse(cleanJson);
+                            const parsed: GeneratedAssessment = extractJsonFromResponse(rawText);
                             if (parsed.quizTitle && Array.isArray(parsed.questions) && Array.isArray(parsed.answerKey)) {
                                 parsed.generatedBy = `Google Gemini (${modelName})`;
                                 params.onProviderUsed?.("gemini", modelName);
@@ -620,11 +616,7 @@ Return ONLY strict valid JSON matching this exact structure:
                 const result = await model.generateContent(parts);
                 if (result) {
                     const rawText = result.response.text().trim();
-                    const cleanJson = rawText
-                        .replace(/^```(?:json)?\s*/i, "")
-                        .replace(/\s*```$/i, "")
-                        .trim();
-                    const parsed = JSON.parse(cleanJson);
+                    const parsed = extractJsonFromResponse(rawText);
                     const q: ScannableQuestion = parsed.question || (Array.isArray(parsed.questions) ? parsed.questions[0] : null);
                     const ak: AnswerKeyItem = parsed.answerKey || (Array.isArray(parsed.answerKey) ? parsed.answerKey[0] : null);
 
@@ -857,11 +849,7 @@ Return ONLY strict valid JSON matching this exact structure:
                 const result = await model.generateContent(parts);
                 if (result) {
                     const rawText = result.response.text().trim();
-                    const cleanJson = rawText
-                        .replace(/^```(?:json)?\s*/i, "")
-                        .replace(/\s*```$/i, "")
-                        .trim();
-                    const parsed = JSON.parse(cleanJson);
+                    const parsed = extractJsonFromResponse(rawText);
                     const qList: ScannableQuestion[] = parsed.questions || [];
                     const aList: AnswerKeyItem[] = parsed.answerKey || [];
 

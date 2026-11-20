@@ -86,9 +86,9 @@ function Dropdown({
                             </View>
                         ) : (
                             <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
-                                {options.map((opt) => (
+                                {options.map((opt, idx) => (
                                     <TouchableOpacity
-                                        key={opt}
+                                        key={`${opt}-${idx}`}
                                         style={[
                                             styles.ddItem,
                                             value === opt && { backgroundColor: accentColor + "18" },
@@ -203,18 +203,22 @@ export default function GraderTab({
         }
     }
 
-    const quizOptions = publishedQuizzes.map((q) => q.quizTitle);
+    const quizOptions = Array.from(
+        new Set(publishedQuizzes.map((q) => q.quizTitle).filter(Boolean))
+    );
 
     const currentQuizValue = selectedQuiz && quizOptions.includes(selectedQuiz)
         ? selectedQuiz
         : (quizOptions.length > 0 ? quizOptions[0] : "");
 
-    const studentOptions = [
-        "Auto-Detect from Test Paper",
-        ...(roster.length > 0
-            ? roster.map((s) => `${s.full_name}${s.email ? ` (${s.email})` : ""}`)
-            : []),
-    ];
+    const studentOptions = Array.from(
+        new Set([
+            "Auto-Detect from Test Paper",
+            ...(roster.length > 0
+                ? roster.map((s) => `${s.full_name}${s.email ? ` (${s.email})` : ""}`)
+                : []),
+        ])
+    );
 
     const currentStudentValue = selectedStudent || "Auto-Detect from Test Paper";
 

@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
+import { AssessmentInspectorModal } from "../components/AssessmentInspectorModal";
 import { PdfExportingAnimation } from "../components/PdfExportingAnimation";
 import { BondPaperSize } from "../lib/paperSheetExporter";
 import { generatePrintPackage } from "../lib/printEngine";
@@ -26,7 +27,6 @@ import {
   computeAssessmentCacheKey,
   getCachedPdfUri,
   shareCachedPdfUri,
-  sharePdfBytes,
   writeCachedPdf,
 } from "../lib/printEngine/mobileShare";
 import {
@@ -37,6 +37,7 @@ import {
   getAllPublishedQuizzes,
   getDraftTimeRemaining,
   publishDraftQuiz,
+  saveDraftQuiz,
   StoredQuiz,
 } from "../lib/quizStore";
 import { supabase } from "../supabase";
@@ -53,45 +54,6 @@ function getInitials(name: string) {
     .join("")
     .toUpperCase()
     .slice(0, 2);
-}
-
-// ── Answer matching helper for Question Inspector ─────────────────────────────
-function isChoiceAnswer(choice: string, answer: string, choiceIndex: number): boolean {
-  if (!choice || !answer) return false;
-  const cClean = choice.trim();
-  const aClean = answer.trim();
-  if (cClean === aClean) return true;
-  if (cClean.toLowerCase() === aClean.toLowerCase()) return true;
-
-  const stripFormatting = (str: string) =>
-    str
-      .replace(/^['"`(]+|['"`) .]+$/g, "")
-      .replace(/['"`*_]/g, "")
-      .trim();
-
-  const cNorm = stripFormatting(cClean).toLowerCase();
-  const aNorm = stripFormatting(aClean).toLowerCase();
-  if (cNorm === aNorm) return true;
-
-  const optionLetter = String.fromCharCode(65 + choiceIndex);
-  const letterMatch = aNorm.match(/^(?:option\s+)?([a-d])(?:\)|\.|\:|$)/i);
-  if (letterMatch && letterMatch[1].toUpperCase() === optionLetter) {
-    return true;
-  }
-
-  const stripPrefix = (str: string) =>
-    str.replace(/^(?:[a-d]\s*[\)\.\:\-]|option\s+[a-d][\:\.]?)\s*/i, "").trim();
-
-  const cStripped = stripFormatting(stripPrefix(cClean)).toLowerCase();
-  const aStripped = stripFormatting(stripPrefix(aClean)).toLowerCase();
-
-  if (cStripped.length > 0 && cStripped === aStripped) return true;
-  if (cStripped.length > 1 && aStripped.length > 1) {
-    if (aStripped.includes(cStripped) || cStripped.includes(aStripped)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 export default function SettingsScreen() {
@@ -238,6 +200,13 @@ export default function SettingsScreen() {
     ]);
   }
 
+  // ── Update / Save Draft ────────────────────────────────────────────────────
+  async function handleUpdateDraft(updatedDraft: StoredQuiz) {
+    setInspectedQuiz(updatedDraft);
+    setDrafts((prev) => prev.map((d) => (d.id === updatedDraft.id ? updatedDraft : d)));
+    await saveDraftQuiz(updatedDraft.classroomId, updatedDraft, updatedDraft.classTitle);
+  }
+
   // ── Publish Draft ──────────────────────────────────────────────────────────
   function handlePublishDraft(draft: StoredQuiz) {
     Alert.alert(
@@ -249,7 +218,29 @@ export default function SettingsScreen() {
           text: "Publish Now",
           onPress: async () => {
             try {
-              const published = await publishDraftQuiz(draft.classroomId, draft.id);
+              let draftToPublish = draft;
+              if (!draft.layoutJson) {
+                try {
+                  const printPkg = await generatePrintPackage(draft, {
+                    paperSize: "short",
+                    version: "A",
+                    classTitle: draft.classTitle || "Classroom Assessment",
+                    subject: draft.subject || "General Subject",
+                    gradeLevel: draft.gradeLevel,
+                    quizId: draft.id || `QZ-${Date.now().toString().slice(-6)}`,
+                    target: "LAYOUT_ONLY",
+                  });
+                  draftToPublish = {
+                    ...draft,
+                    layoutJson: printPkg.layoutJson,
+                    answerVariants: printPkg.layoutJson.answerVariants,
+                  };
+                  await saveDraftQuiz(draft.classroomId, draftToPublish, draft.classTitle);
+                } catch (layoutErr) {
+                  console.warn("Could not precompute layoutJson before publishing draft:", layoutErr);
+                }
+              }
+              const published = await publishDraftQuiz(draftToPublish.classroomId, draftToPublish.id);
               if (published) {
                 Alert.alert(
                   "Published!",
@@ -994,39 +985,52 @@ export default function SettingsScreen() {
                             {draft.quizTitle}
                           </Text>
                           <View style={styles.classroomBadgeRow}>
-                            <Ionicons name="school-outline" size={13} color={themeColor} />
-                            <Text style={[styles.classroomBadgeText, { color: themeColor }]} numberOfLines={1}>
+                            <Ionicons name="school-outline" size={13} color="#2563EB" />
+                            <Text style={[styles.classroomBadgeText, { color: "#2563EB" }]} numberOfLines={1}>
                               {draft.classTitle || "Classroom"}
                             </Text>
                             <Text style={[styles.metaDotSeparator, { color: textSub }]}>·</Text>
                             <Text style={[styles.dateText, { color: textSub }]}>{formattedDate}</Text>
+                            <Text style={[styles.metaDotSeparator, { color: textSub }]}>·</Text>
+                            <Text
+                              style={[
+                                styles.dateText,
+                                {
+                                  color: timeInfo.isExpiringSoon ? "#DC2626" : textSub,
+                                  fontWeight: timeInfo.isExpiringSoon ? "600" : "500",
+                                },
+                              ]}
+                            >
+                              {timeInfo.text}
+                            </Text>
                           </View>
                         </View>
                         <View
                           style={[
-                            styles.draftTimerBadge,
-                            timeInfo.isExpiringSoon && styles.draftTimerExpiringBadge,
+                            styles.draftStatusIconWrap,
+                            {
+                              backgroundColor: timeInfo.isExpiringSoon
+                                ? darkMode
+                                  ? "rgba(220, 38, 38, 0.18)"
+                                  : "#FEE2E2"
+                                : darkMode
+                                  ? "rgba(245, 158, 11, 0.18)"
+                                  : "#FEF3C7",
+                            },
                           ]}
+                          accessibilityLabel={`Draft expires in ${timeInfo.text}`}
                         >
                           <Ionicons
                             name="time-outline"
-                            size={11}
-                            color={timeInfo.isExpiringSoon ? "#DC2626" : "#B45309"}
+                            size={17}
+                            color={timeInfo.isExpiringSoon ? "#DC2626" : "#D97706"}
                           />
-                          <Text
-                            style={[
-                              styles.draftTimerText,
-                              timeInfo.isExpiringSoon && styles.draftTimerExpiringText,
-                            ]}
-                          >
-                            {timeInfo.text}
-                          </Text>
                         </View>
                       </View>
 
                       <View style={styles.cardMetaRow}>
                         <Text style={[styles.metaPillText, { color: textSub }]}>
-                          {draft.questions.length} Questions · {draft.difficulty || "Standard"} · {draft.questionType || "Mixed"}
+                          {draft.questions.length} Questions · {draft.difficulty || "Standard"} · {draft.questionType || "DepEd Scannable"}
                         </Text>
                       </View>
 
@@ -1045,15 +1049,15 @@ export default function SettingsScreen() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.actionPublishBtn, { backgroundColor: themeColor }]}
+                          style={[styles.exportPdfBtn, { backgroundColor: "#1E293B" }]}
                           onPress={() => handlePublishDraft(draft)}
                         >
                           <Ionicons name="send-outline" size={15} color="#FFFFFF" />
-                          <Text style={styles.actionPublishText} numberOfLines={1}>Publish</Text>
+                          <Text style={styles.exportPdfText} numberOfLines={1}>Publish</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.deleteBtn, { borderColor: "#FEE2E2" }]}
+                          style={[styles.deleteBtn, { borderColor: darkMode ? "rgba(239, 68, 68, 0.3)" : "#FEE2E2" }]}
                           onPress={() => handleDeleteDraft(draft)}
                         >
                           <Ionicons name="trash-outline" size={16} color="#EF4444" />
@@ -1099,7 +1103,13 @@ export default function SettingsScreen() {
                             <Text style={[styles.dateText, { color: textSub }]}>{formattedDate}</Text>
                           </View>
                         </View>
-                        <View style={styles.cloudIconWrap} accessibilityLabel="Synced to cloud">
+                        <View
+                          style={[
+                            styles.cloudIconWrap,
+                            { backgroundColor: darkMode ? "rgba(5, 150, 105, 0.18)" : "#ECFDF5" },
+                          ]}
+                          accessibilityLabel="Synced to cloud"
+                        >
                           <Ionicons name="cloud-done-outline" size={17} color="#059669" />
                         </View>
                       </View>
@@ -1136,7 +1146,7 @@ export default function SettingsScreen() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.deleteBtn, { borderColor: "#FEE2E2" }]}
+                          style={[styles.deleteBtn, { borderColor: darkMode ? "rgba(239, 68, 68, 0.3)" : "#FEE2E2" }]}
                           onPress={() => handleDeleteArchive(quiz)}
                         >
                           <Ionicons name="trash-outline" size={16} color="#EF4444" />
@@ -1165,167 +1175,25 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* ── Question Inspector Modal ── */}
-      <Modal
+      {/* ── Question Inspector Modal (AI Builder Preview Style) ── */}
+      <AssessmentInspectorModal
         visible={inspectModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setInspectModalVisible(false)}
-      >
-        <View style={[styles.hubContainer, { backgroundColor: bg }]}>
-          {/* Header */}
-          <View style={[styles.hubHeader, { backgroundColor: card, borderBottomColor: border }]}>
-            <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                <Text style={[styles.hubHeaderTitle, { color: textMain }]} numberOfLines={1}>
-                  {inspectedQuiz?.quizTitle}
-                </Text>
-                {inspectedQuiz?.status === "DRAFT" ? (
-                  <View style={[styles.draftBadge, { flexShrink: 0 }]}><Text style={styles.draftBadgeText}>DRAFT</Text></View>
-                ) : (
-                  <View style={[styles.archiveBadge, { flexShrink: 0 }]}><Text style={styles.archiveBadgeText}>ARCHIVE</Text></View>
-                )}
-              </View>
-              <Text style={[styles.hubHeaderSub, { color: textSub }]} numberOfLines={1}>
-                {inspectedQuiz?.classTitle || "Classroom"} • {inspectedQuiz?.questions.length} Questions • {inspectedQuiz?.difficulty || "Standard"}
-              </Text>
-            </View>
-
-            <View style={styles.hubHeaderRightActions}>
-              <TouchableOpacity
-                style={[styles.hubCloseBtn, { backgroundColor: border }]}
-                onPress={() => setInspectModalVisible(false)}
-                accessibilityLabel="Close inspector"
-              >
-                <Ionicons name="close" size={20} color={textMain} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Scrollable Questions list */}
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={styles.hubScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {inspectedQuiz?.questions.map((q) => {
-              const answerObj = inspectedQuiz.answerKey.find((k) => k.questionNumber === q.questionNumber);
-              const correctAnswer = answerObj ? answerObj.correctAnswer : "";
-              const points = answerObj ? answerObj.points : 1;
-              const typeLabel = q.type.replace(/_/g, " ").toUpperCase();
-
-              return (
-                <View key={q.questionNumber} style={[styles.inspectQuestionCard, { backgroundColor: card, borderColor: border }]}>
-                  <View style={styles.inspectQuestionHeader}>
-                    <View style={[styles.questionNumberBubble, { backgroundColor: themeColor }]}>
-                      <Text style={styles.questionNumberText}>{q.questionNumber}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <View style={styles.qTypePill}>
-                          <Text style={styles.qTypePillText}>{typeLabel}</Text>
-                        </View>
-                        <View style={styles.boxesPill}>
-                          <Text style={styles.boxesPillText}>
-                            {q.answerBoxesRequired} {q.answerBoxesRequired > 1 ? "BOXES" : "BOX"}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={[styles.inspectQuestionText, { color: textMain }]}>{q.questionText}</Text>
-                    </View>
-                  </View>
-
-                  {/* Options */}
-                  {q.options && q.options.length > 0 && (
-                    <View style={styles.optionsWrap}>
-                      {q.options.map((opt, cIdx) => {
-                        const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
-                        return (
-                          <View
-                            key={`${opt}_${cIdx}`}
-                            style={[
-                              styles.choiceRow,
-                              { borderColor: border, backgroundColor: isCorrect ? themeColor + "14" : inputBg },
-                              isCorrect && { borderColor: themeColor },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.choiceRowText,
-                                { color: isCorrect ? themeColor : textMain },
-                                isCorrect && { fontWeight: "700" },
-                              ]}
-                            >
-                              {opt}
-                            </Text>
-                            {isCorrect && (
-                              <Ionicons name="checkmark-circle" size={16} color={themeColor} />
-                            )}
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-
-                  {/* Answer Key Box */}
-                  <View style={[styles.answerKeyBox, { borderLeftColor: themeColor, backgroundColor: themeColor + "10" }]}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={[styles.answerKeyLabel, { color: themeColor }]}>OFFICIAL ANSWER KEY</Text>
-                      <Text style={[styles.answerKeyPoints, { color: themeColor }]}>+{points} pt{points > 1 ? "s" : ""}</Text>
-                    </View>
-                    <Text style={[styles.answerKeyValue, { color: themeColor }]}>{correctAnswer}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </ScrollView>
-
-          {/* Footer Actions */}
-          <View style={[styles.inspectFooter, { backgroundColor: card, borderTopColor: border }]}>
-            {inspectedQuiz?.status === "DRAFT" ? (
-              <TouchableOpacity
-                style={[styles.inspectFooterPublishBtn, { backgroundColor: themeColor }]}
-                onPress={() => {
-                  if (inspectedQuiz) {
-                    handlePublishDraft(inspectedQuiz);
-                  }
-                }}
-              >
-                <Ionicons name="send-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.inspectFooterPublishText}>Publish Quiz to Classroom</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[styles.inspectFooterExportBtn, { backgroundColor: themeColor }]}
-                onPress={() => {
-                  if (inspectedQuiz) {
-                    setSelectedExportQuiz(inspectedQuiz);
-                    setExportModalVisible(true);
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="print-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.inspectFooterExportText}>Export / Print PDF</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Inspector Export Loading Overlay */}
-          {exportingPdf && !exportModalVisible && (
-            <View style={styles.loadingOverlay}>
-              <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-                <PdfExportingAnimation
-                  exportVersion={exportVersion}
-                  quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
-                  accentColor={themeColor || "#EA580C"}
-                  darkMode={darkMode}
-                />
-              </View>
-            </View>
-          )}
-        </View>
-      </Modal>
+        quiz={inspectedQuiz}
+        darkMode={darkMode}
+        themeColor={themeColor}
+        exportingPdf={exportingPdf}
+        exportModalVisible={exportModalVisible}
+        exportVersion={exportVersion}
+        selectedExportQuizTitle={selectedExportQuiz?.quizTitle}
+        onClose={() => setInspectModalVisible(false)}
+        onPublishDraft={(draft) => handlePublishDraft(draft)}
+        onExportPdf={(quiz) => {
+          setSelectedExportQuiz(quiz);
+          setExportModalVisible(true);
+        }}
+        onSaveDraft={handleUpdateDraft}
+        onQuizUpdated={handleUpdateDraft}
+      />
 
       {/* ── Export Paper Sheet Modal ── */}
       <Modal
@@ -1349,133 +1217,161 @@ export default function SettingsScreen() {
               e.stopPropagation?.();
             }}
           >
-            <View style={styles.exportSheetHeader}>
-              <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
-              <Text style={[styles.exportSheetSub, { color: textSub }]}>
-                Download, print, or share the physical test sheet formatted with scannable answer boxes.
-              </Text>
+            <View style={styles.dragPill} />
+            <View style={styles.exportSheetHeaderRow}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
+                <Text style={[styles.exportSheetSub, { color: textSub }]}>
+                  Download, print, or share the physical test sheet formatted with scannable answer boxes.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setExportModalVisible(false)}
+                style={styles.closeIconBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={20} color={textSub} />
+              </TouchableOpacity>
             </View>
 
-                {/* Anti-Cheating Version Selector (Set A / B / C) */}
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>TEST VERSION (SET):</Text>
-                  <View style={{ flexDirection: "row", gap: 6 }}>
-                    {(["A", "B", "C"] as const).map((ver) => (
-                      <TouchableOpacity
-                        key={ver}
-                        onPress={() => setExportVersion(ver)}
-                        activeOpacity={0.7}
+            {/* Anti-Cheating Version Selector (Set A / B / C) */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <Text style={{ fontSize: 14, fontWeight: "500", color: darkMode ? "#E2E8F0" : "#334155" }}>
+                Test version
+              </Text>
+              <View style={[styles.segmentedTrack, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+                {(["A", "B", "C"] as const).map((ver) => {
+                  const isActive = exportVersion === ver;
+                  return (
+                    <TouchableOpacity
+                      key={ver}
+                      onPress={() => setExportVersion(ver)}
+                      activeOpacity={0.7}
+                      style={[
+                        styles.exportSegmentBtn,
+                        isActive && [
+                          styles.exportSegmentBtnActive,
+                          {
+                            backgroundColor: darkMode ? "#334155" : "#FFFFFF",
+                            borderColor: darkMode ? "#475569" : "#CBD5E1",
+                          },
+                        ],
+                      ]}
+                    >
+                      <Text
                         style={{
-                          paddingHorizontal: 14,
-                          paddingVertical: 6,
-                          borderRadius: 8,
-                          borderWidth: 1,
-                          borderColor: exportVersion === ver ? themeColor : border,
-                          backgroundColor: exportVersion === ver ? themeColor + "18" : inputBg,
+                          fontSize: 12.5,
+                          color: isActive
+                            ? darkMode
+                              ? "#F8FAFC"
+                              : "#0F172A"
+                            : "#64748B",
+                          fontWeight: isActive ? "700" : "500",
                         }}
                       >
-                        <Text
-                          style={{
-                            fontSize: 12.5,
-                            fontWeight: "700",
-                            color: exportVersion === ver ? themeColor : textMain,
-                          }}
-                        >
-                          Set {ver}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                        Set {ver}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Force Separate Answer Sheet Toggle */}
+            <TouchableOpacity
+              onPress={() => setForceSeparateMode((prev) => !prev)}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 9,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                backgroundColor: inputBg,
+                borderWidth: 1,
+                borderColor: border,
+                marginBottom: 12,
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
+                Always use separate Question Booklet + Answer Sheet
+              </Text>
+              <Ionicons
+                name={forceSeparateMode ? "checkbox" : "square-outline"}
+                size={20}
+                color={forceSeparateMode ? themeColor : textSub}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.exportOptionBtn, { backgroundColor: darkMode ? "#111827" : "#F9FAFB", borderColor: border }]}
+              onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, false, "short")}
+              activeOpacity={0.7}
+              disabled={exportingPdf}
+            >
+              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                <Ionicons name="document-text-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <Text style={[styles.exportOptionTitle, { color: textMain }]}>Short Bond Paper</Text>
+                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>{'8.5" × 11"'}</Text>
                   </View>
                 </View>
+                <Text style={[styles.exportOptionSub, { color: textSub }]}>
+                  {`1 single sheet (Letter size) • Set ${exportVersion} scannable layout for 1-shot camera scanning`}
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={18} color="#94A3B8" />
+            </TouchableOpacity>
 
-                {/* Force Separate Answer Sheet Toggle */}
-                <TouchableOpacity
-                  onPress={() => setForceSeparateMode((prev) => !prev)}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 10,
-                    backgroundColor: inputBg,
-                    borderWidth: 1,
-                    borderColor: border,
-                    marginBottom: 12,
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
-                    Always use separate Question Booklet + Answer Sheet
-                  </Text>
-                  <Ionicons
-                    name={forceSeparateMode ? "checkbox" : "square-outline"}
-                    size={20}
-                    color={forceSeparateMode ? themeColor : textSub}
-                  />
-                </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.exportOptionBtn, { backgroundColor: darkMode ? "#111827" : "#F9FAFB", borderColor: border }]}
+              onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, false, "long")}
+              activeOpacity={0.7}
+              disabled={exportingPdf}
+            >
+              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                <Ionicons name="document-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <Text style={[styles.exportOptionTitle, { color: textMain }]}>Long Bond Paper</Text>
+                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>{'8.5" × 13"'}</Text>
+                  </View>
+                </View>
+                <Text style={[styles.exportOptionSub, { color: textSub }]}>
+                  {`1 single sheet (Philippine Folio) • Fits all questions with Set ${exportVersion} spacing`}
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={18} color="#94A3B8" />
+            </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.exportOptionBtn, { borderColor: border }]}
-                  onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, false, "short")}
-                  activeOpacity={0.7}
-                  disabled={exportingPdf}
-                >
-                  <View style={[styles.exportOptionIcon, { backgroundColor: (themeColor || "#2563EB") + "18" }]}>
-                    <Ionicons name="document-text" size={22} color={themeColor || "#2563EB"} />
+            <TouchableOpacity
+              style={[styles.exportOptionBtn, { backgroundColor: darkMode ? "#111827" : "#F9FAFB", borderColor: border }]}
+              onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, true, "short")}
+              activeOpacity={0.7}
+              disabled={exportingPdf}
+            >
+              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                <Ionicons name="checkmark-done-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <Text style={[styles.exportOptionTitle, { color: textMain }]}>Teacher Answer Key</Text>
+                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>PDF</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.exportOptionTitle, { color: textMain }]}>{'Short Bond Paper (8.5" × 11")'}</Text>
-                    <Text style={[styles.exportOptionSub, { color: textSub }]}>
-                      {`1 single sheet (Letter size) • Set ${exportVersion} scannable layout for 1-shot camera scanning`}
-                    </Text>
-                  </View>
-                  <Ionicons name="download-outline" size={20} color="#6B7280" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.exportOptionBtn, { borderColor: border }]}
-                  onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, false, "long")}
-                  activeOpacity={0.7}
-                  disabled={exportingPdf}
-                >
-                  <View style={[styles.exportOptionIcon, { backgroundColor: "#8B5CF618" }]}>
-                    <Ionicons name="document-outline" size={22} color="#8B5CF6" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.exportOptionTitle, { color: textMain }]}>{'Long Bond Paper (8.5" × 13")'}</Text>
-                    <Text style={[styles.exportOptionSub, { color: textSub }]}>
-                      {`1 single sheet (Philippine Folio) • Fits all questions with Set ${exportVersion} spacing`}
-                    </Text>
-                  </View>
-                  <Ionicons name="download-outline" size={20} color="#6B7280" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.exportOptionBtn, { borderColor: border }]}
-                  onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, true, "short")}
-                  activeOpacity={0.7}
-                  disabled={exportingPdf}
-                >
-                  <View style={[styles.exportOptionIcon, { backgroundColor: "#10B98118" }]}>
-                    <Ionicons name="checkmark-done-circle" size={22} color="#10B981" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.exportOptionTitle, { color: textMain }]}>Teacher Answer Key Paper (PDF)</Text>
-                    <Text style={[styles.exportOptionSub, { color: textSub }]}>
-                      {`1 single sheet with correct answers pre-printed in boxes for Set ${exportVersion}`}
-                    </Text>
-                  </View>
-                  <Ionicons name="download-outline" size={20} color="#6B7280" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.exportCancelBtn, { borderColor: border }]}
-                  onPress={() => setExportModalVisible(false)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.exportCancelText, { color: textSub }]}>Cancel</Text>
-                </TouchableOpacity>
+                </View>
+                <Text style={[styles.exportOptionSub, { color: textSub }]}>
+                  {`1 single sheet with correct answers pre-printed in boxes for Set ${exportVersion}`}
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={18} color="#94A3B8" />
+            </TouchableOpacity>
           </Pressable>
         </TouchableOpacity>
       </Modal>
@@ -1584,79 +1480,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 2,
     elevation: 2,
-  },
-
-  /* Badges */
-  draftBadge: {
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-  },
-  draftBadgeText: {
-    color: "#B45309",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-  },
-
-  archiveBadge: {
-    backgroundColor: "#DBEAFE",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
-  },
-  archiveBadgeText: {
-    color: "#1D4ED8",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-  },
-
-  draftTimerBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-  },
-  draftTimerExpiringBadge: {
-    backgroundColor: "#FEE2E2",
-    borderColor: "#FECACA",
-  },
-  draftTimerText: {
-    color: "#B45309",
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  draftTimerExpiringText: {
-    color: "#DC2626",
-  },
-
-  cloudSyncBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#A7F3D0",
-  },
-  cloudSyncBadgeText: {
-    color: "#047857",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
   },
 
   versionText: { textAlign: "center", fontSize: 12, marginTop: 8 },
@@ -1778,12 +1601,6 @@ const styles = StyleSheet.create({
   },
   hubHeaderTitle: { fontSize: 19, fontWeight: "800", letterSpacing: -0.3 },
   hubHeaderSub: { fontSize: 13, marginTop: 3, lineHeight: 18 },
-  hubHeaderRightActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-  },
   hubCloseBtn: {
     width: 34,
     height: 34,
@@ -1859,6 +1676,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  draftStatusIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   cardMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", marginTop: 10 },
   metaPillText: { fontSize: 12.5, fontWeight: "500", lineHeight: 18, flexShrink: 1 },
   dateText: { fontSize: 12.5, fontWeight: "500" },
@@ -1875,16 +1701,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inspectBtnText: { fontSize: 13, fontWeight: "600" },
-  actionPublishBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 38,
-    borderRadius: 10,
-    gap: 6,
-  },
-  actionPublishText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
   exportPdfBtn: {
     flex: 1.4,
     flexDirection: "row",
@@ -1906,92 +1722,47 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
 
-  /* ── Question Inspector ── */
-  inspectQuestionCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    marginBottom: 16,
-  },
-  inspectQuestionHeader: { flexDirection: "row", gap: 12, marginBottom: 12 },
-  questionNumberBubble: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  questionNumberText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
-  qTypePill: { backgroundColor: "#F3F4F6", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-  qTypePillText: { fontSize: 10, fontWeight: "700", color: "#4B5563" },
-  boxesPill: { backgroundColor: "#E5E7EB", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  boxesPillText: { fontSize: 9, fontWeight: "700", color: "#374151" },
-  inspectQuestionText: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
-  optionsWrap: { gap: 6, marginBottom: 10 },
-  choiceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  choiceRowText: { fontSize: 13, flex: 1, marginRight: 8 },
-  answerKeyBox: {
-    borderLeftWidth: 3,
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 4,
-  },
-  answerKeyLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.6 },
-  answerKeyPoints: { fontSize: 11, fontWeight: "700" },
-  answerKeyValue: { fontSize: 13, fontWeight: "700", marginTop: 2 },
-  inspectFooter: {
-    padding: 16,
-    borderTopWidth: 1,
-  },
-  inspectFooterPublishBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 12,
-    gap: 8,
-  },
-  inspectFooterPublishText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-  inspectFooterExportBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 12,
-    gap: 8,
-  },
-  inspectFooterExportText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-
   /* ── Export Sheet Modal ── */
-  sheetLoadingWrap: {
-    alignItems: "center",
-    paddingVertical: 18,
-    paddingHorizontal: 8,
-  },
   exportBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
   exportSheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    paddingBottom: 40,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 14,
+    paddingBottom: 36,
     maxHeight: "90%",
   },
-  exportSheetHeader: { marginBottom: 20 },
-  exportSheetTitle: { fontSize: 19, fontWeight: "800" },
+  exportSheetHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  exportSheetTitle: { fontSize: 18, fontWeight: "800" },
   exportSheetSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
+  segmentedTrack: {
+    flexDirection: "row",
+    borderRadius: 8,
+    padding: 3,
+    gap: 2,
+  },
+  exportSegmentBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  exportSegmentBtnActive: {
+    borderWidth: 1,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
   exportOptionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -2001,24 +1772,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 12,
   },
-  exportOptionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+  neutralOptionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  dimBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  dimBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "600",
   },
   exportOptionTitle: { fontSize: 14, fontWeight: "700" },
-  exportOptionSub: { fontSize: 11, marginTop: 2 },
-  exportCancelBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 8,
-  },
-  exportCancelText: { fontSize: 14, fontWeight: "600" },
+  exportOptionSub: { fontSize: 11.5, marginTop: 2, lineHeight: 16 },
 
   /* ── Full-screen Export Progress Overlay ── */
   loadingOverlay: {
