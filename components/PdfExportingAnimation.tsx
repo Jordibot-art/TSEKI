@@ -5,7 +5,10 @@ import {
   StyleSheet,
   Animated,
   Easing,
+  TouchableOpacity,
+  Platform,
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 
 export interface PdfExportingAnimationProps {
@@ -13,6 +16,8 @@ export interface PdfExportingAnimationProps {
   exportVersion?: "A" | "B" | "C";
   accentColor?: string;
   darkMode?: boolean;
+  onCancel?: () => void;
+  cancelLabel?: string;
 }
 
 export function PdfExportingAnimation({
@@ -20,6 +25,8 @@ export function PdfExportingAnimation({
   exportVersion = "A",
   accentColor = "#EA580C",
   darkMode = false,
+  onCancel,
+  cancelLabel = "Cancel Export",
 }: PdfExportingAnimationProps) {
   // Laser / print sweep vertical animation (0 -> 1 -> 0) [100% Native Driver]
   const laserAnim = useRef(new Animated.Value(0)).current;
@@ -396,6 +403,41 @@ export function PdfExportingAnimation({
         </Text>
         <Text style={[styles.percentText, { color: textColor }]}>{percentDisplay}%</Text>
       </View>
+
+      {onCancel && (
+        <TouchableOpacity
+          style={[
+            styles.cancelBtn,
+            {
+              backgroundColor: darkMode ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2",
+              borderColor: darkMode ? "rgba(248, 113, 113, 0.32)" : "#FECACA",
+            },
+          ]}
+          onPress={() => {
+            if (Platform.OS !== "web") {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            }
+            onCancel();
+          }}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel={cancelLabel}
+        >
+          <Ionicons
+            name="close-circle-outline"
+            size={17}
+            color={darkMode ? "#FCA5A5" : "#DC2626"}
+          />
+          <Text
+            style={[
+              styles.cancelBtnText,
+              { color: darkMode ? "#FCA5A5" : "#DC2626" },
+            ]}
+          >
+            {cancelLabel}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -602,5 +644,21 @@ const styles = StyleSheet.create({
   percentText: {
     fontSize: 11,
     fontWeight: "700",
+  },
+  cancelBtn: {
+    marginTop: 16,
+    width: "100%",
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  cancelBtnText: {
+    fontSize: 13.5,
+    fontWeight: "600",
+    letterSpacing: -0.1,
   },
 });

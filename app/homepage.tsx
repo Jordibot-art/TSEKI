@@ -1,11 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -16,19 +15,25 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { AnimatedTsekiLogo } from "../components/AnimatedTsekiLogo";
+import { NotificationsModal } from "../components/NotificationsModal";
 import { useTheme } from "../context/ThemeContext";
 import {
+  AlertPreferences,
+  buildReconciledAlerts,
   clearAllAlerts,
+  DEFAULT_ALERT_PREFERENCES,
   deleteClassroomAlerts,
-  getClearedAlertIds,
-  getPersistedAlerts,
-  getReadAlertIds,
+  dismissSingleAlert,
   markAlertsAsRead,
+  markAllAlertsAsRead,
+  ReconcileClassroomInput,
+  ReconcileStudentInput,
+  restoreDismissedAlerts,
   RosterAlert,
+  StudentQuizSnapshot,
 } from "../lib/alertStore";
 import {
   deleteClassroomQuizzes,
@@ -123,8 +128,22 @@ export default function HomePage() {
   const [saving, setSaving] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [alerts, setAlerts] = useState<RosterAlert[]>([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState<RosterAlert[]>([]);
+  const [alertPrefs, setAlertPrefs] = useState<AlertPreferences>(DEFAULT_ALERT_PREFERENCES);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifClassroomFilter, setNotifClassroomFilter] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Cached roster inputs so threshold/dismiss/restore updates reconcile instantly without a network round-trip
+  const rosterCacheRef = useRef<{
+    students: ReconcileStudentInput[];
+    classrooms: ReconcileClassroomInput[];
+    latestQuizByStudent: Record<string, StudentQuizSnapshot>;
+  }>({
+    students: [],
+    classrooms: [],
+    latestQuizByStudent: {},
+  });
 
   // Delete Classroom Confirmation State
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
@@ -183,93 +202,92 @@ export default function HomePage() {
     if (!error && classrooms) {
       const classroomIds = classrooms.map((row: any) => row.id);
       const studentCounts: Record<string, number> = {};
-      const flaggedCounts: Record<string, number> = {};
+      let flaggedCounts: Record<string, number> = {};
       const quizCounts: Record<string, number> = {};
-      const activeAlerts: RosterAlert[] = [];
+      const localColors = await getClassroomColors();
+
+      const reconcileClassrooms: ReconcileClassroomInput[] = classrooms.map((row: any, i: number) => {
+        let parsedSection = row.section || "";
+        let parsedSchedule = "";
+        if (parsedSection.includes(" || ")) {
+          const parts = parsedSection.split(" || ");
+          parsedSection = parts[0] || "";
+          parsedSchedule = parts[1] || "";
+        }
+        return {
+          id: row.id,
+          title: row.title || "Classroom",
+          subject: row.subject || "",
+          section: parsedSection,
+          room: row.room ? (String(row.room).toLowerCase().startsWith("room") ? row.room : `Room ${row.room}`) : parsedSection,
+          schedule: parsedSchedule || row.subject || "",
+          color: row.color || localColors[row.id] || CARD_COLORS[i % CARD_COLORS.length],
+        };
+      });
 
       if (classroomIds.length > 0) {
-        // 1. Fetch real students and their averages from Supabase
-        const { data: studentsData } = await supabase
-          .from("students")
-          .select("id, classroom_id, full_name, average")
-          .in("classroom_id", classroomIds);
-
-        const [clearedIds, readIds, persisted] = await Promise.all([
-          getClearedAlertIds(),
-          getReadAlertIds(),
-          getPersistedAlerts(),
+        // 1. Fetch real students and latest quiz results from Supabase in parallel
+        const [{ data: studentsData }, recentResultsResp] = await Promise.all([
+          supabase
+            .from("students")
+            .select("id, classroom_id, full_name, average")
+            .in("classroom_id", classroomIds),
+          Promise.resolve(
+            supabase
+              .from("student_quiz_results")
+              .select("student_id, quiz_title, score_percentage, total_score, max_score, graded_at")
+              .in("classroom_id", classroomIds)
+              .order("graded_at", { ascending: false })
+          ).catch(() => ({ data: null, error: null })),
         ]);
 
-        if (studentsData) {
-          for (const s of studentsData) {
-            studentCounts[s.classroom_id] = (studentCounts[s.classroom_id] || 0) + 1;
-            // Student is flagged by the system if they have taken a quiz and have average > 0 and <= 50
-            if (s.average !== null && s.average !== undefined && s.average > 0 && s.average <= 50) {
-              flaggedCounts[s.classroom_id] = (flaggedCounts[s.classroom_id] || 0) + 1;
+        const normalizedStudents: ReconcileStudentInput[] = (studentsData || []).map((s: any) => {
+          studentCounts[s.classroom_id] = (studentCounts[s.classroom_id] || 0) + 1;
+          return {
+            id: s.id,
+            classroom_id: s.classroom_id,
+            full_name: s.full_name || "Student",
+            average: s.average,
+          };
+        });
 
-              const cIdx = classrooms.findIndex((c: any) => c.id === s.classroom_id);
-              const c = classrooms[cIdx];
-              const alertId = `flag_${s.id}`;
-
-              let cSection = c?.section || "";
-              let cSchedule = "";
-              if (cSection.includes(" || ")) {
-                const parts = cSection.split(" || ");
-                cSection = parts[0] || "";
-                cSchedule = parts[1] || "";
-              }
-
-              if (!clearedIds.includes(alertId) && !clearedIds.includes(s.id)) {
-                activeAlerts.push({
-                  id: alertId,
-                  studentId: s.id,
-                  studentName: s.full_name || "Student",
-                  classroomId: s.classroom_id,
-                  classroomTitle: c ? c.title : "Classroom",
-                  classroomSchedule: cSchedule || (c ? (c.subject || "No Subject") : ""),
-                  classroomRoom: c ? (c.room ? `Room ${c.room}` : cSection || "No Room") : "",
-                  classroomColor: c?.color || CARD_COLORS[cIdx >= 0 ? cIdx % CARD_COLORS.length : 0],
-                  scorePercentage: s.average,
-                  alertType: s.average <= 40 ? "HIGH RISK" : "URGENT REVIEW",
-                  message: `${s.full_name || "Student"} has dropped to an average of ${s.average}%. Performance Flagged: At-Risk.`,
-                  createdAt: new Date().toISOString(),
-                  timeLabel: "Today",
-                  isRead: readIds.includes(alertId) || readIds.includes(s.id),
-                });
-              }
-            }
-          }
-        }
-
-        // Incorporate any persisted alerts from GraderTab (strictly for the teacher's active classrooms)
-        for (const p of persisted) {
-          if (
-            classroomIds.includes(p.classroomId) &&
-            !clearedIds.includes(p.id) &&
-            !clearedIds.includes(p.studentId)
-          ) {
-            const isRead =
-              readIds.includes(p.id) ||
-              readIds.includes(p.studentId) ||
-              readIds.includes(`flag_${p.studentId}`);
-
-            const existingIdx = activeAlerts.findIndex((a) => a.studentId === p.studentId);
-            if (existingIdx === -1) {
-              activeAlerts.push({
-                ...p,
-                isRead,
-              });
-              flaggedCounts[p.classroomId] = (flaggedCounts[p.classroomId] || 0) + 1;
-            } else {
-              activeAlerts[existingIdx] = {
-                ...p,
-                isRead,
+        const latestQuizByStudent: Record<string, StudentQuizSnapshot> = {};
+        if (recentResultsResp?.data && Array.isArray(recentResultsResp.data)) {
+          for (const r of recentResultsResp.data as any[]) {
+            const sid = r.student_id;
+            if (!sid) continue;
+            if (!latestQuizByStudent[sid]) {
+              latestQuizByStudent[sid] = {
+                quizTitle: r.quiz_title || undefined,
+                scorePercentage:
+                  typeof r.score_percentage === "number" ? r.score_percentage : Number(r.score_percentage),
+                totalScore: typeof r.total_score === "number" ? r.total_score : Number(r.total_score),
+                maxScore: typeof r.max_score === "number" ? r.max_score : Number(r.max_score),
+                gradedAt: r.graded_at || undefined,
+                quizCount: 1,
               };
+            } else {
+              latestQuizByStudent[sid].quizCount = (latestQuizByStudent[sid].quizCount || 1) + 1;
             }
           }
         }
 
-        setAlerts(activeAlerts);
+        rosterCacheRef.current = {
+          students: normalizedStudents,
+          classrooms: reconcileClassrooms,
+          latestQuizByStudent,
+        };
+
+        const reconciled = await buildReconciledAlerts({
+          students: normalizedStudents,
+          classrooms: reconcileClassrooms,
+          latestQuizByStudent,
+        });
+
+        setAlerts(reconciled.activeAlerts);
+        setDismissedAlerts(reconciled.dismissedAlerts);
+        setAlertPrefs(reconciled.preferences);
+        flaggedCounts = reconciled.flaggedCountsByClassroom;
 
         // 2. Fetch real quizzes created and graded for each classroom
         await Promise.all(
@@ -290,18 +308,20 @@ export default function HomePage() {
             }
           })
         );
+      } else {
+        rosterCacheRef.current = { students: [], classrooms: [], latestQuizByStudent: {} };
+        setAlerts([]);
+        setDismissedAlerts([]);
       }
-
-      const localColors = await getClassroomColors();
 
       setCards(
         classrooms.map((row: any, i: number) => {
           const realStudentCount = studentCounts[row.id];
-          const realFlaggedCount = flaggedCounts[row.id];
+          const realFlaggedCount = flaggedCounts[row.id] ?? 0;
           const realQuizCount = quizCounts[row.id];
 
           const displayStudents = realStudentCount !== undefined ? realStudentCount : (row.student_count ?? 0);
-          const displayFlagged = realFlaggedCount !== undefined ? realFlaggedCount : (row.flagged_count ?? 0);
+          const displayFlagged = realStudentCount !== undefined ? realFlaggedCount : (row.flagged_count ?? 0);
           const displayQuizzes = realQuizCount !== undefined ? realQuizCount : (row.quiz_count ?? 0);
 
           let parsedSection = (row.section || "").toUpperCase();
@@ -338,14 +358,33 @@ export default function HomePage() {
 
   const unreadAlertsCount = alerts.filter((a) => !a.isRead).length;
 
+  async function reconcileCachedAlerts(prefsOverride?: AlertPreferences) {
+    const cache = rosterCacheRef.current;
+    const reconciled = await buildReconciledAlerts({
+      students: cache.students,
+      classrooms: cache.classrooms,
+      latestQuizByStudent: cache.latestQuizByStudent,
+      preferencesOverride: prefsOverride,
+    });
+    setAlerts(reconciled.activeAlerts);
+    setDismissedAlerts(reconciled.dismissedAlerts);
+    setAlertPrefs(reconciled.preferences);
+    setCards((prev) =>
+      prev.map((c) => ({
+        ...c,
+        flagged: reconciled.flaggedCountsByClassroom[c.id] ?? 0,
+      }))
+    );
+  }
+
   // ── Notification Alerts Handlers ─────────────────────────────────────────
-  function handleOpenNotif() {
+  function handleOpenNotif(classroomFilter: string | null = null) {
+    setNotifClassroomFilter(classroomFilter);
     setNotifOpen(true);
   }
 
   async function handleAlertPress(alert: RosterAlert) {
-    // Automatically mark this alert as READ
-    await markAlertsAsRead([alert.id, alert.studentId, `flag_${alert.studentId}`]);
+    await markAlertsAsRead([alert.id, alert.studentId, `flag_${alert.studentId}`, `alert_${alert.studentId}`]);
     setAlerts((prev) =>
       prev.map((a) =>
         a.id === alert.id || a.studentId === alert.studentId ? { ...a, isRead: true } : a
@@ -368,9 +407,63 @@ export default function HomePage() {
     });
   }
 
+  async function handleRemedialQuizPress(alert: RosterAlert) {
+    await markAlertsAsRead([alert.id, alert.studentId, `flag_${alert.studentId}`, `alert_${alert.studentId}`]);
+    setAlerts((prev) =>
+      prev.map((a) =>
+        a.id === alert.id || a.studentId === alert.studentId ? { ...a, isRead: true } : a
+      )
+    );
+    setNotifOpen(false);
+    router.push({
+      pathname: "/classroom",
+      params: {
+        id: alert.classroomId,
+        title: alert.classroomTitle,
+        schedule: alert.classroomSchedule,
+        subject: alert.classroomSchedule !== "No Subject" ? alert.classroomSchedule : "",
+        room: alert.classroomRoom,
+        color: alert.classroomColor,
+        initialTab: "AI Builder",
+      },
+    });
+  }
+
+  async function handleDismissAlert(alert: RosterAlert) {
+    await dismissSingleAlert(alert);
+    setAlerts((prev) => prev.filter((a) => a.studentId !== alert.studentId));
+    setDismissedAlerts((prev) =>
+      prev.some((a) => a.studentId === alert.studentId) ? prev : [alert, ...prev]
+    );
+  }
+
+  async function handleRestoreAlerts(toRestore: RosterAlert[]) {
+    await restoreDismissedAlerts(toRestore);
+    await reconcileCachedAlerts();
+  }
+
+  async function handleMarkAllRead() {
+    await markAllAlertsAsRead(alerts);
+    setAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
+  }
+
   async function handleClearAllAlerts() {
-    await clearAllAlerts(alerts);
+    const clearedNow = [...alerts];
+    await clearAllAlerts(clearedNow);
     setAlerts([]);
+    setDismissedAlerts((prev) => {
+      const existingIds = new Set(prev.map((p) => p.studentId));
+      const merged = [...prev];
+      for (const a of clearedNow) {
+        if (!existingIds.has(a.studentId)) merged.unshift(a);
+      }
+      return merged;
+    });
+  }
+
+  async function handleAlertPrefsChange(nextPrefs: AlertPreferences) {
+    setAlertPrefs(nextPrefs);
+    await reconcileCachedAlerts(nextPrefs);
   }
 
   // ── Delete Classroom Handlers ───────────────────────────────────────────
@@ -403,6 +496,7 @@ export default function HomePage() {
       // 4. Update UI state
       setCards((prev) => prev.filter((c) => c.id !== classId));
       setAlerts((prev) => prev.filter((a) => a.classroomId !== classId));
+      setDismissedAlerts((prev) => prev.filter((a) => a.classroomId !== classId));
       setConfirmModalVisible(false);
       setClassToDelete(null);
     } catch (err: any) {
@@ -565,21 +659,38 @@ export default function HomePage() {
           <View style={styles.brandMarkCircle}>
             <View style={styles.brandMarkInnerDot} />
           </View>
-          <Text style={styles.brandMarkText}>TSEKI</Text>
+          <Text style={[styles.brandMarkText, { color: textMain }]}>TSEKI</Text>
         </View>
         <TouchableOpacity
-          style={styles.notifBtn}
-          onPress={handleOpenNotif}
-          activeOpacity={0.7}
+          style={[
+            styles.notifBtn,
+            {
+              backgroundColor: darkMode ? "#431407" : ORANGE_LIGHT,
+              borderColor: darkMode ? "#7C2D12" : "#FED7AA",
+            },
+          ]}
+          onPress={() => handleOpenNotif(null)}
+          activeOpacity={0.75}
+          accessibilityLabel={
+            unreadAlertsCount > 0
+              ? `Roster alerts, ${unreadAlertsCount} unread`
+              : "Roster alerts"
+          }
         >
-          <Ionicons name="notifications-outline" size={21} color={ORANGE} />
-          {unreadAlertsCount > 0 && (
-            <View style={styles.notifBadge}>
+          <Ionicons
+            name={unreadAlertsCount > 0 ? "notifications" : "notifications-outline"}
+            size={20}
+            color={ORANGE}
+          />
+          {unreadAlertsCount > 0 ? (
+            <View style={[styles.notifBadge, { borderColor: cardBg }]}>
               <Text style={styles.notifBadgeText}>
                 {unreadAlertsCount > 9 ? "9+" : unreadAlertsCount}
               </Text>
             </View>
-          )}
+          ) : alerts.length > 0 ? (
+            <View style={[styles.notifSubtleDot, { borderColor: cardBg }]} />
+          ) : null}
         </TouchableOpacity>
       </View>
 
@@ -733,14 +844,28 @@ export default function HomePage() {
                   </Text>
                 </View>
                 {card.flagged > 0 ? (
-                  <View style={styles.flaggedBadge}>
-                    <Ionicons name="warning-outline" size={13} color="#DC2626" />
-                    <Text style={styles.flaggedText}>{card.flagged} FLAGGED</Text>
-                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.flaggedBadge,
+                      darkMode && { backgroundColor: "#450A0A" },
+                    ]}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleOpenNotif(card.id);
+                    }}
+                    activeOpacity={0.75}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    accessibilityLabel={`View ${card.flagged} flagged students in ${card.title}`}
+                  >
+                    <Ionicons name="warning-outline" size={13} color={darkMode ? "#F87171" : "#DC2626"} />
+                    <Text style={[styles.flaggedText, darkMode && { color: "#FCA5A5" }]}>
+                      {card.flagged} FLAGGED
+                    </Text>
+                  </TouchableOpacity>
                 ) : (
-                  <View style={styles.allClearBadge}>
-                    <Ionicons name="checkmark-circle-outline" size={13} color="#059669" />
-                    <Text style={styles.allClearBadgeText}>ALL CLEAR</Text>
+                  <View style={[styles.allClearBadge, darkMode && { backgroundColor: "#064E3B40" }]}>
+                    <Ionicons name="checkmark-circle-outline" size={13} color={darkMode ? "#34D399" : "#059669"} />
+                    <Text style={[styles.allClearBadgeText, darkMode && { color: "#6EE7B7" }]}>ALL CLEAR</Text>
                   </View>
                 )}
               </View>
@@ -1050,78 +1175,23 @@ export default function HomePage() {
         </View>
       </Modal>
 
-      {/* ── Active Roster Alerts Modal (Image 2) ── */}
-      <Modal
+      {/* ── Roster Alerts Bottom Sheet Modal ── */}
+      <NotificationsModal
         visible={notifOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setNotifOpen(false)}
-      >
-        <View style={styles.alertsModalOverlay}>
-          <TouchableWithoutFeedback onPress={() => setNotifOpen(false)}>
-            <View style={StyleSheet.absoluteFillObject} />
-          </TouchableWithoutFeedback>
-
-          <View style={[styles.alertsCard, { backgroundColor: cardBg, borderColor: darkMode ? "#374151" : "#E5E7EB" }]}>
-            {/* Header */}
-            <View style={styles.alertsHeader}>
-              <View style={styles.alertsHeaderLeft}>
-                <Ionicons name="notifications-outline" size={18} color={ORANGE} />
-                <Text style={[styles.alertsTitle, { color: textMain }]}>Active Roster Alerts</Text>
-              </View>
-              {alerts.length > 0 && (
-                <TouchableOpacity onPress={handleClearAllAlerts} activeOpacity={0.7}>
-                  <Text style={[styles.alertsClearBtn, { color: textSub }]}>Clear all</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Content */}
-            {alerts.length === 0 ? (
-              <View style={styles.alertsEmptyState}>
-                <Ionicons name="shield-checkmark-outline" size={32} color="#10B981" />
-                <Text style={[styles.alertsEmptyTitle, { color: textMain }]}>All Clear</Text>
-                <Text style={[styles.alertsEmptySub, { color: textSub }]}>
-                  No students currently flagged as at-risk across your classrooms.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView style={styles.alertsList} showsVerticalScrollIndicator={false}>
-                {alerts.map((alert) => (
-                  <TouchableOpacity
-                    key={alert.id}
-                    style={[
-                      styles.alertCard,
-                      {
-                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                        borderColor: darkMode ? "#334155" : "#E5E7EB",
-                      },
-                    ]}
-                    onPress={() => handleAlertPress(alert)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.alertCardHeader}>
-                      <View style={styles.atRiskBadge}>
-                        <Text style={styles.atRiskBadgeText}>At-Risk</Text>
-                      </View>
-                      <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
-                    </View>
-                    <Text style={[styles.alertCardMessage, { color: textMain }]}>
-                      {alert.message}
-                    </Text>
-                    <View style={[styles.alertCardActionRow, { borderTopColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-                      <Text style={[styles.alertCardActionText, { color: darkMode ? "#E2E8F0" : "#1E293B" }]}>
-                        {alert.classroomTitle} · View student tracker
-                      </Text>
-                      <Ionicons name="arrow-forward" size={13} color={darkMode ? "#E2E8F0" : "#1E293B"} />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setNotifOpen(false)}
+        scope="global"
+        alerts={alerts}
+        dismissedAlerts={dismissedAlerts}
+        preferences={alertPrefs}
+        initialClassroomFilter={notifClassroomFilter}
+        onAlertPress={handleAlertPress}
+        onRemedialQuizPress={handleRemedialQuizPress}
+        onDismissAlert={handleDismissAlert}
+        onRestoreAlerts={handleRestoreAlerts}
+        onMarkAllRead={handleMarkAllRead}
+        onClearAll={handleClearAllAlerts}
+        onPreferencesChange={handleAlertPrefsChange}
+      />
 
       {/* ── Delete Classroom Email-Verified Confirmation Modal ── */}
       <DeleteEmailVerificationModal
@@ -1212,20 +1282,22 @@ const styles = StyleSheet.create({
   notifBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 12,
     backgroundColor: ORANGE_LIGHT,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
   notifBadge: {
     position: "absolute",
-    top: -2,
-    right: -2,
-    backgroundColor: ORANGE,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    top: -4,
+    right: -4,
+    backgroundColor: "#DC2626",
+    minWidth: 19,
+    height: 19,
+    borderRadius: 9.5,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
@@ -1236,6 +1308,18 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  notifSubtleDot: {
+    position: "absolute",
+    top: 7,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: ORANGE,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
 
   /* ── Scroll Area ── */
@@ -1620,119 +1704,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.08 }],
   },
 
-  /* ── Active Roster Alerts Popup (Image 2) ── */
-  alertsModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.4)",
-    paddingTop: 80,
-    paddingHorizontal: 16,
-  },
-  alertsCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-    maxHeight: 480,
-  },
-  alertsHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  alertsHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  alertsTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#0F172A",
-  },
-  alertsClearBtn: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#64748B",
-  },
-  alertsEmptyState: {
-    paddingVertical: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  alertsEmptyTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  alertsEmptySub: {
-    fontSize: 12.5,
-    textAlign: "center",
-    paddingHorizontal: 20,
-    lineHeight: 18,
-  },
-  alertsList: {
-    maxHeight: 390,
-  },
-  alertCard: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderLeftWidth: 4,
-    borderLeftColor: "#EF4444",
-    padding: 14,
-    marginBottom: 10,
-  },
-  alertCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  atRiskBadge: {
-    backgroundColor: "#FEF2F2",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  atRiskBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#DC2626",
-  },
-  alertCardTime: {
-    fontSize: 12,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-  alertCardMessage: {
-    fontSize: 13.5,
-    fontWeight: "500",
-    color: "#1E293B",
-    lineHeight: 19,
-  },
-  alertCardActionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
-  },
-  alertCardActionText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#1E293B",
-    flex: 1,
-  },
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",

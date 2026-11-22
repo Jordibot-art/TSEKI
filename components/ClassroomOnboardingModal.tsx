@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -59,6 +59,22 @@ export function ClassroomOnboardingModal({
   const [importingExcel, setImportingExcel] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [savingManual, setSavingManual] = useState(false);
+  const exportRunIdRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!visible) {
+      exportRunIdRef.current += 1;
+      setExportingExcel(false);
+    }
+    return () => {
+      exportRunIdRef.current += 1;
+    };
+  }, [visible]);
+
+  function handleCancelExportExcel() {
+    exportRunIdRef.current += 1;
+    setExportingExcel(false);
+  }
 
   // Manual Add Form fields
   const [lastName, setLastName] = useState("");
@@ -218,6 +234,11 @@ export function ClassroomOnboardingModal({
   // ── 3. Export Excel Roster & Scores ───────────────────────────────────────
   async function handleExportExcel() {
     if (!classroom) return;
+    if (exportingExcel) {
+      handleCancelExportExcel();
+      return;
+    }
+    const runId = ++exportRunIdRef.current;
     setExportingExcel(true);
     try {
       // Fetch latest students
@@ -225,6 +246,7 @@ export function ClassroomOnboardingModal({
         .from("students")
         .select("*")
         .eq("classroom_id", classroom.id);
+      if (exportRunIdRef.current !== runId) return;
 
       const normalizedStudents = (studs || []).map((s) => normalizeStudentRecord(s));
 
@@ -233,12 +255,14 @@ export function ClassroomOnboardingModal({
         .from("archived_assessments")
         .select("id, quiz_title, total_points")
         .eq("classroom_id", classroom.id);
+      if (exportRunIdRef.current !== runId) return;
 
       // Fetch quiz results
       const { data: qResults } = await supabase
         .from("student_quiz_results")
         .select("student_id, quiz_title, total_score")
         .eq("classroom_id", classroom.id);
+      if (exportRunIdRef.current !== runId) return;
 
       const base64Data = generateExcelClasslistBase64({
         classroomTitle: classroom.title,
@@ -269,8 +293,10 @@ export function ClassroomOnboardingModal({
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      if (exportRunIdRef.current !== runId) return;
 
       if (await Sharing.isAvailableAsync()) {
+        if (exportRunIdRef.current !== runId) return;
         await Sharing.shareAsync(fileUri, {
           mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           dialogTitle: "Export Student Roster & Scores",
@@ -280,10 +306,13 @@ export function ClassroomOnboardingModal({
         Alert.alert("Exported", `Saved to: ${fileUri}`);
       }
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error("Export error:", err);
       Alert.alert("Export Failed", err.message || "Failed to export Excel.");
     } finally {
-      setExportingExcel(false);
+      if (exportRunIdRef.current === runId) {
+        setExportingExcel(false);
+      }
     }
   }
 
@@ -465,25 +494,61 @@ export function ClassroomOnboardingModal({
 
                 {/* Action 3: Export Excel */}
                 <TouchableOpacity
-                  style={[styles.actionCard, { backgroundColor: cardBg, borderColor }]}
+                  style={[
+                    styles.actionCard,
+                    {
+                      backgroundColor: exportingExcel
+                        ? darkMode
+                          ? "rgba(239, 68, 68, 0.12)"
+                          : "#FEF2F2"
+                        : cardBg,
+                      borderColor: exportingExcel
+                        ? darkMode
+                          ? "rgba(248, 113, 113, 0.35)"
+                          : "#FECACA"
+                        : borderColor,
+                    },
+                  ]}
                   onPress={handleExportExcel}
-                  disabled={exportingExcel}
                   activeOpacity={0.7}
+                  accessibilityLabel={exportingExcel ? "Cancel Excel export" : "Export Excel"}
                 >
-                  <View style={[styles.iconCircle, { backgroundColor: "#8B5CF6" + "1A" }]}>
+                  <View
+                    style={[
+                      styles.iconCircle,
+                      {
+                        backgroundColor: exportingExcel
+                          ? "rgba(239, 68, 68, 0.14)"
+                          : "#8B5CF6" + "1A",
+                      },
+                    ]}
+                  >
                     {exportingExcel ? (
-                      <ActivityIndicator size="small" color="#8B5CF6" />
+                      <ActivityIndicator size="small" color={darkMode ? "#FCA5A5" : "#DC2626"} />
                     ) : (
                       <Ionicons name="share-outline" size={24} color="#8B5CF6" />
                     )}
                   </View>
                   <View style={styles.cardContent}>
-                    <Text style={[styles.cardTitle, { color: textPrimary }]}>Export Excel</Text>
+                    <Text
+                      style={[
+                        styles.cardTitle,
+                        { color: exportingExcel ? (darkMode ? "#FCA5A5" : "#DC2626") : textPrimary },
+                      ]}
+                    >
+                      {exportingExcel ? "Cancel Export" : "Export Excel"}
+                    </Text>
                     <Text style={[styles.cardSubtitle, { color: textSecondary }]}>
-                      Download current student roster and quiz scores record
+                      {exportingExcel
+                        ? "Exporting roster & scores — tap to cancel"
+                        : "Download current student roster and quiz scores record"}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={textSecondary} />
+                  <Ionicons
+                    name={exportingExcel ? "close-circle-outline" : "chevron-forward"}
+                    size={18}
+                    color={exportingExcel ? (darkMode ? "#FCA5A5" : "#DC2626") : textSecondary}
+                  />
                 </TouchableOpacity>
 
                 {/* Action 4: Manually Add Student */}

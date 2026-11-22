@@ -17,6 +17,7 @@ export interface PrintOptions {
     quizId?: string;
     classTitle?: string;
     subject?: string;
+    signal?: AbortSignal;         // optional cooperative cancellation signal
 }
 
 export interface Rect {

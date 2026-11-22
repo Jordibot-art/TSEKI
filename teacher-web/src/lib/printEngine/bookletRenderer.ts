@@ -1,9 +1,18 @@
 // teacher-web/src/lib/printEngine/bookletRenderer.ts
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
-import { COLORS, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
+import { abortableDelay, throwIfExportAborted } from './cancel';
+import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
+import { chooseBookletFontSize } from './fitDecision';
 import { embedPrintFonts } from './fonts/embedFonts';
-import { wrapText } from './measure';
+import {
+    canPairMcOptions,
+    fitHeaderText,
+    getLineHeightFactor,
+    measureQuestionHeight,
+    truncateTextToWidth,
+    wrapText,
+} from './measure';
 import { drawQRCode } from './qrStamp';
 import type { GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
@@ -28,10 +37,14 @@ interface BookletRenderContext {
  */
 export async function renderBookletPDF(
     assessment: GeneratedAssessment,
-    options: PrintOptions = {}
+    options: PrintOptions = {},
+    selectedFontSize?: number
 ): Promise<Uint8Array> {
+    const { signal } = options;
+    throwIfExportAborted(signal);
     const doc = await PDFDocument.create();
     const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
+    throwIfExportAborted(signal);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];
@@ -42,8 +55,11 @@ export async function renderBookletPDF(
     const colGutter = 24;
     const colWidth = (printableWidth - colGutter) / 2;
 
-    const fontSize = FONT_CONFIG.DEFAULT_SIZE;
-    const lineHeight = fontSize * FONT_CONFIG.LINE_HEIGHT_FACTOR;
+    const fontSize =
+        typeof selectedFontSize === 'number' && Number.isFinite(selectedFontSize)
+            ? selectedFontSize
+            : chooseBookletFontSize(assessment.questions, paperSize, options.gradeLevel, font).fontSize;
+    const lineHeight = fontSize * getLineHeightFactor(fontSize);
 
     const ctx: BookletRenderContext = {
         doc,
@@ -63,11 +79,13 @@ export async function renderBookletPDF(
 
     // First pass: render all pages and elements
     const pages = await layoutBookletPages(ctx);
+    throwIfExportAborted(signal);
 
     // Second pass: stamp QR codes and footers with accurate total page count
     const totalPages = pages.length;
     const qrSize = QR_CODE_CONFIG.size;
     for (let i = 0; i < totalPages; i++) {
+        throwIfExportAborted(signal);
         const page = pages[i];
         const qrX = dims.width - MARGINS.right - qrSize;
         const qrY = i === 0
@@ -89,11 +107,13 @@ export async function renderBookletPDF(
         drawBookletFooter(page, ctx, i + 1, totalPages);
     }
 
+    throwIfExportAborted(signal);
     return await doc.save();
 }
 
 async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]> {
     const { doc, width, height, colWidth, colGutter, fontSize } = ctx;
+    const { signal } = ctx.options;
     const pages: PDFPage[] = [];
 
     let currentPage = doc.addPage([width, height]);
@@ -107,15 +127,19 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
 
     let currentCol = 1;
     let cursorY = currentY;
-    const bottomLimit = MARGINS.bottom + 36; // space above footer
+    const bottomLimit = MARGINS.bottom + 28; // space above footer
+    const allowPairing = fontSize <= 9.5;
+    const partGap = fontSize <= 9.5 ? 5 : 8;
 
     // Group questions by section/part in order of appearance (tick order)
     const parts = groupQuestionsByPart(ctx.assessment.questions);
+    let renderedCount = 0;
 
     for (let pIdx = 0; pIdx < parts.length; pIdx++) {
+        throwIfExportAborted(signal);
         const part = parts[pIdx];
         const partRoman = toRoman(pIdx + 1);
-        const partHeaderHeight = 36;
+        const partHeaderHeight = fontSize <= 9.5 ? 30 : 36;
 
         // Check if part header fits in current column
         if (cursorY - partHeaderHeight < bottomLimit) {
@@ -123,8 +147,8 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
                 currentCol = 2;
                 cursorY = currentY;
             } else {
-                // Yield between pages so JS thread stays responsive
-                await new Promise((resolve) => setTimeout(resolve, 0));
+                // Yield between pages so JS thread stays responsive & cancellation fires promptly
+                await abortableDelay(0, signal);
                 currentPage = doc.addPage([width, height]);
                 pages.push(currentPage);
                 currentY = drawBookletContinuationHeader(currentPage, ctx);
@@ -145,14 +169,19 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
 
         // Render questions in this part
         for (const q of part.questions) {
-            const neededHeight = estimateItemHeight(q, fontSize, colWidth, ctx.font);
+            if (renderedCount > 0 && renderedCount % 12 === 0) {
+                await abortableDelay(0, signal);
+            } else {
+                throwIfExportAborted(signal);
+            }
+            const neededHeight = measureQuestionHeight(q, fontSize, colWidth, ctx.font, false, allowPairing);
 
             if (cursorY - neededHeight < bottomLimit) {
                 if (currentCol === 1) {
                     currentCol = 2;
                     cursorY = currentY;
                 } else {
-                    await new Promise((resolve) => setTimeout(resolve, 0));
+                    await abortableDelay(0, signal);
                     currentPage = doc.addPage([width, height]);
                     pages.push(currentPage);
                     currentY = drawBookletContinuationHeader(currentPage, ctx);
@@ -163,9 +192,10 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
 
             const activeColX = currentCol === 1 ? col1X : col2X;
             cursorY = drawQuestionItem(currentPage, ctx, activeColX, cursorY, q);
+            renderedCount += 1;
         }
 
-        cursorY -= 8; // spacing between parts
+        cursorY -= partGap; // spacing between parts
     }
 
     return pages;
@@ -175,40 +205,51 @@ function drawBookletPage1Header(page: PDFPage, ctx: BookletRenderContext): numbe
     const { width, height, assessment, options, version, font, fontBold } = ctx;
 
     const y = height - MARGINS.top;
+    const qrX = width - MARGINS.right - QR_CODE_CONFIG.size;
+    const maxHeaderWidth = Math.max(160, qrX - MARGINS.left - 14);
 
     // Small system title
-    page.drawText('TSEKI SMART ASSESSMENT SYSTEM | QUESTION BOOKLET', {
-        x: MARGINS.left,
-        y: y - 8,
-        size: 8.5,
-        font: fontBold,
-        color: rgb(0.35, 0.38, 0.44),
-    });
+    page.drawText(
+        truncateTextToWidth('TSEKI SMART ASSESSMENT SYSTEM | QUESTION BOOKLET', maxHeaderWidth, 8.5, fontBold),
+        {
+            x: MARGINS.left,
+            y: y - 8,
+            size: 8.5,
+            font: fontBold,
+            color: rgb(0.35, 0.38, 0.44),
+        }
+    );
 
-    // Assessment title
+    // Assessment title (auto-scales / wraps cleanly up to 2 lines strictly left of QR code)
     const titleText = assessment.quizTitle || (assessment as any).title || 'Assessment';
-    page.drawText(titleText, {
-        x: MARGINS.left,
-        y: y - 28,
-        size: 15,
-        font: fontBold,
-        color: rgb(0.1, 0.12, 0.16),
-    });
+    const fittedTitle = fitHeaderText(titleText, maxHeaderWidth, fontBold, 15, 10.0, 2);
+    const titleStartY = fittedTitle.lines.length > 1 ? y - 23 : y - 28;
+    for (let i = 0; i < fittedTitle.lines.length; i++) {
+        page.drawText(fittedTitle.lines[i], {
+            x: MARGINS.left,
+            y: titleStartY - i * fittedTitle.lineHeight,
+            size: fittedTitle.fontSize,
+            font: fontBold,
+            color: rgb(0.1, 0.12, 0.16),
+        });
+    }
 
     // Subtitle: Class / Subject | Quiz | Version
+    const lastTitleY = titleStartY - (fittedTitle.lines.length - 1) * fittedTitle.lineHeight;
+    const subtitleY = fittedTitle.lines.length > 1 ? lastTitleY - 12.5 : y - 44;
     const classInfo = options.classTitle || 'Class Assessment';
-    const subText = `${classInfo}  |  Version ${version}`;
+    const subText = truncateTextToWidth(`${classInfo}  |  Version ${version}`, maxHeaderWidth, 9.5, font);
     page.drawText(subText, {
         x: MARGINS.left,
-        y: y - 44,
+        y: subtitleY,
         size: 9.5,
         font: font,
         color: rgb(0.3, 0.35, 0.4),
     });
 
     // Warning strip: "Do NOT write on this booklet. Write every answer on your ANSWER SHEET."
-    const stripY = y - 78;
     const stripHeight = 22;
+    const stripY = Math.min(y - 78, subtitleY - stripHeight - 6);
     const stripWidth = width - MARGINS.left - MARGINS.right;
 
     page.drawRectangle({
@@ -233,23 +274,31 @@ function drawBookletPage1Header(page: PDFPage, ctx: BookletRenderContext): numbe
 function drawBookletContinuationHeader(page: PDFPage, ctx: BookletRenderContext): number {
     const { width, height, assessment, version, font, fontBold } = ctx;
     const y = height - MARGINS.top;
+    const qrX = width - MARGINS.right - QR_CODE_CONFIG.size;
+    const maxHeaderWidth = Math.max(160, qrX - MARGINS.left - 14);
 
-    page.drawText('TSEKI SMART ASSESSMENT SYSTEM | QUESTION BOOKLET', {
-        x: MARGINS.left,
-        y: y - 8,
-        size: 8.5,
-        font: fontBold,
-        color: rgb(0.35, 0.38, 0.44),
-    });
+    page.drawText(
+        truncateTextToWidth('TSEKI SMART ASSESSMENT SYSTEM | QUESTION BOOKLET', maxHeaderWidth, 8.5, fontBold),
+        {
+            x: MARGINS.left,
+            y: y - 8,
+            size: 8.5,
+            font: fontBold,
+            color: rgb(0.35, 0.38, 0.44),
+        }
+    );
 
     const titleText = assessment.quizTitle || (assessment as any).title || 'Assessment';
-    page.drawText(`${titleText}  |  Version ${version}`, {
-        x: MARGINS.left,
-        y: y - 22,
-        size: 9.5,
-        font,
-        color: rgb(0.25, 0.28, 0.32),
-    });
+    const fittedCont = fitHeaderText(`${titleText}  |  Version ${version}`, maxHeaderWidth, font, 9.5, 8.5, 2);
+    for (let i = 0; i < fittedCont.lines.length; i++) {
+        page.drawText(fittedCont.lines[i], {
+            x: MARGINS.left,
+            y: y - 22 - i * fittedCont.lineHeight,
+            size: fittedCont.fontSize,
+            font,
+            color: rgb(0.25, 0.28, 0.32),
+        });
+    }
 
     // Thin separator line below QR code height
     const sepY = y - QR_CODE_CONFIG.size + 2;
@@ -273,10 +322,13 @@ function drawPartBanner(
     pts: number,
     instructions: string
 ): number {
-    const { colWidth, fontBold, font } = ctx;
-    const bannerHeight = 16;
+    const { colWidth, fontBold, font, fontSize } = ctx;
+    const isCompact = fontSize <= 9.5;
+    const bannerHeight = isCompact ? 14 : 16;
+    const bannerFontSize = isCompact ? 8.2 : 9.0;
+    const instFontSize = isCompact ? 7.5 : 8.5;
+    const instLineH = isCompact ? 9.5 : 11;
 
-    // Gray background banner
     page.drawRectangle({
         x,
         y: y - bannerHeight,
@@ -285,31 +337,35 @@ function drawPartBanner(
         color: rgb(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]),
     });
 
-    const bannerText = `TEST ${roman}  |  ${title.toUpperCase()} (${pts} pts)`;
+    const bannerText = truncateTextToWidth(
+        `TEST ${roman}  |  ${title.toUpperCase()} (${pts} pts)`,
+        colWidth - 12,
+        bannerFontSize,
+        fontBold
+    );
     page.drawText(bannerText, {
         x: x + 6,
-        y: y - bannerHeight + 4.5,
-        size: 9.0,
+        y: y - bannerHeight + (isCompact ? 4.0 : 4.5),
+        size: bannerFontSize,
         font: fontBold,
         color: rgb(0.1, 0.1, 0.1),
     });
 
-    let nextY = y - bannerHeight - 12;
+    let nextY = y - bannerHeight - (isCompact ? 10 : 12);
 
-    // Instructions
     if (instructions) {
-        const lines = wrapText(instructions, colWidth, 8.5, font);
+        const lines = wrapText(instructions, colWidth, instFontSize, font);
         for (const line of lines) {
             page.drawText(line, {
                 x,
                 y: nextY,
-                size: 8.5,
+                size: instFontSize,
                 font,
                 color: rgb(0.25, 0.25, 0.25),
             });
-            nextY -= 11;
+            nextY -= instLineH;
         }
-        nextY -= 4;
+        nextY -= isCompact ? 2 : 4;
     }
 
     return nextY;
@@ -322,8 +378,11 @@ function drawWordBank(
     y: number,
     words: string[]
 ): number {
-    const { colWidth, fontBold } = ctx;
-    const padding = 6;
+    const { colWidth, fontBold, fontSize } = ctx;
+    const isCompact = fontSize <= 9.5;
+    const bankSize = isCompact ? 7.5 : 8.5;
+    const bankLineH = isCompact ? 9.5 : 11;
+    const padding = isCompact ? 5 : 6;
     const formattedWords = words.map((w, i) => {
         const trimmed = w.trim();
         if (/^[A-Z]\)\s/i.test(trimmed)) return trimmed;
@@ -331,8 +390,8 @@ function drawWordBank(
         return `${letter}) ${trimmed}`;
     });
     const bankText = formattedWords.join('    ');
-    const lines = wrapText(bankText, colWidth - padding * 2, 8.5, fontBold);
-    const boxHeight = lines.length * 11 + padding * 2;
+    const lines = wrapText(bankText, colWidth - padding * 2, bankSize, fontBold);
+    const boxHeight = lines.length * bankLineH + padding * 2;
 
     page.drawRectangle({
         x,
@@ -344,19 +403,19 @@ function drawWordBank(
         borderWidth: 0.8,
     });
 
-    let lineY = y - padding - 8;
+    let lineY = y - padding - bankSize;
     for (const line of lines) {
         page.drawText(line, {
             x: x + padding,
             y: lineY,
-            size: 8.5,
+            size: bankSize,
             font: fontBold,
             color: rgb(0.15, 0.15, 0.15),
         });
-        lineY -= 11;
+        lineY -= bankLineH;
     }
 
-    return y - boxHeight - 8;
+    return y - boxHeight - (isCompact ? 6 : 8);
 }
 
 function drawQuestionItem(
@@ -367,14 +426,13 @@ function drawQuestionItem(
     q: ScannableQuestion
 ): number {
     const { colWidth, fontSize, lineHeight, font, fontBold } = ctx;
+    const itemGap = fontSize >= 10.5 ? 6 : fontSize >= 9.0 ? 4.5 : 3.5;
 
-    // Stem: number bold, text regular
     const numPrefix = `${q.questionNumber}. `;
     const numWidth = fontBold.widthOfTextAtSize(numPrefix, fontSize);
 
-    const stemLines = wrapText(q.questionText, colWidth - numWidth, fontSize, font);
+    const stemLines = wrapText(q.questionText, Math.max(50, colWidth - numWidth), fontSize, font);
 
-    // Draw first line with number
     page.drawText(numPrefix, {
         x,
         y: y - fontSize,
@@ -395,7 +453,6 @@ function drawQuestionItem(
 
     let cursorY = y - lineHeight;
 
-    // Subsequent stem lines indented
     for (let i = 1; i < stemLines.length; i++) {
         page.drawText(stemLines[i], {
             x: x + numWidth,
@@ -407,50 +464,84 @@ function drawQuestionItem(
         cursorY -= lineHeight;
     }
 
-    // Multiple choice options indented
     if (q.type === 'multiple_choice' && q.options && q.options.length > 0) {
-        const optIndent = 16;
-        for (let i = 0; i < q.options.length; i++) {
-            const letter = String.fromCharCode(65 + i);
-            const letterPrefix = `${letter}) `;
-            const letterWidth = fontBold.widthOfTextAtSize(letterPrefix, fontSize);
-            const optText = q.options[i].replace(/^[A-D][.)]\s*/i, '');
-            const optLines = wrapText(optText, colWidth - optIndent - letterWidth, fontSize, font);
+        const optIndent = fontSize >= 10.0 ? 14 : 11;
+        const optAvailWidth = Math.max(50, colWidth - optIndent);
 
-            page.drawText(letterPrefix, {
-                x: x + optIndent,
-                y: cursorY - fontSize,
-                size: fontSize,
-                font: fontBold,
-                color: rgb(0, 0, 0),
-            });
+        if (fontSize <= 9.5 && canPairMcOptions(q.options, optAvailWidth, fontSize, font)) {
+            const halfColWidth = (optAvailWidth - 10) / 2;
+            const secondColX = x + optIndent + halfColWidth + 10;
 
-            if (optLines.length > 0) {
-                page.drawText(optLines[0], {
-                    x: x + optIndent + letterWidth,
-                    y: cursorY - fontSize,
-                    size: fontSize,
-                    font,
-                    color: rgb(0.1, 0.1, 0.1),
-                });
-            }
+            for (let row = 0; row < q.options.length; row += 2) {
+                for (let colIdx = 0; colIdx < 2; colIdx++) {
+                    const optIdx = row + colIdx;
+                    if (optIdx >= q.options.length) break;
+                    const letter = String.fromCharCode(65 + optIdx);
+                    const letterPrefix = `${letter}) `;
+                    const letterWidth = fontBold.widthOfTextAtSize(letterPrefix, fontSize);
+                    const optText = q.options[optIdx].replace(/^[A-D][.)]\s*/i, '').trim();
+                    const cellX = colIdx === 0 ? x + optIndent : secondColX;
 
-            cursorY -= lineHeight;
-
-            for (let j = 1; j < optLines.length; j++) {
-                page.drawText(optLines[j], {
-                    x: x + optIndent + letterWidth,
-                    y: cursorY - fontSize,
-                    size: fontSize,
-                    font,
-                    color: rgb(0.1, 0.1, 0.1),
-                });
+                    page.drawText(letterPrefix, {
+                        x: cellX,
+                        y: cursorY - fontSize,
+                        size: fontSize,
+                        font: fontBold,
+                        color: rgb(0, 0, 0),
+                    });
+                    page.drawText(optText, {
+                        x: cellX + letterWidth,
+                        y: cursorY - fontSize,
+                        size: fontSize,
+                        font,
+                        color: rgb(0.1, 0.1, 0.1),
+                    });
+                }
                 cursorY -= lineHeight;
+            }
+        } else {
+            for (let i = 0; i < q.options.length; i++) {
+                const letter = String.fromCharCode(65 + i);
+                const letterPrefix = `${letter}) `;
+                const letterWidth = fontBold.widthOfTextAtSize(letterPrefix, fontSize);
+                const optText = q.options[i].replace(/^[A-D][.)]\s*/i, '');
+                const optLines = wrapText(optText, Math.max(40, optAvailWidth - letterWidth), fontSize, font);
+
+                page.drawText(letterPrefix, {
+                    x: x + optIndent,
+                    y: cursorY - fontSize,
+                    size: fontSize,
+                    font: fontBold,
+                    color: rgb(0, 0, 0),
+                });
+
+                if (optLines.length > 0) {
+                    page.drawText(optLines[0], {
+                        x: x + optIndent + letterWidth,
+                        y: cursorY - fontSize,
+                        size: fontSize,
+                        font,
+                        color: rgb(0.1, 0.1, 0.1),
+                    });
+                }
+
+                cursorY -= lineHeight;
+
+                for (let j = 1; j < optLines.length; j++) {
+                    page.drawText(optLines[j], {
+                        x: x + optIndent + letterWidth,
+                        y: cursorY - fontSize,
+                        size: fontSize,
+                        font,
+                        color: rgb(0.1, 0.1, 0.1),
+                    });
+                    cursorY -= lineHeight;
+                }
             }
         }
     }
 
-    return cursorY - 6; // gap between questions
+    return cursorY - itemGap;
 }
 
 function drawBookletFooter(
@@ -480,19 +571,6 @@ function drawBookletFooter(
         font,
         color: rgb(0.4, 0.4, 0.4),
     });
-}
-
-function estimateItemHeight(q: ScannableQuestion, fontSize: number, colWidth: number, font: PDFFont): number {
-    const lineHeight = fontSize * 1.25;
-    const stemLines = wrapText(`${q.questionNumber}. ${q.questionText}`, colWidth, fontSize, font);
-    let h = stemLines.length * lineHeight;
-    if (q.type === 'multiple_choice' && q.options) {
-        for (const opt of q.options) {
-            const optLines = wrapText(`A) ${opt}`, colWidth - 16, fontSize, font);
-            h += optLines.length * lineHeight;
-        }
-    }
-    return h + 8;
 }
 
 interface QuestionPart {

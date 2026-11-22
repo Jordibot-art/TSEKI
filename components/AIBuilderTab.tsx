@@ -30,7 +30,12 @@ import {
     SupportedDocType,
 } from "../lib/documentParserService";
 import { BondPaperSize } from "../lib/paperSheetExporter";
-import { generatePrintPackage, validateAnswerLengths } from "../lib/printEngine";
+import {
+    abortableDelay,
+    generatePrintPackage,
+    isExportCancelledError,
+    validateAnswerLengths,
+} from "../lib/printEngine";
 import {
     computeAssessmentCacheKey,
     getCachedPdfUri,
@@ -248,6 +253,16 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
     const [forceSeparateMode, setForceSeparateMode] = useState(false);
     const [exportingStage, setExportingStage] = useState<string>("");
+    const exportAbortRef = useRef<AbortController | null>(null);
+    const exportRunIdRef = useRef<number>(0);
+
+    useEffect(() => {
+        return () => {
+            exportRunIdRef.current += 1;
+            exportAbortRef.current?.abort();
+            exportAbortRef.current = null;
+        };
+    }, []);
     const [editingAnswerQNum, setEditingAnswerQNum] = useState<number | null>(null);
     const [editingAnswerText, setEditingAnswerText] = useState("");
     const [regeneratingQNum, setRegeneratingQNum] = useState<number | null>(null);
@@ -1203,12 +1218,29 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         setEditingQuestionText("");
     }
 
+    function handleCancelExport() {
+        exportRunIdRef.current += 1;
+        if (exportAbortRef.current) {
+            exportAbortRef.current.abort();
+            exportAbortRef.current = null;
+        }
+        setExportingPdf(false);
+        setExportingStage("");
+        showToast("Export cancelled");
+    }
+
     async function handleExportPaper(
         includeKey: boolean = false,
         paperSize: BondPaperSize = "short",
         versionOverride?: "A" | "B" | "C"
     ) {
         if (!generatedAssessment || exportingPdf) return;
+
+        const runId = ++exportRunIdRef.current;
+        const controller = new AbortController();
+        exportAbortRef.current = controller;
+        const isCancelled = () =>
+            controller.signal.aborted || exportRunIdRef.current !== runId;
 
         const activeVersion = versionOverride || exportVersion;
         const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
@@ -1243,20 +1275,25 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         try {
             // 1. Instant check in cache
             const cachedUri = await getCachedPdfUri(cacheKey);
+            if (isCancelled()) return;
+
             if (cachedUri) {
                 setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
-                await new Promise((r) => setTimeout(r, 600));
+                await abortableDelay(600, controller.signal);
+                if (isCancelled()) return;
                 setExportModalOpen(false);
                 setExportingPdf(false);
-                await new Promise((r) => setTimeout(r, 120));
+                await abortableDelay(120, controller.signal);
+                if (isCancelled()) return;
                 await shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch(console.warn);
                 return;
             }
 
             // 2. Build PDF cleanly on demand and cache for subsequent exports
             setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
-            await new Promise((r) => setTimeout(r, 200));
-            const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
+            await abortableDelay(200, controller.signal);
+            if (isCancelled()) return;
+
             const resolvedExportQuizId =
                 (generatedAssessment as any).id ||
                 (generatedAssessment as any).layoutJson?.quizId ||
@@ -1270,7 +1307,9 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 forceSeparate: forceSeparateMode,
                 quizId: resolvedExportQuizId,
                 target,
+                signal: controller.signal,
             });
+            if (isCancelled()) return;
 
             const bytesToExport = includeKey
                 ? printPkg.answerKeyPdf
@@ -1282,13 +1321,17 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
 
             setExportingStage("Ready! Preparing share options...");
             const fileUri = await writeCachedPdf(cacheKey, bytesToExport);
+            if (isCancelled()) return;
             const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
+            if (isCancelled()) return;
 
-            await new Promise((r) => setTimeout(r, 250));
+            await abortableDelay(250, controller.signal);
+            if (isCancelled()) return;
             setExportModalOpen(false);
             setExportingPdf(false);
 
-            await new Promise((r) => setTimeout(r, 120));
+            await abortableDelay(120, controller.signal);
+            if (isCancelled()) return;
             await shareCachedPdfUri(
                 shareUri || fileUri,
                 includeKey
@@ -1297,11 +1340,19 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 suggestedFileName
             );
         } catch (err: any) {
-            setExportingPdf(false);
-            Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
+            if (isExportCancelledError(err) || isCancelled()) {
+                return;
+            }
+            if (exportRunIdRef.current === runId) {
+                setExportingPdf(false);
+                Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
+            }
         } finally {
-            setExportingPdf(false);
-            setExportingStage("");
+            if (exportRunIdRef.current === runId) {
+                exportAbortRef.current = null;
+                setExportingPdf(false);
+                setExportingStage("");
+            }
         }
     }
 
@@ -2440,7 +2491,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 transparent
                 animationType="fade"
                 statusBarTranslucent
-                onRequestClose={() => { }}
+                navigationBarTranslucent
+                onRequestClose={handleCancelExport}
             >
                 <View style={styles.loadingOverlay}>
                     <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
@@ -2449,6 +2501,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             quizTitle={generatedAssessment?.quizTitle || "Assessment"}
                             accentColor={accentColor}
                             darkMode={darkMode}
+                            onCancel={handleCancelExport}
                         />
                     </View>
                 </View>
@@ -2459,6 +2512,8 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                 visible={exportModalOpen}
                 transparent
                 animationType="fade"
+                statusBarTranslucent
+                navigationBarTranslucent
                 onRequestClose={() => {
                     if (!exportingPdf) setExportModalOpen(false);
                 }}

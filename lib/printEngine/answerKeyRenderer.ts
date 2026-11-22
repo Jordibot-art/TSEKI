@@ -1,10 +1,11 @@
 // lib/printEngine/answerKeyRenderer.ts
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
+import { abortableDelay, throwIfExportAborted } from './cancel';
 import { MARGINS, PAPER_DIMENSIONS } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { generateAnswerVariants } from './layoutJson';
-import { wrapText } from './measure';
+import { fitHeaderText, wrapText } from './measure';
 import { AnswerVariant, GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
 interface TableColumns {
@@ -23,8 +24,11 @@ export async function renderAnswerKeyPDF(
     assessment: GeneratedAssessment,
     options: PrintOptions = {}
 ): Promise<Uint8Array> {
+    const { signal } = options;
+    throwIfExportAborted(signal);
     const doc = await PDFDocument.create();
     const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
+    throwIfExportAborted(signal);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];
@@ -77,14 +81,21 @@ export async function renderAnswerKeyPDF(
 
     const bottomLimit = MARGINS.bottom + 48;
 
-    for (const r of rows) {
+    for (let idx = 0; idx < rows.length; idx++) {
+        const r = rows[idx];
+        if (idx > 0 && idx % 20 === 0) {
+            await abortableDelay(0, signal);
+        } else {
+            throwIfExportAborted(signal);
+        }
+
         const answerLines = wrapText(r.answer, colW.answer - 10, 8.2, fontBold);
         const ruleLines = wrapText(r.graderRule, colW.rule - 10, 7.8, font);
         const maxLines = Math.max(answerLines.length, ruleLines.length);
         const rowHeight = Math.max(17, maxLines * 10.5 + 5);
 
         if (cursorY - rowHeight < bottomLimit) {
-            await new Promise((resolve) => setTimeout(resolve, 0));
+            await abortableDelay(0, signal);
             currentPage = doc.addPage([dims.width, dims.height]);
             pages.push(currentPage);
             cursorY = dims.height - MARGINS.top - 16;
@@ -105,6 +116,7 @@ export async function renderAnswerKeyPDF(
         drawAnswerKeyFooter(pages[i], dims.width, i + 1, pages.length, font);
     }
 
+    throwIfExportAborted(signal);
     return await doc.save();
 }
 
@@ -133,18 +145,23 @@ function drawAnswerKeyPageHeader(
         color: rgb(0.1, 0.1, 0.1),
     });
 
-    // Subtitle metadata
+    // Subtitle metadata (wrapped & centered strictly inside printable margins)
+    const printableWidth = pageWidth - MARGINS.left - MARGINS.right;
     const sub = `${quizTitle}  |  ${quizId}  |  Version ${version}  |  ${itemCount} items  |  ${totalPoints} points`;
-    const subW = font.widthOfTextAtSize(sub, 9.0);
-    page.drawText(sub, {
-        x: (pageWidth - subW) / 2,
-        y: y - 26,
-        size: 9.0,
-        font,
-        color: rgb(0.3, 0.35, 0.4),
-    });
+    const fittedSub = fitHeaderText(sub, printableWidth, font, 9.0, 8.0, 2);
+    for (let i = 0; i < fittedSub.lines.length; i++) {
+        const line = fittedSub.lines[i];
+        const lineW = font.widthOfTextAtSize(line, fittedSub.fontSize);
+        page.drawText(line, {
+            x: Math.max(MARGINS.left, (pageWidth - lineW) / 2),
+            y: y - 26 - i * fittedSub.lineHeight,
+            size: fittedSub.fontSize,
+            font,
+            color: rgb(0.3, 0.35, 0.4),
+        });
+    }
 
-    return y - 42;
+    return fittedSub.lines.length > 1 ? y - 26 - fittedSub.lineHeight - 14 : y - 42;
 }
 
 function drawTableHeader(

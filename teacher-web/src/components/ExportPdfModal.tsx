@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   FileText,
@@ -7,10 +7,13 @@ import {
   Square,
   X,
   Download,
+  Info,
 } from "lucide-react";
 import {
+  abortableDelay,
   generatePrintPackage,
   downloadPdfBytes,
+  isExportCancelledError,
   type GeneratedAssessment,
   type BondPaperSize,
 } from "../lib/printEngine";
@@ -41,6 +44,58 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [forceSeparateMode, setForceSeparateMode] = useState<boolean>(false);
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportStage, setExportStage] = useState<string>("");
+  const [cancelledNotice, setCancelledNotice] = useState<boolean>(false);
+
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const exportRunIdRef = useRef<number>(0);
+
+  const handleCancelExport = useCallback(() => {
+    exportRunIdRef.current += 1;
+    if (exportAbortRef.current) {
+      exportAbortRef.current.abort();
+      exportAbortRef.current = null;
+    }
+    setExporting(false);
+    setExportStage("");
+    setCancelledNotice(true);
+  }, []);
+
+  // Clean up any in-flight export if modal closes or component unmounts
+  useEffect(() => {
+    if (!isOpen) {
+      exportRunIdRef.current += 1;
+      if (exportAbortRef.current) {
+        exportAbortRef.current.abort();
+        exportAbortRef.current = null;
+      }
+      setExporting(false);
+      setExportStage("");
+      setCancelledNotice(false);
+    }
+    return () => {
+      exportRunIdRef.current += 1;
+      if (exportAbortRef.current) {
+        exportAbortRef.current.abort();
+        exportAbortRef.current = null;
+      }
+    };
+  }, [isOpen]);
+
+  // Allow Escape key to cancel active export or close modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (exporting) {
+          handleCancelExport();
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, exporting, handleCancelExport, onClose]);
 
   if (!isOpen || !assessment) return null;
 
@@ -50,6 +105,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   ) => {
     if (exporting) return;
 
+    const runId = ++exportRunIdRef.current;
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    const isCancelled = () =>
+      controller.signal.aborted || exportRunIdRef.current !== runId;
+
+    setCancelledNotice(false);
     setExporting(true);
     setExportStage(
       isKey
@@ -61,7 +123,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
     try {
       // Yield to let React mount the animation smoothly
-      await new Promise((r) => setTimeout(r, 80));
+      await abortableDelay(80, controller.signal);
+      if (isCancelled()) return;
 
       const safeTitle = (assessment.quizTitle || "Assessment").replace(
         /[^a-zA-Z0-9_\-]/g,
@@ -84,7 +147,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         forceSeparate: forceSeparateMode,
         quizId: generatedQuizId,
         target: isKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY",
+        signal: controller.signal,
       });
+
+      if (isCancelled()) return;
 
       const bytesToExport = isKey
         ? printPkg.answerKeyPdf
@@ -94,30 +160,44 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         throw new Error("Generated PDF has no content.");
       }
 
-      // Ensure user sees the mobile-styled compilation sequence (at least 1.8s)
+      // Ensure user sees the mobile-styled compilation sequence (at least 1.8s),
+      // while remaining immediately cancellable at any moment.
       const elapsed = Date.now() - startTime;
       const minDisplay = 1800;
       if (elapsed < minDisplay) {
-        await new Promise((r) => setTimeout(r, minDisplay - elapsed));
+        await abortableDelay(minDisplay - elapsed, controller.signal);
       }
+      if (isCancelled()) return;
 
       setExportStage("Ready! Downloading PDF...");
-      await new Promise((r) => setTimeout(r, 200));
+      await abortableDelay(200, controller.signal);
+      if (isCancelled()) return;
 
       downloadPdfBytes(bytesToExport, suggestedFileName);
 
-      setExporting(false);
-      onClose();
+      if (exportRunIdRef.current === runId) {
+        exportAbortRef.current = null;
+        setExporting(false);
+        setExportStage("");
+        onClose();
+      }
     } catch (err: any) {
+      if (isExportCancelledError(err) || isCancelled()) {
+        return;
+      }
       console.error("PDF export error:", err);
-      setExporting(false);
-      showAlert({
-        title: "Export Failed",
-        message:
-          err?.message ||
-          "Could not compile paper assessment PDF. Please try again.",
-        type: "error",
-      });
+      if (exportRunIdRef.current === runId) {
+        exportAbortRef.current = null;
+        setExporting(false);
+        setExportStage("");
+        showAlert({
+          title: "Export Failed",
+          message:
+            err?.message ||
+            "Could not compile paper assessment PDF. Please try again.",
+          type: "error",
+        });
+      }
     }
   };
 
@@ -136,6 +216,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               exportVersion={exportVersion}
               accentColor="#EA580C"
               statusText={exportStage}
+              onCancel={handleCancelExport}
             />
           </div>
         ) : (
@@ -159,6 +240,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <X size={18} />
               </button>
             </div>
+
+            {cancelledNotice && (
+              <div className={styles.cancelledBanner} role="status">
+                <Info size={15} />
+                <span>Export cancelled. You can adjust options or export again.</span>
+              </div>
+            )}
 
             {/* Anti-Cheating Version Selector (Set A / B / C) */}
             <div className={styles.versionRow}>

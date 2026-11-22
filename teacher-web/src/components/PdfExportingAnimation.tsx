@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { QrCode, CheckCircle2, FileText } from "lucide-react";
+import { QrCode, CheckCircle2, FileText, XCircle } from "lucide-react";
 import styles from "./PdfExportingAnimation.module.css";
 
 export interface PdfExportingAnimationProps {
@@ -7,6 +7,8 @@ export interface PdfExportingAnimationProps {
   exportVersion?: "A" | "B" | "C";
   accentColor?: string;
   statusText?: string;
+  onCancel?: () => void;
+  cancelLabel?: string;
 }
 
 export function PdfExportingAnimation({
@@ -14,6 +16,8 @@ export function PdfExportingAnimation({
   exportVersion = "A",
   accentColor = "#EA580C",
   statusText,
+  onCancel,
+  cancelLabel = "Cancel Export",
 }: PdfExportingAnimationProps) {
   const [stageIndex, setStageIndex] = useState<number>(0);
   const [percentDisplay, setPercentDisplay] = useState<number>(18);
@@ -189,6 +193,17 @@ export function PdfExportingAnimation({
         </span>
         <span className={styles.percentText}>{percentDisplay}%</span>
       </div>
+
+      {onCancel && (
+        <button
+          type="button"
+          className={styles.cancelExportBtn}
+          onClick={onCancel}
+        >
+          <XCircle size={16} />
+          <span>{cancelLabel}</span>
+        </button>
+      )}
     </div>
   );
 }

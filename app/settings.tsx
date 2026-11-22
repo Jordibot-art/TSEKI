@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +22,11 @@ import { useTheme } from "../context/ThemeContext";
 import { AssessmentInspectorModal } from "../components/AssessmentInspectorModal";
 import { PdfExportingAnimation } from "../components/PdfExportingAnimation";
 import { BondPaperSize } from "../lib/paperSheetExporter";
-import { generatePrintPackage } from "../lib/printEngine";
+import {
+  abortableDelay,
+  generatePrintPackage,
+  isExportCancelledError,
+} from "../lib/printEngine";
 import {
   computeAssessmentCacheKey,
   getCachedPdfUri,
@@ -40,6 +44,16 @@ import {
   saveDraftQuiz,
   StoredQuiz,
 } from "../lib/quizStore";
+import {
+  ALERT_THRESHOLD_PRESETS,
+  AlertPreferences,
+  DEFAULT_ALERT_PREFERENCES,
+  getAlertPreferences,
+  getCriticalCutoff,
+  PASSING_GRADE,
+  resetAllDismissedAlerts,
+  saveAlertPreferences,
+} from "../lib/alertStore";
 import { supabase } from "../supabase";
 
 // ── Theme Constants ───────────────────────────────────────────────────────────
@@ -100,6 +114,19 @@ export default function SettingsScreen() {
   const [forceSeparateMode, setForceSeparateMode] = useState(false);
   const [exportingStage, setExportingStage] = useState<string>("");
   const [exportingTarget, setExportingTarget] = useState<"short" | "long" | "key" | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const exportRunIdRef = useRef<number>(0);
+
+  useEffect(() => {
+    return () => {
+      exportRunIdRef.current += 1;
+      exportAbortRef.current?.abort();
+      exportAbortRef.current = null;
+    };
+  }, []);
+
+  // ── Roster Alert Preferences ───────────────────────────────────────────────
+  const [alertPrefs, setAlertPrefs] = useState<AlertPreferences>(DEFAULT_ALERT_PREFERENCES);
 
   // ── Load user ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -139,8 +166,31 @@ export default function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadAssessments();
+      getAlertPreferences().then(setAlertPrefs);
     }, [loadAssessments])
   );
+
+  async function handleUpdateAlertPrefs(partial: Partial<AlertPreferences>) {
+    const updated = await saveAlertPreferences(partial);
+    setAlertPrefs(updated);
+  }
+
+  function handleResetDismissedAlerts() {
+    Alert.alert(
+      "Restore Dismissed Alerts",
+      "Any students still below your alert threshold who were previously dismissed will reappear in Roster Alerts.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Restore",
+          onPress: async () => {
+            await resetAllDismissedAlerts();
+            Alert.alert("Alerts Restored", "Dismissed roster alerts have been reset.");
+          },
+        },
+      ]
+    );
+  }
 
   // ── Save display name ──────────────────────────────────────────────────────
   async function handleSaveName() {
@@ -308,6 +358,18 @@ export default function SettingsScreen() {
   }
 
 
+  // ── Cancel In-Progress PDF Export ──────────────────────────────────────────
+  function handleCancelExport() {
+    exportRunIdRef.current += 1;
+    if (exportAbortRef.current) {
+      exportAbortRef.current.abort();
+      exportAbortRef.current = null;
+    }
+    setExportingPdf(false);
+    setExportingTarget(null);
+    setExportingStage("");
+  }
+
   // ── Export PDF Paper Sheet ─────────────────────────────────────────────────
   async function handleExportPaper(
     quiz: StoredQuiz,
@@ -316,6 +378,12 @@ export default function SettingsScreen() {
     versionOverride?: "A" | "B" | "C"
   ) {
     if (exportingPdf) return;
+
+    const runId = ++exportRunIdRef.current;
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    const isCancelled = () =>
+      controller.signal.aborted || exportRunIdRef.current !== runId;
 
     const activeVersion = versionOverride || exportVersion;
     const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
@@ -353,21 +421,26 @@ export default function SettingsScreen() {
     try {
       // 1. Instant check in cache
       const cachedUri = await getCachedPdfUri(cacheKey);
+      if (isCancelled()) return;
+
       if (cachedUri) {
         setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
-        await new Promise((r) => setTimeout(r, 600));
+        await abortableDelay(600, controller.signal);
+        if (isCancelled()) return;
         setExportModalVisible(false);
         setExportingPdf(false);
         setExportingTarget(null);
-        await new Promise((r) => setTimeout(r, 120));
+        await abortableDelay(120, controller.signal);
+        if (isCancelled()) return;
         await shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch(console.warn);
         return;
       }
 
       // 2. Uncached build fallback
       setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
-      await new Promise((r) => setTimeout(r, 200)); // Yield to let React Native mount modal & run native animation
-      const target = includeKey ? "ANSWER_KEY_ONLY" : "STUDENT_ONLY";
+      await abortableDelay(200, controller.signal); // Yield to let React Native mount modal & run native animation
+      if (isCancelled()) return;
+
       const printPkg = await generatePrintPackage(quiz, {
         paperSize,
         version: activeVersion,
@@ -377,7 +450,9 @@ export default function SettingsScreen() {
         forceSeparate: forceSeparateMode,
         quizId: quiz.id || `QZ-${Date.now().toString().slice(-6)}`,
         target,
+        signal: controller.signal,
       });
+      if (isCancelled()) return;
 
       const bytesToExport = includeKey
         ? printPkg.answerKeyPdf
@@ -389,27 +464,39 @@ export default function SettingsScreen() {
 
       setExportingStage("Ready! Preparing share options...");
       const fileUri = await writeCachedPdf(cacheKey, bytesToExport);
+      if (isCancelled()) return;
       const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
+      if (isCancelled()) return;
 
-      await new Promise((r) => setTimeout(r, 250));
+      await abortableDelay(250, controller.signal);
+      if (isCancelled()) return;
       setExportModalVisible(false);
       setExportingPdf(false);
       setExportingTarget(null);
 
-      await new Promise((r) => setTimeout(r, 120));
+      await abortableDelay(120, controller.signal);
+      if (isCancelled()) return;
       await shareCachedPdfUri(
         shareUri || fileUri,
         dialogTitle,
         suggestedFileName
       );
     } catch (err: any) {
-      setExportingPdf(false);
-      setExportingTarget(null);
-      Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
+      if (isExportCancelledError(err) || isCancelled()) {
+        return;
+      }
+      if (exportRunIdRef.current === runId) {
+        setExportingPdf(false);
+        setExportingTarget(null);
+        Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
+      }
     } finally {
-      setExportingPdf(false);
-      setExportingTarget(null);
-      setExportingStage("");
+      if (exportRunIdRef.current === runId) {
+        exportAbortRef.current = null;
+        setExportingPdf(false);
+        setExportingTarget(null);
+        setExportingStage("");
+      }
     }
   }
 
@@ -534,6 +621,131 @@ export default function SettingsScreen() {
                 {archived.length} published {archived.length === 1 ? "assessment" : "assessments"}
               </Text>
             </View>
+            <Ionicons name="chevron-forward" size={18} color={textSub} />
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Roster Alerts ── */}
+        <Text style={styles.sectionLabel}>Roster Alerts</Text>
+        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+          <View style={styles.alertThresholdBlock}>
+            <View style={styles.alertThresholdHeader}>
+              <Ionicons name="notifications-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowLabel, { color: textMain }]}>At-Risk Alert Threshold</Text>
+                <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
+                  Flags averages ≤{alertPrefs.atRiskThreshold}% (≤{getCriticalCutoff(alertPrefs.atRiskThreshold)}% Critical)
+                </Text>
+              </View>
+            </View>
+            <View style={styles.alertThresholdRow}>
+              {ALERT_THRESHOLD_PRESETS.map((preset) => {
+                const active = alertPrefs.atRiskThreshold === preset;
+                return (
+                  <TouchableOpacity
+                    key={preset}
+                    style={[
+                      styles.alertThresholdChip,
+                      {
+                        backgroundColor: active
+                          ? "#EA580C"
+                          : darkMode
+                            ? "#111827"
+                            : "#F8FAFC",
+                        borderColor: active ? "#EA580C" : border,
+                      },
+                    ]}
+                    activeOpacity={0.8}
+                    onPress={() => handleUpdateAlertPrefs({ atRiskThreshold: preset })}
+                  >
+                    <Text
+                      style={[
+                        styles.alertThresholdChipText,
+                        { color: active ? "#FFFFFF" : textMain },
+                      ]}
+                    >
+                      ≤{preset}%
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: border }]} />
+
+          <TouchableOpacity
+            style={styles.rowBase}
+            activeOpacity={0.8}
+            onPress={() =>
+              handleUpdateAlertPrefs({
+                enableScoreDropAlerts: !alertPrefs.enableScoreDropAlerts,
+              })
+            }
+          >
+            <Ionicons name="trending-down-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: textMain }]}>Sudden Score Drop Alerts</Text>
+              <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
+                Notify when a quiz drops ≥15 pts below prior average
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.customSwitchTrack,
+                {
+                  backgroundColor: alertPrefs.enableScoreDropAlerts ? themeColor : "#CBD5E1",
+                  alignItems: alertPrefs.enableScoreDropAlerts ? "flex-end" : "flex-start",
+                },
+              ]}
+            >
+              <View style={styles.customSwitchThumb} />
+            </View>
+          </TouchableOpacity>
+
+          {alertPrefs.atRiskThreshold < PASSING_GRADE - 1 && (
+            <>
+              <View style={[styles.divider, { backgroundColor: border }]} />
+              <TouchableOpacity
+                style={styles.rowBase}
+                activeOpacity={0.8}
+                onPress={() =>
+                  handleUpdateAlertPrefs({
+                    includeNearPassing: !alertPrefs.includeNearPassing,
+                  })
+                }
+              >
+                <Ionicons name="flag-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: textMain }]}>Near-Passing Watchlist</Text>
+                  <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
+                    Include students scoring {alertPrefs.atRiskThreshold + 1}%–{PASSING_GRADE - 1}%
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.customSwitchTrack,
+                    {
+                      backgroundColor: alertPrefs.includeNearPassing ? themeColor : "#CBD5E1",
+                      alignItems: alertPrefs.includeNearPassing ? "flex-end" : "flex-start",
+                    },
+                  ]}
+                >
+                  <View style={styles.customSwitchThumb} />
+                </View>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <View style={[styles.divider, { backgroundColor: border }]} />
+
+          <TouchableOpacity
+            style={styles.rowBase}
+            activeOpacity={0.7}
+            onPress={handleResetDismissedAlerts}
+          >
+            <Ionicons name="refresh-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+            <Text style={[styles.rowLabel, { color: textMain }]}>Restore Dismissed Alerts</Text>
             <Ionicons name="chevron-forward" size={18} color={textSub} />
           </TouchableOpacity>
         </View>
@@ -838,7 +1050,13 @@ export default function SettingsScreen() {
         visible={assessmentModalVisible}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setAssessmentModalVisible(false)}
+        onRequestClose={() => {
+          if (exportingPdf) {
+            handleCancelExport();
+            return;
+          }
+          setAssessmentModalVisible(false);
+        }}
       >
         <View style={[styles.hubContainer, { backgroundColor: bg }]}>
           {/* Hub Header */}
@@ -1168,6 +1386,7 @@ export default function SettingsScreen() {
                   quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
                   accentColor={themeColor || "#EA580C"}
                   darkMode={darkMode}
+                  onCancel={handleCancelExport}
                 />
               </View>
             </View>
@@ -1191,6 +1410,7 @@ export default function SettingsScreen() {
           setSelectedExportQuiz(quiz);
           setExportModalVisible(true);
         }}
+        onCancelExportPdf={handleCancelExport}
         onSaveDraft={handleUpdateDraft}
         onQuizUpdated={handleUpdateDraft}
       />
@@ -1200,6 +1420,8 @@ export default function SettingsScreen() {
         visible={exportModalVisible}
         transparent
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => {
           if (!exportingPdf) setExportModalVisible(false);
         }}
@@ -1382,7 +1604,8 @@ export default function SettingsScreen() {
         transparent
         animationType="fade"
         statusBarTranslucent
-        onRequestClose={() => { }}
+        navigationBarTranslucent
+        onRequestClose={handleCancelExport}
       >
         <View style={styles.loadingOverlay}>
           <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
@@ -1391,6 +1614,7 @@ export default function SettingsScreen() {
               quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
               accentColor={themeColor || "#EA580C"}
               darkMode={darkMode}
+              onCancel={handleCancelExport}
             />
           </View>
         </View>
@@ -1866,5 +2090,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
     flex: 1,
+  },
+  alertThresholdBlock: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  alertThresholdHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+  },
+  alertThresholdRow: {
+    flexDirection: "row",
+    gap: 7,
+  },
+  alertThresholdChip: {
+    flex: 1,
+    height: 34,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertThresholdChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
 });

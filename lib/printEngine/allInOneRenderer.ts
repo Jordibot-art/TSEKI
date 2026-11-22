@@ -1,11 +1,21 @@
 // lib/printEngine/allInOneRenderer.ts
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
-import { COLORS, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
+import { throwIfExportAborted } from './cancel';
+import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { topY } from './layoutJson';
 import { drawCornerMarkers } from './markers';
-import { getMeasureBoldFont, getMeasureFont, wrapText } from './measure';
+import {
+    fitHeaderText,
+    getAllInOneItemMetrics,
+    getLineHeightFactor,
+    getMeasureBoldFont,
+    getMeasureFont,
+    measureAllInOneColumns,
+    truncateTextToWidth,
+    wrapText,
+} from './measure';
 import { drawQRCode } from './qrStamp';
 import { GeneratedAssessment, LayoutItem, LayoutPage, PrintOptions, QRRect, ScannableQuestion } from './types';
 
@@ -39,6 +49,7 @@ export async function renderAllInOnePDF(
     options: PrintOptions = {},
     selectedFontSize: number = 10.5
 ): Promise<AllInOneRenderResult> {
+    throwIfExportAborted(options.signal);
     let doc: PDFDocument;
     let font: PDFFont;
     let fontBold: PDFFont;
@@ -64,6 +75,7 @@ export async function renderAllInOnePDF(
         font = embedded.regular;
         fontBold = embedded.bold;
     }
+    throwIfExportAborted(options.signal);
 
     const paperSize = options.paperSize || 'short';
     const dims = PAPER_DIMENSIONS[paperSize];
@@ -75,7 +87,7 @@ export async function renderAllInOnePDF(
     const colWidth = (printableWidth - colGutter) / 2;
 
     const fontSize = selectedFontSize;
-    const lineHeight = fontSize * FONT_CONFIG.LINE_HEIGHT_FACTOR;
+    const lineHeight = fontSize * getLineHeightFactor(fontSize);
 
     const totalPoints = assessment.questions.reduce((sum, q) => {
         if (q.type === 'enumeration') return sum + (q.answerBoxesRequired || 3);
@@ -123,6 +135,7 @@ export async function renderAllInOnePDF(
         },
     ];
 
+    throwIfExportAborted(options.signal);
     const pdfBytes = options.skipPdfSave ? new Uint8Array() : await doc.save();
 
     return {
@@ -140,36 +153,9 @@ function drawAllInOneHeader(
 ): { cursorY: number; qr: QRRect } {
     const { width, height, font, fontBold, version, quizId, totalPoints } = ctx;
     const startY = height - MARGINS.top - 4;
+    const headerTextX = MARGINS.left + 24;
 
-    // Small system title
-    page.drawText('TSEKI SMART ASSESSMENT SYSTEM | ALL-IN-ONE TEST PAPER', {
-        x: MARGINS.left + 24,
-        y: startY - 8,
-        size: 8.0,
-        font: fontBold,
-        color: rgb(0.35, 0.38, 0.44),
-    });
-
-    // Assessment title
-    page.drawText(title, {
-        x: MARGINS.left + 24,
-        y: startY - 24,
-        size: 13.5,
-        font: fontBold,
-        color: rgb(0.1, 0.12, 0.16),
-    });
-
-    // Subtitle
-    const classInfo = options.classTitle || 'Class Assessment';
-    page.drawText(`${classInfo}  |  Version ${version}  |  ${itemCount} Items`, {
-        x: MARGINS.left + 24,
-        y: startY - 38,
-        size: 8.5,
-        font,
-        color: rgb(0.3, 0.35, 0.4),
-    });
-
-    // QR code (56 pt)
+    // QR code (56 pt) — positioned first so header text width is bounded strictly to the left
     const qrSize = QR_CODE_CONFIG.size;
     const qrX = width - MARGINS.right - 24 - qrSize;
     const qrY = startY - qrSize - 2;
@@ -219,9 +205,59 @@ function drawAllInOneHeader(
         color: rgb(0.1, 0.1, 0.1),
     });
 
-    // Student information lines
+    // Safe horizontal width strictly left of the SCORE box (and well clear of QR code)
+    const maxHeaderWidth = Math.max(120, scoreBoxX - headerTextX - 12);
+
+    // Small system title
+    const eyebrowText = truncateTextToWidth(
+        'TSEKI SMART ASSESSMENT SYSTEM | ALL-IN-ONE TEST PAPER',
+        maxHeaderWidth,
+        7.5,
+        fontBold
+    );
+    page.drawText(eyebrowText, {
+        x: headerTextX,
+        y: startY - 7,
+        size: 7.5,
+        font: fontBold,
+        color: rgb(0.35, 0.38, 0.44),
+    });
+
+    // Assessment title (auto-scales / wraps up to 2 lines strictly within maxHeaderWidth)
+    const fittedTitle = fitHeaderText(title, maxHeaderWidth, fontBold, 13.5, 9.5, 2);
+    const titleStartY = fittedTitle.lines.length > 1 ? startY - 21 : startY - 24;
+    const titleLineH = fittedTitle.fontSize * 1.24;
+    for (let i = 0; i < fittedTitle.lines.length; i++) {
+        page.drawText(fittedTitle.lines[i], {
+            x: headerTextX,
+            y: titleStartY - i * titleLineH,
+            size: fittedTitle.fontSize,
+            font: fontBold,
+            color: rgb(0.1, 0.12, 0.16),
+        });
+    }
+
+    // Subtitle (positioned cleanly below 1- or 2-line title with crisp breathing room)
+    const lastTitleY = titleStartY - (fittedTitle.lines.length - 1) * titleLineH;
+    const subtitleY = fittedTitle.lines.length > 1 ? lastTitleY - 13.5 : startY - 39;
+    const classInfo = options.classTitle || 'Class Assessment';
+    const subText = truncateTextToWidth(
+        `${classInfo}  |  Version ${version}  |  ${itemCount} Items`,
+        maxHeaderWidth,
+        8.5,
+        font
+    );
+    page.drawText(subText, {
+        x: headerTextX,
+        y: subtitleY,
+        size: 8.5,
+        font,
+        color: rgb(0.3, 0.35, 0.4),
+    });
+
+    // Student information lines (always cleanly below both QR code and wrapped subtitle)
     // Row 1: Last Name, First Name, Middle Name
-    const nameY = startY - 60;
+    const nameY = Math.min(startY - 63, subtitleY - 13.5);
     page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left,
         y: nameY,
@@ -268,16 +304,56 @@ function drawAllInOneColumns(
     questions: ScannableQuestion[],
     layoutItems: LayoutItem[]
 ): void {
-    const { colWidth, colGutter } = ctx;
+    const { colWidth, colGutter, fontSize, font, fontBold, printableWidth } = ctx;
+    let bodyStartY = startY;
+
+    // If word_box items exist in ALL-IN-ONE mode, draw a compact shared Word Bank strip across the top
+    const wordBoxQ = questions.find((q) => q.type === 'word_box' && q.options && q.options.length > 0);
+    if (wordBoxQ && wordBoxQ.options) {
+        const bankSize = Math.max(7.5, Math.min(8.5, fontSize - 1));
+        const formattedWords = wordBoxQ.options.map((w, i) => {
+            const trimmed = w.trim();
+            if (/^[A-Z]\)\s/i.test(trimmed)) return trimmed;
+            return `${String.fromCharCode(65 + i)}) ${trimmed}`;
+        });
+        const bankText = `WORD BANK:  ${formattedWords.join('    ')}`;
+        const lines = wrapText(bankText, printableWidth - 14, bankSize, fontBold);
+        const boxH = lines.length * (bankSize + 2.5) + 10;
+
+        page.drawRectangle({
+            x: MARGINS.left,
+            y: bodyStartY - boxH,
+            width: printableWidth,
+            height: boxH,
+            color: rgb(1, 1, 1),
+            borderColor: rgb(0.75, 0.78, 0.82),
+            borderWidth: 0.8,
+        });
+
+        let lineY = bodyStartY - bankSize - 4;
+        for (const line of lines) {
+            page.drawText(line, {
+                x: MARGINS.left + 7,
+                y: lineY,
+                size: bankSize,
+                font: fontBold,
+                color: rgb(0.15, 0.15, 0.15),
+            });
+            lineY -= bankSize + 2.5;
+        }
+        bodyStartY -= boxH + 8;
+    }
+
     const col1X = MARGINS.left;
     const col2X = MARGINS.left + colWidth + colGutter;
 
-    const half = Math.ceil(questions.length / 2);
-    const col1Questions = questions.slice(0, half);
-    const col2Questions = questions.slice(half);
+    // Height-balanced sequential column split so both columns use the bond paper evenly
+    const { splitIndex } = measureAllInOneColumns(questions, fontSize, colWidth, font);
+    const col1Questions = questions.slice(0, splitIndex);
+    const col2Questions = questions.slice(splitIndex);
 
-    renderQuestionColumn(page, ctx, col1X, startY, col1Questions, layoutItems);
-    renderQuestionColumn(page, ctx, col2X, startY, col2Questions, layoutItems);
+    renderQuestionColumn(page, ctx, col1X, bodyStartY, col1Questions, layoutItems);
+    renderQuestionColumn(page, ctx, col2X, bodyStartY, col2Questions, layoutItems);
 }
 
 function renderQuestionColumn(
@@ -292,16 +368,13 @@ function renderQuestionColumn(
     let cursorY = startY;
 
     for (const q of questions) {
-        const isLetter = q.type === 'multiple_choice' || q.type === 'true_false' || q.type === 'word_box';
-        const boxWidth = isLetter ? 22 : 90;
-        const boxHeight = isLetter ? 20 : 18;
-
-        const textWidth = colWidth - boxWidth - 8;
+        const metrics = getAllInOneItemMetrics(q, fontSize, colWidth);
+        const { isLetter, isEnumeration, enumBoxes, boxWidth, boxHeight, textWidth, itemGap } = metrics;
 
         // Question stem
         const prefix = `${q.questionNumber}. `;
         const prefixW = fontBold.widthOfTextAtSize(prefix, fontSize);
-        const stemLines = wrapText(q.questionText, textWidth - prefixW, fontSize, font);
+        const stemLines = wrapText(q.questionText, Math.max(50, textWidth - prefixW), fontSize, font);
 
         const itemStartY = cursorY;
 
@@ -339,89 +412,138 @@ function renderQuestionColumn(
 
         // Draw multiple choice options
         if (q.type === 'multiple_choice' && q.options) {
+            const optFontSize = fontSize * 0.94;
+            const optLineH = lineHeight * 0.94;
+            const optIndent = 10;
             for (let i = 0; i < q.options.length; i++) {
                 const optLetter = String.fromCharCode(65 + i);
                 const optPrefix = `${optLetter}) `;
-                const optPrefixW = fontBold.widthOfTextAtSize(optPrefix, fontSize * 0.95);
+                const optPrefixW = fontBold.widthOfTextAtSize(optPrefix, optFontSize);
                 const optText = q.options[i].replace(/^[A-D][.)]\s*/i, '');
-                const optLines = wrapText(optText, textWidth - 12 - optPrefixW, fontSize * 0.95, font);
+                const optLines = wrapText(optText, Math.max(40, textWidth - optIndent - optPrefixW), optFontSize, font);
 
                 page.drawText(optPrefix, {
-                    x: startX + 12,
-                    y: cursorY - fontSize * 0.95,
-                    size: fontSize * 0.95,
+                    x: startX + optIndent,
+                    y: cursorY - optFontSize,
+                    size: optFontSize,
                     font: fontBold,
                     color: rgb(0.1, 0.1, 0.1),
                 });
 
                 if (optLines.length > 0) {
                     page.drawText(optLines[0], {
-                        x: startX + 12 + optPrefixW,
-                        y: cursorY - fontSize * 0.95,
-                        size: fontSize * 0.95,
+                        x: startX + optIndent + optPrefixW,
+                        y: cursorY - optFontSize,
+                        size: optFontSize,
                         font,
                         color: rgb(0.15, 0.15, 0.15),
                     });
                 }
-                cursorY -= lineHeight * 0.95;
+                cursorY -= optLineH;
 
                 for (let j = 1; j < optLines.length; j++) {
                     page.drawText(optLines[j], {
-                        x: startX + 12 + optPrefixW,
-                        y: cursorY - fontSize * 0.95,
-                        size: fontSize * 0.95,
+                        x: startX + optIndent + optPrefixW,
+                        y: cursorY - optFontSize,
+                        size: optFontSize,
                         font,
                         color: rgb(0.15, 0.15, 0.15),
                     });
-                    cursorY -= lineHeight * 0.95;
+                    cursorY -= optLineH;
                 }
             }
         }
 
-        // Draw Answer Box on the right side of this item
+        // Draw Answer Box(es) on the right side of this item
         const boxX = startX + colWidth - boxWidth;
-        const boxY = itemStartY - boxHeight - 2;
+        const indicatorFontSize = 6.5;
+        let lowestBoxY = itemStartY;
 
-        page.drawRectangle({
-            x: boxX,
-            y: boxY,
-            width: boxWidth,
-            height: boxHeight,
-            color: rgb(1, 1, 1),
-            borderColor: rgb(0.2, 0.2, 0.2),
-            borderWidth: 0.8,
-        });
+        if (isEnumeration && enumBoxes > 1) {
+            const enumGap = 3;
+            for (let b = 0; b < enumBoxes; b++) {
+                const boxY = itemStartY - (b + 1) * boxHeight - b * enumGap - 2;
+                lowestBoxY = boxY;
+                page.drawRectangle({
+                    x: boxX,
+                    y: boxY,
+                    width: boxWidth,
+                    height: boxHeight,
+                    color: rgb(1, 1, 1),
+                    borderColor: rgb(0.2, 0.2, 0.2),
+                    borderWidth: 0.8,
+                });
 
-        // Small indicator
-        page.drawText(`${q.questionNumber}`, {
-            x: boxX - 10,
-            y: boxY + boxHeight / 2 - 3,
-            size: 6.5,
-            font: fontBold,
-            color: rgb(0.4, 0.4, 0.4),
-        });
+                const label = `${q.questionNumber}.${b + 1}`;
+                const labelW = fontBold.widthOfTextAtSize(label, 5.8);
+                page.drawText(label, {
+                    x: boxX - labelW - 3,
+                    y: boxY + boxHeight / 2 - 2.5,
+                    size: 5.8,
+                    font: fontBold,
+                    color: rgb(0.4, 0.4, 0.4),
+                });
 
-        const itemType = q.type === 'true_false'
-            ? 'tf'
-            : q.type === 'word_box'
-                ? 'word_box'
-                : isLetter
-                    ? 'letter'
-                    : 'text';
+                layoutItems.push({
+                    questionNumber: q.questionNumber,
+                    subIndex: b + 1,
+                    type: 'text',
+                    rect: {
+                        x: boxX,
+                        y: topY(boxY, boxHeight, ctx.height),
+                        width: boxWidth,
+                        height: boxHeight,
+                    },
+                    maxChars: 20,
+                });
+            }
+        } else {
+            const boxY = itemStartY - boxHeight - 2;
+            lowestBoxY = boxY;
 
-        layoutItems.push({
-            questionNumber: q.questionNumber,
-            type: itemType,
-            rect: {
+            page.drawRectangle({
                 x: boxX,
-                y: topY(boxY, boxHeight, ctx.height),
+                y: boxY,
                 width: boxWidth,
                 height: boxHeight,
-            },
-            maxChars: isLetter ? 1 : 25,
-        });
+                color: rgb(1, 1, 1),
+                borderColor: rgb(0.2, 0.2, 0.2),
+                borderWidth: 0.8,
+            });
 
-        cursorY = Math.min(cursorY, boxY) - 6; // gap
+            // Small right-aligned indicator clearly separated from question text
+            const numLabel = `${q.questionNumber}`;
+            const numLabelW = fontBold.widthOfTextAtSize(numLabel, indicatorFontSize);
+            page.drawText(numLabel, {
+                x: boxX - numLabelW - 4,
+                y: boxY + boxHeight / 2 - 2.5,
+                size: indicatorFontSize,
+                font: fontBold,
+                color: rgb(0.4, 0.4, 0.4),
+            });
+
+            const itemType = q.type === 'true_false'
+                ? 'tf'
+                : q.type === 'word_box'
+                    ? 'word_box'
+                    : isLetter
+                        ? 'letter'
+                        : 'text';
+
+            layoutItems.push({
+                questionNumber: q.questionNumber,
+                type: itemType,
+                rect: {
+                    x: boxX,
+                    y: topY(boxY, boxHeight, ctx.height),
+                    width: boxWidth,
+                    height: boxHeight,
+                },
+                maxChars: isLetter ? 1 : 25,
+            });
+        }
+
+        cursorY = Math.min(cursorY, lowestBoxY) - itemGap;
     }
 }
 

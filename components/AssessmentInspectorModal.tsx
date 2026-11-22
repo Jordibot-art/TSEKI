@@ -99,6 +99,7 @@ type Props = {
   onClose: () => void;
   onPublishDraft: (quiz: StoredQuiz) => void;
   onExportPdf: (quiz: StoredQuiz) => void;
+  onCancelExportPdf?: () => void;
   onSaveDraft?: (quiz: StoredQuiz) => Promise<void> | void;
   onQuizUpdated?: (quiz: StoredQuiz) => Promise<void> | void;
 };
@@ -115,6 +116,7 @@ export function AssessmentInspectorModal({
   onClose,
   onPublishDraft,
   onExportPdf,
+  onCancelExportPdf,
   onSaveDraft,
   onQuizUpdated,
 }: Props) {
@@ -590,6 +592,11 @@ export function AssessmentInspectorModal({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => {
+        if (exportingPdf && onCancelExportPdf) {
+          onCancelExportPdf();
+          showToast("Export cancelled");
+          return;
+        }
         if (addQuestionModalOpen) {
           setAddQuestionModalOpen(false);
           return;
@@ -2132,6 +2139,14 @@ export function AssessmentInspectorModal({
                 quizTitle={selectedExportQuizTitle || quiz?.quizTitle || "Assessment"}
                 accentColor={accentColor}
                 darkMode={darkMode}
+                onCancel={
+                  onCancelExportPdf
+                    ? () => {
+                        onCancelExportPdf();
+                        showToast("Export cancelled");
+                      }
+                    : undefined
+                }
               />
             </View>
           </View>

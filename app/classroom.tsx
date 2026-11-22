@@ -4,7 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,17 +25,22 @@ import {
 } from "react-native";
 import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
+import { NotificationsModal } from "../components/NotificationsModal";
 import TrackerTab from "../components/TrackerTab";
 import { useTheme } from "../context/ThemeContext";
 import {
+  AlertPreferences,
+  buildReconciledAlerts,
   clearAllAlerts,
+  DEFAULT_ALERT_PREFERENCES,
   deleteClassroomAlerts,
   deleteStudentAlerts,
-  getClearedAlertIds,
-  getPersistedAlerts,
-  getReadAlertIds,
+  dismissSingleAlert,
   markAlertsAsRead,
+  markAllAlertsAsRead,
+  restoreDismissedAlerts,
   RosterAlert,
+  StudentQuizSnapshot,
 } from "../lib/alertStore";
 import {
   formatQuizColumnHeader,
@@ -192,8 +197,13 @@ export default function ClassroomScreen() {
 
   // Notification Alert state for this classroom
   const [classroomAlerts, setClassroomAlerts] = useState<RosterAlert[]>([]);
+  const [classroomDismissedAlerts, setClassroomDismissedAlerts] = useState<RosterAlert[]>([]);
+  const [classroomAlertPrefs, setClassroomAlertPrefs] = useState<AlertPreferences>(
+    DEFAULT_ALERT_PREFERENCES
+  );
   const [classroomUnreadCount, setClassroomUnreadCount] = useState<number>(0);
   const [notifModalVisible, setNotifModalVisible] = useState<boolean>(false);
+  const handledOpenStudentRef = useRef<string | null>(null);
 
   // Deletion Confirmation States
   const [confirmDeleteStudentModal, setConfirmDeleteStudentModal] = useState(false);
@@ -211,78 +221,96 @@ export default function ClassroomScreen() {
   const [isParsing, setIsParsing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportModalVisible, setExportModalVisible] = useState(false);
+  const exportRunIdRef = useRef<number>(0);
 
-  const loadClassroomAlerts = useCallback(async () => {
-    if (!id) return;
-    try {
-      const [persisted, clearedIds, readIds] = await Promise.all([
-        getPersistedAlerts(),
-        getClearedAlertIds(),
-        getReadAlertIds(),
-      ]);
+  useEffect(() => {
+    return () => {
+      exportRunIdRef.current += 1;
+    };
+  }, []);
 
-      const activeAlerts: RosterAlert[] = [];
+  function handleCancelClassroomExport() {
+    exportRunIdRef.current += 1;
+    setIsExporting(false);
+  }
 
-      // 1. From real students with a recorded average between 1% and 50%
-      for (const s of students) {
-        if (s.average !== null && s.average !== undefined && s.average > 0 && s.average <= 50) {
-          const alertId = `flag_${s.id}`;
-          if (!clearedIds.includes(alertId) && !clearedIds.includes(s.id)) {
-            activeAlerts.push({
-              id: alertId,
-              studentId: s.id,
-              studentName: s.full_name || "Student",
-              classroomId: id,
-              classroomTitle: (title as string) || "Classroom",
-              classroomSchedule: (schedule as string) || "",
-              classroomRoom: (room as string) || "",
-              classroomColor: color || ORANGE,
-              scorePercentage: s.average,
-              alertType: s.average <= 40 ? "HIGH RISK" : "URGENT REVIEW",
-              message: `${s.full_name || "Student"} has dropped to an average of ${s.average}%. Performance Flagged: At-Risk.`,
-              createdAt: new Date().toISOString(),
-              timeLabel: "Today",
-              isRead:
-                readIds.includes(alertId) ||
-                readIds.includes(s.id) ||
-                readIds.includes(`alert_${s.id}`),
-            });
-          }
-        }
-      }
+  const loadClassroomAlerts = useCallback(
+    async (prefsOverride?: AlertPreferences) => {
+      if (!id) return;
+      try {
+        const allQuizResults = await getAllStudentQuizResults(id as string).catch(() => []);
+        const latestQuizByStudent: Record<string, StudentQuizSnapshot> = {};
 
-      // 2. From persisted alerts specifically for this classroom
-      for (const p of persisted) {
-        if (
-          p.classroomId === id &&
-          !clearedIds.includes(p.id) &&
-          !clearedIds.includes(p.studentId)
-        ) {
-          const isRead =
-            readIds.includes(p.id) ||
-            readIds.includes(p.studentId) ||
-            readIds.includes(`flag_${p.studentId}`);
-          const existingIdx = activeAlerts.findIndex((a) => a.studentId === p.studentId);
-          if (existingIdx === -1) {
-            activeAlerts.push({
-              ...p,
-              isRead,
-            });
-          } else {
-            activeAlerts[existingIdx] = {
-              ...p,
-              isRead,
+        // Sort newest first so the first entry per student is their latest graded quiz
+        const sortedResults = [...allQuizResults].sort(
+          (a, b) =>
+            (new Date(b.gradedAt || 0).getTime() || 0) -
+            (new Date(a.gradedAt || 0).getTime() || 0)
+        );
+        for (const r of sortedResults) {
+          if (!r.studentId) continue;
+          if (!latestQuizByStudent[r.studentId]) {
+            latestQuizByStudent[r.studentId] = {
+              quizTitle: r.quizTitle,
+              scorePercentage: r.scorePercentage,
+              totalScore: r.totalScore,
+              maxScore: r.maxScore,
+              gradedAt: r.gradedAt,
+              quizCount: 1,
             };
+          } else {
+            latestQuizByStudent[r.studentId].quizCount =
+              (latestQuizByStudent[r.studentId].quizCount || 1) + 1;
           }
         }
-      }
 
-      setClassroomAlerts(activeAlerts);
-      setClassroomUnreadCount(activeAlerts.filter((a) => !a.isRead).length);
-    } catch (err) {
-      console.error("Failed to load classroom alerts:", err);
-    }
-  }, [id, title, schedule, room, color, students]);
+        const reconciled = await buildReconciledAlerts({
+          students: students.map((s) => ({
+            id: s.id,
+            classroom_id: id as string,
+            full_name: s.full_name || "Student",
+            average: s.average,
+          })),
+          classrooms: [
+            {
+              id: id as string,
+              title: classroomTitle || (title as string) || "Classroom",
+              subject: classroomSubject || (subject as string) || "",
+              section: classroomSection || (section as string) || "",
+              room: classroomRoom || (room as string) || "",
+              schedule: classroomSchedule || (schedule as string) || "",
+              color: color || ORANGE,
+            },
+          ],
+          classroomIdFilter: id as string,
+          latestQuizByStudent,
+          preferencesOverride: prefsOverride,
+        });
+
+        setClassroomAlerts(reconciled.activeAlerts);
+        setClassroomDismissedAlerts(reconciled.dismissedAlerts);
+        setClassroomUnreadCount(reconciled.unreadCount);
+        setClassroomAlertPrefs(reconciled.preferences);
+      } catch (err) {
+        console.error("Failed to load classroom alerts:", err);
+      }
+    },
+    [
+      id,
+      classroomTitle,
+      classroomSubject,
+      classroomSection,
+      classroomRoom,
+      classroomSchedule,
+      title,
+      subject,
+      section,
+      room,
+      schedule,
+      color,
+      students,
+    ]
+  );
 
   useEffect(() => {
     loadClassroomAlerts();
@@ -307,13 +335,19 @@ export default function ClassroomScreen() {
   }
 
   async function handleClassroomAlertPress(alert: RosterAlert) {
-    await markAlertsAsRead([alert.id, alert.studentId, `flag_${alert.studentId}`]);
-    setClassroomAlerts((prev) =>
-      prev.map((a) =>
+    await markAlertsAsRead([
+      alert.id,
+      alert.studentId,
+      `flag_${alert.studentId}`,
+      `alert_${alert.studentId}`,
+    ]);
+    setClassroomAlerts((prev) => {
+      const next = prev.map((a) =>
         a.id === alert.id || a.studentId === alert.studentId ? { ...a, isRead: true } : a
-      )
-    );
-    setClassroomUnreadCount((prev) => Math.max(0, prev - 1));
+      );
+      setClassroomUnreadCount(next.filter((a) => !a.isRead).length);
+      return next;
+    });
     setNotifModalVisible(false);
 
     // Switch to Tracker tab and open student profile
@@ -328,10 +362,65 @@ export default function ClassroomScreen() {
     }
   }
 
+  async function handleClassroomRemedialQuiz(alert: RosterAlert) {
+    await markAlertsAsRead([
+      alert.id,
+      alert.studentId,
+      `flag_${alert.studentId}`,
+      `alert_${alert.studentId}`,
+    ]);
+    setClassroomAlerts((prev) => {
+      const next = prev.map((a) =>
+        a.id === alert.id || a.studentId === alert.studentId ? { ...a, isRead: true } : a
+      );
+      setClassroomUnreadCount(next.filter((a) => !a.isRead).length);
+      return next;
+    });
+    setNotifModalVisible(false);
+    setActiveTab("AI Builder");
+  }
+
+  async function handleDismissClassroomAlert(alert: RosterAlert) {
+    await dismissSingleAlert(alert);
+    setClassroomAlerts((prev) => {
+      const next = prev.filter((a) => a.studentId !== alert.studentId);
+      setClassroomUnreadCount(next.filter((a) => !a.isRead).length);
+      return next;
+    });
+    setClassroomDismissedAlerts((prev) =>
+      prev.some((a) => a.studentId === alert.studentId) ? prev : [alert, ...prev]
+    );
+  }
+
+  async function handleRestoreClassroomAlerts(toRestore: RosterAlert[]) {
+    await restoreDismissedAlerts(toRestore);
+    await loadClassroomAlerts();
+  }
+
+  async function handleMarkAllClassroomAlertsRead() {
+    await markAllAlertsAsRead(classroomAlerts);
+    setClassroomAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
+    setClassroomUnreadCount(0);
+  }
+
   async function handleClearAllClassroomAlerts() {
-    await clearAllAlerts(classroomAlerts);
+    const clearedNow = [...classroomAlerts];
+    await clearAllAlerts(clearedNow);
     setClassroomAlerts([]);
     setClassroomUnreadCount(0);
+    setClassroomDismissedAlerts((prev) => {
+      const existingIds = new Set(prev.map((p) => p.studentId));
+      const merged = [...prev];
+      for (const a of clearedNow) {
+        if (!existingIds.has(a.studentId)) merged.unshift(a);
+      }
+      return merged;
+    });
+  }
+
+  async function handleClassroomAlertPrefsChange(nextPrefs: AlertPreferences) {
+    setClassroomAlertPrefs(nextPrefs);
+    await loadClassroomAlerts(nextPrefs);
   }
 
   // ── Remove Student Handlers ────────────────────────────────────────────────
@@ -552,15 +641,21 @@ export default function ClassroomScreen() {
     }
   }, [initialTab]);
 
-  // Auto-open requested student profile preview when redirected from notification alert
+  // Auto-open requested student profile preview once when redirected from notification alert
   useEffect(() => {
-    if ((openStudentId || openStudentName) && students.length > 0) {
+    const targetKey = `${openStudentId || ""}:::${openStudentName || ""}`;
+    if (
+      (openStudentId || openStudentName) &&
+      students.length > 0 &&
+      handledOpenStudentRef.current !== targetKey
+    ) {
       const match = students.find(
         (s) =>
           (openStudentId && s.id === openStudentId) ||
           (openStudentName && s.full_name.toLowerCase() === openStudentName.toLowerCase())
       );
       if (match) {
+        handledOpenStudentRef.current = targetKey;
         setSelectedProfile(match);
         // Automatically mark as read when viewed
         const toMark = [
@@ -1196,9 +1291,12 @@ export default function ClassroomScreen() {
       return;
     }
 
+    const runId = ++exportRunIdRef.current;
     try {
       setIsExporting(true);
       const { quizzes, results } = await getClassroomExportQuizData();
+      if (exportRunIdRef.current !== runId) return;
+
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -1214,6 +1312,7 @@ export default function ClassroomScreen() {
       const fileName = `${cleanTitle}_classlist.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+      if (exportRunIdRef.current !== runId) return;
       await saveDirectlyToPhone({
         fileName,
         mimeType,
@@ -1221,14 +1320,18 @@ export default function ClassroomScreen() {
         forceNewFolder,
       });
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error("Excel export error:", err);
       Alert.alert("Export Failed", err.message || "Could not export Excel file.");
     } finally {
-      setIsExporting(false);
+      if (exportRunIdRef.current === runId) {
+        setIsExporting(false);
+      }
     }
   }
 
   async function handleDownloadTemplate(forceNewFolder = false) {
+    const runId = ++exportRunIdRef.current;
     try {
       setIsExporting(true);
       const base64 = generateExcelTemplateBase64({
@@ -1243,6 +1346,7 @@ export default function ClassroomScreen() {
       const fileName = `${cleanTitle}_BSIT4_Template.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+      if (exportRunIdRef.current !== runId) return;
       await saveDirectlyToPhone({
         fileName,
         mimeType,
@@ -1250,10 +1354,13 @@ export default function ClassroomScreen() {
         forceNewFolder,
       });
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error("Template download error:", err);
       Alert.alert("Download Failed", err.message || "Could not generate template.");
     } finally {
-      setIsExporting(false);
+      if (exportRunIdRef.current === runId) {
+        setIsExporting(false);
+      }
     }
   }
 
@@ -1263,9 +1370,12 @@ export default function ClassroomScreen() {
       return;
     }
 
+    const runId = ++exportRunIdRef.current;
     try {
       setIsExporting(true);
       const { quizzes, results } = await getClassroomExportQuizData();
+      if (exportRunIdRef.current !== runId) return;
+
       const quizHeaders = quizzes.map((q, idx) => {
         const label = /^quiz\s*\d+/i.test(q.quizTitle.trim())
           ? q.quizTitle.trim()
@@ -1306,9 +1416,11 @@ export default function ClassroomScreen() {
       await FileSystem.writeAsStringAsync(tempUri, csvContent, {
         encoding: FileSystem.EncodingType.UTF8,
       });
+      if (exportRunIdRef.current !== runId) return;
       const base64 = await FileSystem.readAsStringAsync(tempUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      if (exportRunIdRef.current !== runId) return;
 
       await saveDirectlyToPhone({
         fileName,
@@ -1317,10 +1429,13 @@ export default function ClassroomScreen() {
         forceNewFolder,
       });
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error("CSV export error:", err);
       Alert.alert("Export Failed", err.message || "Could not export CSV file.");
     } finally {
-      setIsExporting(false);
+      if (exportRunIdRef.current === runId) {
+        setIsExporting(false);
+      }
     }
   }
 
@@ -1330,6 +1445,7 @@ export default function ClassroomScreen() {
       return;
     }
 
+    const runId = ++exportRunIdRef.current;
     try {
       setIsExporting(true);
       const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
@@ -1337,6 +1453,8 @@ export default function ClassroomScreen() {
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
       const { quizzes, results } = await getClassroomExportQuizData();
+      if (exportRunIdRef.current !== runId) return;
+
       const base64 = generateExcelClasslistBase64({
         classroomTitle: title || "Classroom",
         subject: classroomSubject,
@@ -1352,18 +1470,23 @@ export default function ClassroomScreen() {
       await FileSystem.writeAsStringAsync(fileUri, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      if (exportRunIdRef.current !== runId) return;
 
       if (await Sharing.isAvailableAsync()) {
+        if (exportRunIdRef.current !== runId) return;
         await Sharing.shareAsync(fileUri, {
           mimeType,
           dialogTitle: `Share ${fileName}`,
         });
       }
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error("Share error:", err);
       Alert.alert("Share Failed", err.message || "Could not share file.");
     } finally {
-      setIsExporting(false);
+      if (exportRunIdRef.current === runId) {
+        setIsExporting(false);
+      }
     }
   }
 
@@ -1375,9 +1498,12 @@ export default function ClassroomScreen() {
       return;
     }
 
+    const runId = ++exportRunIdRef.current;
     try {
       setIsExporting(true);
       const { quizzes, results } = await getClassroomExportQuizData();
+      if (exportRunIdRef.current !== runId) return;
+
       const base64 = generateExcelClasslistBase64({
         classroomTitle: (title as string) || "Classroom",
         subject: classroomSubject,
@@ -1393,6 +1519,7 @@ export default function ClassroomScreen() {
       const fileName = `${cleanTitle}_quiz_scores.xlsx`;
       const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+      if (exportRunIdRef.current !== runId) return;
       await saveDirectlyToPhone({
         fileName,
         mimeType,
@@ -1400,10 +1527,13 @@ export default function ClassroomScreen() {
         forceNewFolder,
       });
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error("Quiz scores export error:", err);
       Alert.alert("Export Failed", err.message || "Could not export quiz scores.");
     } finally {
-      setIsExporting(false);
+      if (exportRunIdRef.current === runId) {
+        setIsExporting(false);
+      }
     }
   }
 
@@ -1475,13 +1605,40 @@ export default function ClassroomScreen() {
 
         <View style={styles.topBarRight}>
           <TouchableOpacity
-            style={[styles.notifDot, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border, borderWidth: 1 }]}
+            style={[
+              styles.notifDot,
+              {
+                backgroundColor:
+                  classroomUnreadCount > 0
+                    ? darkMode
+                      ? "#431407"
+                      : "#FFF7ED"
+                    : darkMode
+                      ? "#374151"
+                      : "#F8FAFC",
+                borderColor:
+                  classroomUnreadCount > 0
+                    ? darkMode
+                      ? "#7C2D12"
+                      : "#FED7AA"
+                    : border,
+                borderWidth: 1,
+              },
+            ]}
             onPress={handleOpenNotifModal}
             activeOpacity={0.8}
-            accessibilityLabel="Classroom alerts"
+            accessibilityLabel={
+              classroomUnreadCount > 0
+                ? `Classroom alerts, ${classroomUnreadCount} unread`
+                : "Classroom alerts"
+            }
           >
-            <Ionicons name="notifications-outline" size={18} color={textMain} />
-            {classroomUnreadCount > 0 && (
+            <Ionicons
+              name={classroomUnreadCount > 0 ? "notifications" : "notifications-outline"}
+              size={18}
+              color={classroomUnreadCount > 0 ? "#EA580C" : textMain}
+            />
+            {classroomUnreadCount > 0 ? (
               <View
                 style={[
                   styles.topBarBadge,
@@ -1492,7 +1649,14 @@ export default function ClassroomScreen() {
                   {classroomUnreadCount > 9 ? "9+" : classroomUnreadCount}
                 </Text>
               </View>
-            )}
+            ) : classroomAlerts.length > 0 ? (
+              <View
+                style={[
+                  styles.topBarSubtleDot,
+                  { borderColor: darkMode ? "#1F2937" : "#FFFFFF" },
+                ]}
+              />
+            ) : null}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1588,16 +1752,39 @@ export default function ClassroomScreen() {
                 style={[
                   styles.secondaryToolbarBtn,
                   {
-                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                    borderColor: darkMode ? "#475569" : "#CBD5E1",
+                    backgroundColor: isExporting
+                      ? darkMode
+                        ? "rgba(239, 68, 68, 0.14)"
+                        : "#FEF2F2"
+                      : darkMode
+                        ? "#1F2937"
+                        : "#FFFFFF",
+                    borderColor: isExporting
+                      ? darkMode
+                        ? "rgba(248, 113, 113, 0.4)"
+                        : "#FECACA"
+                      : darkMode
+                        ? "#475569"
+                        : "#CBD5E1",
                   },
                 ]}
                 activeOpacity={0.8}
-                onPress={() => setExportModalVisible(true)}
-                disabled={isExporting}
+                onPress={() => {
+                  if (isExporting) {
+                    handleCancelClassroomExport();
+                  } else {
+                    setExportModalVisible(true);
+                  }
+                }}
+                accessibilityLabel={isExporting ? "Cancel Excel export" : "Export Excel"}
               >
                 {isExporting ? (
-                  <ActivityIndicator size="small" color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                  <>
+                    <ActivityIndicator size="small" color={darkMode ? "#FCA5A5" : "#DC2626"} />
+                    <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>
+                      Cancel Export
+                    </Text>
+                  </>
                 ) : (
                   <>
                     <Ionicons
@@ -1675,21 +1862,44 @@ export default function ClassroomScreen() {
                   styles.secondaryToolbarBtn,
                   {
                     flex: 1,
-                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                    borderColor: darkMode ? "#475569" : "#CBD5E1",
+                    backgroundColor: isExporting
+                      ? darkMode
+                        ? "rgba(239, 68, 68, 0.14)"
+                        : "#FEF2F2"
+                      : darkMode
+                        ? "#1F2937"
+                        : "#FFFFFF",
+                    borderColor: isExporting
+                      ? darkMode
+                        ? "rgba(248, 113, 113, 0.4)"
+                        : "#FECACA"
+                      : darkMode
+                        ? "#475569"
+                        : "#CBD5E1",
                   },
                 ]}
                 activeOpacity={0.8}
-                onPress={() => handleExportQuizScores(false)}
-                disabled={isExporting}
+                onPress={() => {
+                  if (isExporting) {
+                    handleCancelClassroomExport();
+                  } else {
+                    handleExportQuizScores(false);
+                  }
+                }}
+                accessibilityLabel={isExporting ? "Cancel quiz scores export" : "Export Quiz Scores"}
               >
                 {isExporting ? (
-                  <ActivityIndicator size="small" color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                  <ActivityIndicator size="small" color={darkMode ? "#FCA5A5" : "#DC2626"} />
                 ) : (
                   <Ionicons name="grid-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
                 )}
-                <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
-                  {isExporting ? "Exporting..." : "Export Quiz Scores (.xlsx)"}
+                <Text
+                  style={[
+                    styles.secondaryToolbarBtnText,
+                    { color: isExporting ? (darkMode ? "#FCA5A5" : "#DC2626") : darkMode ? "#F8FAFC" : "#0F172A" },
+                  ]}
+                >
+                  {isExporting ? "Cancel Export" : "Export Quiz Scores (.xlsx)"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2103,6 +2313,8 @@ export default function ClassroomScreen() {
         visible={selectedProfile !== null && !confirmDeleteStudentModal && !editModalVisible}
         transparent
         animationType="slide"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => {
           if (editingGradeEntry) {
             if (!savingGradeEdit) setEditingGradeEntry(null);
@@ -2155,8 +2367,17 @@ export default function ClassroomScreen() {
               return pct < 75;
             });
 
+            const hasActiveGradeOverlay = Boolean(editingGradeEntry || gradeEntryToDelete);
+
             return (
-              <View style={[styles.profileModalCard, { backgroundColor: cardBg }]}>
+              <View
+                style={[
+                  styles.profileModalCard,
+                  { backgroundColor: cardBg },
+                  hasActiveGradeOverlay && { elevation: 0 },
+                ]}
+                pointerEvents={hasActiveGradeOverlay ? "none" : "auto"}
+              >
                 {/* Header (Clean White Sheet Header with Drag Handle) */}
                 <View style={[styles.profileHeader, { backgroundColor: cardBg, borderBottomColor: border }]}>
                   <View style={styles.sheetDragHandle} />
@@ -2372,6 +2593,7 @@ export default function ClassroomScreen() {
                                     backgroundColor: darkMode ? "#0F172A" : "#F8FAFC",
                                   }}
                                   onPress={() => openEditGradeEntry(res)}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                   activeOpacity={0.75}
                                 >
                                   <Ionicons name="pencil-outline" size={12.5} color={textMain} />
@@ -2396,6 +2618,7 @@ export default function ClassroomScreen() {
                                     setEditingGradeEntry(null);
                                     setGradeEntryToDelete(res);
                                   }}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                   activeOpacity={0.75}
                                 >
                                   <Ionicons name="trash-outline" size={12.5} color={darkMode ? "#FCA5A5" : "#DC2626"} />
@@ -2528,34 +2751,51 @@ export default function ClassroomScreen() {
             const previewPassing = previewPct !== null && previewPct >= 75;
 
             return (
-              <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : undefined}
+              <View
                 style={[
                   StyleSheet.absoluteFillObject,
                   {
-                    backgroundColor: "rgba(15, 23, 42, 0.60)",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    padding: 20,
-                    zIndex: 30,
+                    zIndex: 100,
+                    elevation: 24,
                   },
                 ]}
               >
-                <TouchableWithoutFeedback onPress={() => !savingGradeEdit && setEditingGradeEntry(null)}>
-                  <View style={StyleSheet.absoluteFillObject} />
-                </TouchableWithoutFeedback>
-
-                <View
+                <Pressable
                   style={[
-                    styles.confirmModalCard,
-                    {
-                      backgroundColor: cardBg,
-                      borderColor: darkMode ? "#334155" : "#E2E8F0",
-                      width: "100%",
-                      maxWidth: 400,
-                    },
+                    StyleSheet.absoluteFillObject,
+                    { backgroundColor: "rgba(15, 23, 42, 0.62)" },
                   ]}
+                  onPress={() => {
+                    if (!savingGradeEdit) {
+                      Keyboard.dismiss();
+                      setEditingGradeEntry(null);
+                    }
+                  }}
+                />
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === "ios" ? "padding" : "height"}
+                  style={{
+                    flex: 1,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    padding: 20,
+                  }}
+                  pointerEvents="box-none"
                 >
+                  <Pressable
+                    onPress={(e) => e.stopPropagation()}
+                    style={[
+                      styles.confirmModalCard,
+                      {
+                        backgroundColor: cardBg,
+                        borderColor: darkMode ? "#334155" : "#E2E8F0",
+                        width: "100%",
+                        maxWidth: 400,
+                        elevation: 28,
+                        zIndex: 101,
+                      },
+                    ]}
+                  >
                   <Text style={[styles.confirmModalTitle, { color: textMain, marginBottom: 4 }]}>
                     Edit Quiz Grade
                   </Text>
@@ -2711,8 +2951,9 @@ export default function ClassroomScreen() {
                       )}
                     </TouchableOpacity>
                   </View>
-                </View>
-              </KeyboardAvoidingView>
+                  </Pressable>
+                </KeyboardAvoidingView>
+              </View>
             );
           })()}
 
@@ -2722,29 +2963,41 @@ export default function ClassroomScreen() {
               style={[
                 StyleSheet.absoluteFillObject,
                 {
-                  backgroundColor: "rgba(15, 23, 42, 0.60)",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  padding: 20,
-                  zIndex: 30,
+                  zIndex: 100,
+                  elevation: 24,
                 },
               ]}
             >
-              <TouchableWithoutFeedback onPress={() => !deletingGradeEntry && setGradeEntryToDelete(null)}>
-                <View style={StyleSheet.absoluteFillObject} />
-              </TouchableWithoutFeedback>
-
-              <View
+              <Pressable
                 style={[
-                  styles.confirmModalCard,
-                  {
-                    backgroundColor: cardBg,
-                    borderColor: darkMode ? "#334155" : "#E2E8F0",
-                    width: "100%",
-                    maxWidth: 380,
-                  },
+                  StyleSheet.absoluteFillObject,
+                  { backgroundColor: "rgba(15, 23, 42, 0.62)" },
                 ]}
+                onPress={() => !deletingGradeEntry && setGradeEntryToDelete(null)}
+              />
+              <View
+                style={{
+                  flex: 1,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  padding: 20,
+                }}
+                pointerEvents="box-none"
               >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={[
+                    styles.confirmModalCard,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: darkMode ? "#334155" : "#E2E8F0",
+                      width: "100%",
+                      maxWidth: 380,
+                      elevation: 28,
+                      zIndex: 101,
+                    },
+                  ]}
+                >
                 <Text style={[styles.confirmModalTitle, { color: textMain }]}>
                   Delete Quiz Grade?
                 </Text>
@@ -2787,92 +3040,30 @@ export default function ClassroomScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
+                </Pressable>
               </View>
             </View>
           )}
         </View>
       </Modal>
 
-      {/* ── Classroom Active Roster Alerts Modal ── */}
-      <Modal
+      {/* ── Classroom Roster Alerts Bottom Sheet Modal ── */}
+      <NotificationsModal
         visible={notifModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setNotifModalVisible(false)}
-      >
-        <View style={styles.alertsModalOverlay}>
-          <TouchableWithoutFeedback onPress={() => setNotifModalVisible(false)}>
-            <View style={StyleSheet.absoluteFillObject} />
-          </TouchableWithoutFeedback>
-
-          <View
-            style={[
-              styles.alertsCard,
-              {
-                backgroundColor: cardBg,
-                borderColor: darkMode ? "#374151" : "#E5E7EB",
-              },
-            ]}
-          >
-            {/* Header */}
-            <View style={styles.alertsHeader}>
-              <View style={styles.alertsHeaderLeft}>
-                <Ionicons name="notifications-outline" size={18} color={ORANGE} />
-                <Text style={[styles.alertsTitle, { color: textMain }]}>Active Roster Alerts</Text>
-              </View>
-              {classroomAlerts.length > 0 && (
-                <TouchableOpacity onPress={handleClearAllClassroomAlerts} activeOpacity={0.7}>
-                  <Text style={[styles.alertsClearBtn, { color: textSub }]}>Clear all</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Content */}
-            {classroomAlerts.length === 0 ? (
-              <View style={styles.alertsEmptyState}>
-                <Ionicons name="shield-checkmark-outline" size={32} color="#10B981" />
-                <Text style={[styles.alertsEmptyTitle, { color: textMain }]}>All Clear</Text>
-                <Text style={[styles.alertsEmptySub, { color: textSub }]}>
-                  No students currently flagged as at-risk in this classroom.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView style={styles.alertsList} showsVerticalScrollIndicator={false}>
-                {classroomAlerts.map((alert) => (
-                  <TouchableOpacity
-                    key={alert.id}
-                    style={[
-                      styles.alertCard,
-                      {
-                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                        borderColor: darkMode ? "#334155" : "#E5E7EB",
-                      },
-                    ]}
-                    onPress={() => handleClassroomAlertPress(alert)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.alertCardHeader}>
-                      <View style={styles.atRiskBadge}>
-                        <Text style={styles.atRiskBadgeText}>At-Risk</Text>
-                      </View>
-                      <Text style={styles.alertCardTime}>{alert.timeLabel}</Text>
-                    </View>
-                    <Text style={[styles.alertCardMessage, { color: textMain }]}>
-                      {alert.message}
-                    </Text>
-                    <View style={[styles.alertCardActionRow, { borderTopColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-                      <Text style={[styles.alertCardActionText, { color: darkMode ? "#E2E8F0" : "#1E293B" }]}>
-                        View student tracker
-                      </Text>
-                      <Ionicons name="arrow-forward" size={13} color={darkMode ? "#E2E8F0" : "#1E293B"} />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setNotifModalVisible(false)}
+        scope="classroom"
+        classroomName={classroomTitle || (title as string) || "Classroom"}
+        alerts={classroomAlerts}
+        dismissedAlerts={classroomDismissedAlerts}
+        preferences={classroomAlertPrefs}
+        onAlertPress={handleClassroomAlertPress}
+        onRemedialQuizPress={handleClassroomRemedialQuiz}
+        onDismissAlert={handleDismissClassroomAlert}
+        onRestoreAlerts={handleRestoreClassroomAlerts}
+        onMarkAllRead={handleMarkAllClassroomAlertsRead}
+        onClearAll={handleClearAllClassroomAlerts}
+        onPreferencesChange={handleClassroomAlertPrefsChange}
+      />
 
       {/* ── Remove Student Email-Verified Confirmation Modal ── */}
       <DeleteEmailVerificationModal
@@ -4286,9 +4477,9 @@ const styles = StyleSheet.create({
   },
   topBarBadge: {
     position: "absolute",
-    top: -2,
-    right: -2,
-    backgroundColor: ORANGE,
+    top: -3,
+    right: -3,
+    backgroundColor: "#DC2626",
     borderRadius: 9,
     minWidth: 18,
     height: 18,
@@ -4302,121 +4493,17 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 9.5,
     fontWeight: "800",
+    fontVariant: ["tabular-nums"],
   },
-  alertsModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 20,
-  },
-  alertsCard: {
-    width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-    maxHeight: 480,
-  },
-  alertsHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  alertsHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  alertsTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#0F172A",
-  },
-  alertsClearBtn: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#64748B",
-  },
-  alertsEmptyState: {
-    paddingVertical: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  alertsEmptyTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  alertsEmptySub: {
-    fontSize: 12.5,
-    textAlign: "center",
-    paddingHorizontal: 20,
-    lineHeight: 18,
-  },
-  alertsList: {
-    maxHeight: 390,
-  },
-  alertCard: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderLeftWidth: 4,
-    borderLeftColor: "#EF4444",
-    padding: 14,
-    marginBottom: 10,
-  },
-  alertCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  atRiskBadge: {
-    backgroundColor: "#FEF2F2",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  atRiskBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#DC2626",
-  },
-  alertCardTime: {
-    fontSize: 12,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-  alertCardMessage: {
-    fontSize: 13.5,
-    fontWeight: "500",
-    color: "#1E293B",
-    lineHeight: 19,
-  },
-  alertCardActionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
-  },
-  alertCardActionText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#1E293B",
-    flex: 1,
+  topBarSubtleDot: {
+    position: "absolute",
+    top: 6,
+    right: 7,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EA580C",
+    borderWidth: 1.5,
   },
   topBarRight: {
     flexDirection: "row",

@@ -13,7 +13,7 @@ import {
     View,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
-import { saveRosterAlert } from "../lib/alertStore";
+import { evaluateAndRecordStudentAlert } from "../lib/alertStore";
 import {
     AUTO_DETECT_ASSESSMENT,
     getDisambiguatedQuizLabel,
@@ -784,10 +784,17 @@ export default function GraderTab({
                     gradedAt: new Date().toISOString(),
                 });
 
+                // Capture prior average before recalculation for score-drop detection
+                const priorAverage =
+                    student && typeof student.average === "number" && student.average > 0
+                        ? student.average
+                        : undefined;
+
                 // Automatically update student's cumulative average across all recorded assessments
+                let finalAvg = percentage;
                 if (student) {
                     const updatedCumulativeAvg = await recalculateStudentAverage(student.id, classroomId);
-                    const finalAvg = updatedCumulativeAvg >= 0 ? updatedCumulativeAvg : percentage;
+                    finalAvg = updatedCumulativeAvg >= 0 ? updatedCumulativeAvg : percentage;
                     if (updatedCumulativeAvg < 0) {
                         await supabase
                             .from("students")
@@ -797,26 +804,31 @@ export default function GraderTab({
                     setRoster((prev) =>
                         prev.map((s) => (s.id === student!.id ? { ...s, average: finalAvg } : s))
                     );
-                    onScoreRecorded?.(student.id, finalAvg);
                 }
 
-                // If student score is 50% or below, trigger system at-risk notification alert
-                if (percentage <= 50) {
-                    const studentName = student ? student.full_name : (gradingResult.studentName && gradingResult.studentName !== "Unknown" ? gradingResult.studentName : "Student");
-                    const studentId = student ? student.id : (gradingResult.studentName || "student");
-                    await saveRosterAlert({
-                        studentId,
-                        studentName,
-                        classroomId,
-                        classroomTitle: classTitle || "Classroom",
-                        classroomSchedule: "",
-                        classroomRoom: "",
-                        classroomColor: accentColor || "#3B82F6",
-                        scorePercentage: percentage,
-                        quizTitle: quizTitleToRecord,
-                        alertType: percentage <= 40 ? "HIGH RISK" : "URGENT REVIEW",
-                        message: `${studentName} has dropped to an average of ${percentage}%. Performance Flagged: At-Risk.`,
-                    });
+                // Evaluate cumulative average & sudden score drop against teacher's alert preferences
+                const alertStudentName = student
+                    ? student.full_name
+                    : gradingResult.studentName && gradingResult.studentName !== "Unknown"
+                        ? gradingResult.studentName
+                        : "Student";
+                const alertStudentId = student ? student.id : gradingResult.studentName || "student";
+                await evaluateAndRecordStudentAlert({
+                    studentId: alertStudentId,
+                    studentName: alertStudentName,
+                    classroomId,
+                    classroomTitle: classTitle || "Classroom",
+                    classroomColor: accentColor || "#EA580C",
+                    cumulativeAverage: finalAvg,
+                    quizScorePercentage: percentage,
+                    previousAverage: priorAverage,
+                    rawScore: gradingResult.totalScore,
+                    maxScore: gradingResult.maxScore,
+                    quizTitle: quizTitleToRecord,
+                });
+
+                if (student) {
+                    onScoreRecorded?.(student.id, finalAvg);
                 }
             }
 
@@ -1064,6 +1076,12 @@ export default function GraderTab({
                         gradedAt: new Date().toISOString(),
                     });
 
+                    // Capture prior average before recalculation for score-drop detection
+                    const priorAverage =
+                        typeof student.average === "number" && student.average > 0
+                            ? student.average
+                            : undefined;
+
                     // Automatically update student's cumulative average across all assessments
                     const updatedCumulativeAvg = await recalculateStudentAverage(student.id, classroomId);
                     const finalAvg = updatedCumulativeAvg >= 0 ? updatedCumulativeAvg : percentage;
@@ -1076,23 +1094,22 @@ export default function GraderTab({
                     updatedRoster = updatedRoster.map((s) =>
                         s.id === student!.id ? { ...s, average: finalAvg } : s
                     );
-                    onScoreRecorded?.(student.id, finalAvg);
 
-                    if (percentage <= 50) {
-                        await saveRosterAlert({
-                            studentId: student.id,
-                            studentName: student.full_name,
-                            classroomId,
-                            classroomTitle: classTitle || "Classroom",
-                            classroomSchedule: "",
-                            classroomRoom: "",
-                            classroomColor: accentColor || "#3B82F6",
-                            scorePercentage: percentage,
-                            quizTitle: itemQuizTitle,
-                            alertType: percentage <= 40 ? "HIGH RISK" : "URGENT REVIEW",
-                            message: `${student.full_name} has dropped to an average of ${percentage}%. Performance Flagged: At-Risk.`,
-                        });
-                    }
+                    await evaluateAndRecordStudentAlert({
+                        studentId: student.id,
+                        studentName: student.full_name,
+                        classroomId,
+                        classroomTitle: classTitle || "Classroom",
+                        classroomColor: accentColor || "#EA580C",
+                        cumulativeAverage: finalAvg,
+                        quizScorePercentage: percentage,
+                        previousAverage: priorAverage,
+                        rawScore: item.gradingResult.totalScore,
+                        maxScore: item.gradingResult.maxScore,
+                        quizTitle: itemQuizTitle,
+                    });
+
+                    onScoreRecorded?.(student.id, finalAvg);
                 }
             }
 

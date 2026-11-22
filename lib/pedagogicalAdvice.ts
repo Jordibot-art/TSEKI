@@ -70,7 +70,7 @@ export function generateStudentAdvice(params: {
     ? analyzeStudentWeakAreas(studentResults)
     : null;
 
-  // ── TOP TIER (highest in class) ───────────────────────────────────────────
+  // ── TOP TIER (highest in class) ────────────────r───────────────────────────
   if (isTop) {
     const base = `${firstName} leads the class at ${average}% in ${subjectLabel}!`;
 
@@ -128,8 +128,8 @@ export function generateStudentAdvice(params: {
         analysis.trend === "improving"
           ? `${firstName} is showing progress, but remains below the 75% passing mark.`
           : analysis.trend === "declining"
-          ? `${firstName}'s scores are dipping below the passing threshold.`
-          : "";
+            ? `${firstName}'s scores are dipping below the passing threshold.`
+            : "";
 
       return `${firstName} is at ${average}% in ${subjectLabel}, below the 75% passing standard. ${trendMsg} Analysis highlights difficulty with ${weakType} questions. Recommend foundational review and a focused remedial quiz on ${weakType} concepts in ${subjectLabel} to help them cross the 75% passing mark.`;
     }

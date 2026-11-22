@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
@@ -54,6 +54,17 @@ export function ClassroomOnboardingModal({
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savingManual, setSavingManual] = useState(false);
+  const exportRunIdRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!isOpen) {
+      exportRunIdRef.current += 1;
+      setExporting(false);
+    }
+    return () => {
+      exportRunIdRef.current += 1;
+    };
+  }, [isOpen]);
 
   // Manual Form
   const [lastName, setLastName] = useState("");
@@ -283,6 +294,13 @@ export function ClassroomOnboardingModal({
   // ── 3. Export Excel Roster & Scores (BSIT-4 Layout) ────────────────────────
   async function handleExportExcelClick() {
     if (!classroom) return;
+    if (exporting) {
+      exportRunIdRef.current += 1;
+      setExporting(false);
+      setFeedback(null);
+      return;
+    }
+    const runId = ++exportRunIdRef.current;
     setExporting(true);
     setFeedback(null);
     try {
@@ -290,6 +308,7 @@ export function ClassroomOnboardingModal({
         .from("students")
         .select("*")
         .eq("classroom_id", classroom.id);
+      if (exportRunIdRef.current !== runId) return;
 
       const normalizedStudents = (studs || []).map((s) => normalizeStudentRecord(s));
 
@@ -297,11 +316,13 @@ export function ClassroomOnboardingModal({
         .from("archived_assessments")
         .select("id, quiz_title, total_points")
         .eq("classroom_id", classroom.id);
+      if (exportRunIdRef.current !== runId) return;
 
       const { data: qResults } = await supabase
         .from("student_quiz_results")
         .select("student_id, quiz_title, total_score, score_percentage, max_score")
         .eq("classroom_id", classroom.id);
+      if (exportRunIdRef.current !== runId) return;
 
       const quizList = (qz || []).map((q: any) => ({
         id: q.id,
@@ -379,6 +400,7 @@ export function ClassroomOnboardingModal({
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Classlist");
 
+      if (exportRunIdRef.current !== runId) return;
       const cleanTitle = classroom.title.replace(/[^a-zA-Z0-9_\-\s]/g, "").replace(/\s+/g, "_");
       XLSX.writeFile(wb, `${cleanTitle}_quiz_scores.xlsx`);
 
@@ -387,10 +409,13 @@ export function ClassroomOnboardingModal({
         message: `Exported gradebook for "${classroom.title}"!`,
       });
     } catch (err: any) {
+      if (exportRunIdRef.current !== runId) return;
       console.error(err);
       setFeedback({ type: "error", message: err.message || "Failed to export Excel." });
     } finally {
-      setExporting(false);
+      if (exportRunIdRef.current === runId) {
+        setExporting(false);
+      }
     }
   }
 
@@ -578,22 +603,47 @@ export function ClassroomOnboardingModal({
                 type="button"
                 className={styles.actionTile}
                 onClick={handleExportExcelClick}
-                disabled={exporting}
+                style={
+                  exporting
+                    ? {
+                        background: "#fef2f2",
+                        borderColor: "#fecaca",
+                      }
+                    : undefined
+                }
               >
-                <div className={styles.actionIconBox} style={{ background: "rgba(139, 92, 246, 0.15)" }}>
+                <div
+                  className={styles.actionIconBox}
+                  style={{
+                    background: exporting
+                      ? "rgba(239, 68, 68, 0.14)"
+                      : "rgba(139, 92, 246, 0.15)",
+                  }}
+                >
                   {exporting ? (
-                    <Loader2 size={22} className="spinner" style={{ color: "#8B5CF6" }} />
+                    <Loader2 size={22} className="spinner" style={{ color: "#dc2626" }} />
                   ) : (
                     <Download size={22} style={{ color: "#8B5CF6" }} />
                   )}
                 </div>
                 <div className={styles.actionText}>
-                  <div className={styles.actionTitle}>Export Excel</div>
+                  <div
+                    className={styles.actionTitle}
+                    style={exporting ? { color: "#dc2626" } : undefined}
+                  >
+                    {exporting ? "Cancel Export" : "Export Excel"}
+                  </div>
                   <div className={styles.actionSub}>
-                    Download current student roster and quiz scores record
+                    {exporting
+                      ? "Exporting roster & scores — click to cancel"
+                      : "Download current student roster and quiz scores record"}
                   </div>
                 </div>
-                <ChevronRight size={18} className={styles.actionChevron} />
+                {exporting ? (
+                  <X size={18} style={{ color: "#dc2626" }} />
+                ) : (
+                  <ChevronRight size={18} className={styles.actionChevron} />
+                )}
               </button>
 
               {/* Action 4: Manually Add Student */}

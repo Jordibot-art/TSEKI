@@ -5,6 +5,7 @@ import { renderAllInOnePDF } from './allInOneRenderer';
 import { renderAnswerKeyPDF } from './answerKeyRenderer';
 import { renderAnswerSheetPDF } from './answerSheetRenderer';
 import { renderBookletPDF } from './bookletRenderer';
+import { abortableDelay, throwIfExportAborted } from './cancel';
 import { PAPER_DIMENSIONS } from './constants';
 import { decideFit } from './fitDecision';
 import { buildLayoutJSON, generateAnswerVariants } from './layoutJson';
@@ -15,6 +16,7 @@ export * from './allInOneRenderer';
 export * from './answerKeyRenderer';
 export * from './answerSheetRenderer';
 export * from './bookletRenderer';
+export * from './cancel';
 export * from './constants';
 export * from './fitDecision';
 export * from './layoutJson';
@@ -44,14 +46,18 @@ export function uint8ArrayToBase64(bytes: Uint8Array): string {
  * Merges multiple PDF byte arrays into a single sequential PDF document.
  * Useful for combining question booklet and answer sheet into one printable file.
  */
-export async function mergePdfs(pdfBytesList: Uint8Array[]): Promise<Uint8Array> {
+export async function mergePdfs(pdfBytesList: Uint8Array[], signal?: AbortSignal): Promise<Uint8Array> {
+    throwIfExportAborted(signal);
     const mergedDoc = await PDFDocument.create();
     for (const bytes of pdfBytesList) {
+        throwIfExportAborted(signal);
         if (!bytes || bytes.byteLength === 0) continue;
         const srcDoc = await PDFDocument.load(bytes);
+        throwIfExportAborted(signal);
         const copiedPages = await mergedDoc.copyPages(srcDoc, srcDoc.getPageIndices());
         copiedPages.forEach((page) => mergedDoc.addPage(page));
     }
+    throwIfExportAborted(signal);
     return await mergedDoc.save();
 }
 
@@ -64,6 +70,9 @@ export async function generatePrintPackage(
     assessment: GeneratedAssessment,
     options: PrintOptions = {}
 ): Promise<PrintPackage> {
+    const { signal } = options;
+    throwIfExportAborted(signal);
+
     const target = options.target || 'ALL';
     const version = options.version || 'A';
     const paperSize = options.paperSize || 'short';
@@ -76,8 +85,8 @@ export async function generatePrintPackage(
 
     // 1. Run automatic fit decision
     const fit = await decideFit(activeAssessment, options);
-    // Yield to the JS event loop to keep animations fluid
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Yield to the JS event loop to keep animations fluid & allow cancellation
+    await abortableDelay(10, signal);
 
     // 2. Handle fast 'LAYOUT_ONLY' target (used by quiz publishing)
     if (target === 'LAYOUT_ONLY') {
@@ -97,6 +106,8 @@ export async function generatePrintPackage(
             const { pages } = await renderAnswerSheetPDF(activeAssessment.questions, renderOpts);
             layoutPages = pages;
         }
+
+        throwIfExportAborted(signal);
 
         const layoutJson = buildLayoutJSON({
             quizId,
@@ -121,12 +132,14 @@ export async function generatePrintPackage(
     // 3. Render Answer Key PDF if requested
     let answerKeyPdf: Uint8Array = new Uint8Array();
     if (target === 'ALL' || target === 'ANSWER_KEY_ONLY') {
+        throwIfExportAborted(signal);
         answerKeyPdf = await renderAnswerKeyPDF(activeAssessment, {
             ...options,
             version,
             quizId,
             paperSize,
         });
+        throwIfExportAborted(signal);
     }
 
     if (target === 'ANSWER_KEY_ONLY') {
@@ -150,6 +163,7 @@ export async function generatePrintPackage(
 
     // 4. Render Student Papers
     if (fit.mode === 'ALL_IN_ONE') {
+        throwIfExportAborted(signal);
         const { pdfBytes, pages } = await renderAllInOnePDF(
             activeAssessment,
             {
@@ -160,6 +174,7 @@ export async function generatePrintPackage(
             },
             fit.fontSize
         );
+        throwIfExportAborted(signal);
 
         const layoutJson = buildLayoutJSON({
             quizId,
@@ -180,13 +195,18 @@ export async function generatePrintPackage(
         };
     } else {
         // Separate question booklet + scannable answer sheet
-        const bookletPdf = await renderBookletPDF(activeAssessment, {
-            ...options,
-            version,
-            quizId,
-            paperSize,
-        });
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        throwIfExportAborted(signal);
+        const bookletPdf = await renderBookletPDF(
+            activeAssessment,
+            {
+                ...options,
+                version,
+                quizId,
+                paperSize,
+            },
+            fit.fontSize
+        );
+        await abortableDelay(10, signal);
 
         const { pdfBytes: answerSheetPdf, pages } = await renderAnswerSheetPDF(activeAssessment.questions, {
             ...options,
@@ -194,10 +214,11 @@ export async function generatePrintPackage(
             quizId,
             paperSize,
         });
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await abortableDelay(10, signal);
 
         // Merge booklet + answer sheet into single printable document for teachers
-        const combinedStudentPdf = await mergePdfs([bookletPdf, answerSheetPdf]);
+        const combinedStudentPdf = await mergePdfs([bookletPdf, answerSheetPdf], signal);
+        throwIfExportAborted(signal);
 
         const layoutJson = buildLayoutJSON({
             quizId,
