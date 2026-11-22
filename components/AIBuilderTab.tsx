@@ -250,17 +250,22 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
     const [showResults, setShowResults] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
     const [exportingPdf, setExportingPdf] = useState(false);
+    const [cancellingExport, setCancellingExport] = useState(false);
     const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
     const [forceSeparateMode, setForceSeparateMode] = useState(false);
     const [exportingStage, setExportingStage] = useState<string>("");
     const exportAbortRef = useRef<AbortController | null>(null);
     const exportRunIdRef = useRef<number>(0);
+    const cancelDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         return () => {
             exportRunIdRef.current += 1;
             exportAbortRef.current?.abort();
             exportAbortRef.current = null;
+            if (cancelDismissTimerRef.current) {
+                clearTimeout(cancelDismissTimerRef.current);
+            }
         };
     }, []);
     const [editingAnswerQNum, setEditingAnswerQNum] = useState<number | null>(null);
@@ -1224,9 +1229,17 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
             exportAbortRef.current.abort();
             exportAbortRef.current = null;
         }
-        setExportingPdf(false);
-        setExportingStage("");
-        showToast("Export cancelled");
+        setCancellingExport(true);
+        setExportingStage("Cancelling PDF Export...");
+        if (cancelDismissTimerRef.current) {
+            clearTimeout(cancelDismissTimerRef.current);
+        }
+        cancelDismissTimerRef.current = setTimeout(() => {
+            setCancellingExport(false);
+            setExportingPdf(false);
+            setExportingStage("");
+            showToast("PDF export cancelled");
+        }, 420);
     }
 
     async function handleExportPaper(
@@ -1235,6 +1248,11 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
         versionOverride?: "A" | "B" | "C"
     ) {
         if (!generatedAssessment || exportingPdf) return;
+        if (cancelDismissTimerRef.current) {
+            clearTimeout(cancelDismissTimerRef.current);
+            cancelDismissTimerRef.current = null;
+        }
+        setCancellingExport(false);
 
         const runId = ++exportRunIdRef.current;
         const controller = new AbortController();
@@ -2502,6 +2520,7 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                             accentColor={accentColor}
                             darkMode={darkMode}
                             onCancel={handleCancelExport}
+                            isCancelling={cancellingExport}
                         />
                     </View>
                 </View>
@@ -3417,7 +3436,11 @@ export default function AIBuilderTab({ classroomId, classTitle, classSubject, ac
                     },
                 ]}
             >
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                <Ionicons
+                    name={/cancel/i.test(toastMessage) ? "close-circle" : "checkmark-circle"}
+                    size={16}
+                    color={/cancel/i.test(toastMessage) ? "#F87171" : "#10B981"}
+                />
                 <Text style={styles.draftToastText}>{toastMessage}</Text>
             </Animated.View>
         )}

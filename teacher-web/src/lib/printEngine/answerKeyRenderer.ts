@@ -116,7 +116,7 @@ export async function renderAnswerKeyPDF(
         drawAnswerKeyFooter(pages[i], dims.width, i + 1, pages.length, font);
     }
 
-    throwIfExportAborted(signal);
+    await abortableDelay(0, signal);
     return await doc.save();
 }
 

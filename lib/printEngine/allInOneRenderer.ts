@@ -1,7 +1,7 @@
 // lib/printEngine/allInOneRenderer.ts
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
-import { throwIfExportAborted } from './cancel';
+import { abortableDelay, throwIfExportAborted } from './cancel';
 import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { topY } from './layoutJson';
@@ -118,6 +118,9 @@ export async function renderAllInOnePDF(
     // 2. Header
     const title = assessment.quizTitle || (assessment as any).title || 'Classroom Assessment';
     const { cursorY, qr } = drawAllInOneHeader(page, ctx, options, title, assessment.questions.length);
+    if (!options.skipPdfSave) {
+        await abortableDelay(0, options.signal);
+    }
 
     // 3. Questions & Answer Boxes in 2 Columns
     const layoutItems: LayoutItem[] = [];
@@ -135,6 +138,9 @@ export async function renderAllInOnePDF(
         },
     ];
 
+    if (!options.skipPdfSave) {
+        await abortableDelay(0, options.signal);
+    }
     throwIfExportAborted(options.signal);
     const pdfBytes = options.skipPdfSave ? new Uint8Array() : await doc.save();
 

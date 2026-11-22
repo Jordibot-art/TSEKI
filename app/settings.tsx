@@ -109,6 +109,8 @@ export default function SettingsScreen() {
   const [inspectModalVisible, setInspectModalVisible] = useState(false);
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [cancellingExport, setCancellingExport] = useState(false);
+  const [exportToastMessage, setExportToastMessage] = useState<string | null>(null);
   const [selectedExportQuiz, setSelectedExportQuiz] = useState<StoredQuiz | null>(null);
   const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
   const [forceSeparateMode, setForceSeparateMode] = useState(false);
@@ -116,12 +118,30 @@ export default function SettingsScreen() {
   const [exportingTarget, setExportingTarget] = useState<"short" | "long" | "key" | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   const exportRunIdRef = useRef<number>(0);
+  const cancelDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exportToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showExportToast(message: string) {
+    if (exportToastTimerRef.current) {
+      clearTimeout(exportToastTimerRef.current);
+    }
+    setExportToastMessage(message);
+    exportToastTimerRef.current = setTimeout(() => {
+      setExportToastMessage(null);
+    }, 2600);
+  }
 
   useEffect(() => {
     return () => {
       exportRunIdRef.current += 1;
       exportAbortRef.current?.abort();
       exportAbortRef.current = null;
+      if (cancelDismissTimerRef.current) {
+        clearTimeout(cancelDismissTimerRef.current);
+      }
+      if (exportToastTimerRef.current) {
+        clearTimeout(exportToastTimerRef.current);
+      }
     };
   }, []);
 
@@ -365,9 +385,18 @@ export default function SettingsScreen() {
       exportAbortRef.current.abort();
       exportAbortRef.current = null;
     }
-    setExportingPdf(false);
-    setExportingTarget(null);
-    setExportingStage("");
+    setCancellingExport(true);
+    setExportingStage("Cancelling PDF Export...");
+    if (cancelDismissTimerRef.current) {
+      clearTimeout(cancelDismissTimerRef.current);
+    }
+    cancelDismissTimerRef.current = setTimeout(() => {
+      setCancellingExport(false);
+      setExportingPdf(false);
+      setExportingTarget(null);
+      setExportingStage("");
+      showExportToast("PDF export cancelled");
+    }, 420);
   }
 
   // ── Export PDF Paper Sheet ─────────────────────────────────────────────────
@@ -378,6 +407,11 @@ export default function SettingsScreen() {
     versionOverride?: "A" | "B" | "C"
   ) {
     if (exportingPdf) return;
+    if (cancelDismissTimerRef.current) {
+      clearTimeout(cancelDismissTimerRef.current);
+      cancelDismissTimerRef.current = null;
+    }
+    setCancellingExport(false);
 
     const runId = ++exportRunIdRef.current;
     const controller = new AbortController();
@@ -1387,8 +1421,17 @@ export default function SettingsScreen() {
                   accentColor={themeColor || "#EA580C"}
                   darkMode={darkMode}
                   onCancel={handleCancelExport}
+                  isCancelling={cancellingExport}
                 />
               </View>
+            </View>
+          )}
+
+          {/* Floating Export Status Toast inside Assessments Repository */}
+          {exportToastMessage && (
+            <View pointerEvents="none" style={styles.exportToastBanner}>
+              <Ionicons name="close-circle" size={17} color="#F87171" />
+              <Text style={styles.exportToastText}>{exportToastMessage}</Text>
             </View>
           )}
         </View>
@@ -1401,6 +1444,7 @@ export default function SettingsScreen() {
         darkMode={darkMode}
         themeColor={themeColor}
         exportingPdf={exportingPdf}
+        cancellingExport={cancellingExport}
         exportModalVisible={exportModalVisible}
         exportVersion={exportVersion}
         selectedExportQuizTitle={selectedExportQuiz?.quizTitle}
@@ -1615,10 +1659,18 @@ export default function SettingsScreen() {
               accentColor={themeColor || "#EA580C"}
               darkMode={darkMode}
               onCancel={handleCancelExport}
+              isCancelling={cancellingExport}
             />
           </View>
         </View>
       </Modal>
+
+      {exportToastMessage && !assessmentModalVisible && (
+        <View pointerEvents="none" style={styles.exportToastBanner}>
+          <Ionicons name="close-circle" size={17} color="#F87171" />
+          <Text style={styles.exportToastText}>{exportToastMessage}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -2117,5 +2169,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
+  },
+  exportToastBanner: {
+    position: "absolute",
+    bottom: 28,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#0F172A",
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(248, 113, 113, 0.35)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
+    zIndex: 999,
+  },
+  exportToastText: {
+    color: "#F8FAFC",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

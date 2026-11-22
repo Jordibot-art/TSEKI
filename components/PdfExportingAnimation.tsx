@@ -5,8 +5,9 @@ import {
   StyleSheet,
   Animated,
   Easing,
-  TouchableOpacity,
+  Pressable,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +19,7 @@ export interface PdfExportingAnimationProps {
   darkMode?: boolean;
   onCancel?: () => void;
   cancelLabel?: string;
+  isCancelling?: boolean;
 }
 
 export function PdfExportingAnimation({
@@ -27,7 +29,10 @@ export function PdfExportingAnimation({
   darkMode = false,
   onCancel,
   cancelLabel = "Cancel Export",
+  isCancelling = false,
 }: PdfExportingAnimationProps) {
+  const [localCancelling, setLocalCancelling] = useState(false);
+  const cancelling = Boolean(isCancelling || localCancelling);
   // Laser / print sweep vertical animation (0 -> 1 -> 0) [100% Native Driver]
   const laserAnim = useRef(new Animated.Value(0)).current;
 
@@ -332,8 +337,8 @@ export function PdfExportingAnimation({
             style={[
               styles.laserBar,
               {
-                backgroundColor: "#10B981",
-                shadowColor: "#10B981",
+                backgroundColor: cancelling ? "#EF4444" : "#10B981",
+                shadowColor: cancelling ? "#EF4444" : "#10B981",
                 transform: [
                   {
                     translateY: laserAnim.interpolate({
@@ -345,8 +350,23 @@ export function PdfExportingAnimation({
               },
             ]}
           >
-            <View style={styles.laserTrail} />
+            <View
+              style={[
+                styles.laserTrail,
+                cancelling && { backgroundColor: "rgba(239, 68, 68, 0.18)" },
+              ]}
+            />
           </Animated.View>
+
+          {/* Instant Cancelling Sheet Overlay Badge */}
+          {cancelling && (
+            <View style={styles.cancellingSheetOverlay}>
+              <View style={styles.cancellingPill}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.cancellingPillText}>STOPPING EXPORT…</Text>
+              </View>
+            </View>
+          )}
         </View>
       </View>
 
@@ -356,15 +376,31 @@ export function PdfExportingAnimation({
           <Animated.View
             style={[
               styles.pulseDot,
-              { backgroundColor: accentColor, opacity: dotPulseAnim },
+              {
+                backgroundColor: cancelling ? "#DC2626" : accentColor,
+                opacity: dotPulseAnim,
+              },
             ]}
           />
-          <Text style={[styles.stageTitle, { color: textColor }]}>
-            {currentStage.title}
+          <Text
+            style={[
+              styles.stageTitle,
+              {
+                color: cancelling
+                  ? darkMode
+                    ? "#FCA5A5"
+                    : "#DC2626"
+                  : textColor,
+              },
+            ]}
+          >
+            {cancelling ? "Cancelling PDF Export..." : currentStage.title}
           </Text>
         </View>
         <Text style={[styles.stageSub, { color: subTextColor }]}>
-          {currentStage.sub}
+          {cancelling
+            ? "Cancel pressed — stopping PDF generator and cleaning up..."
+            : currentStage.sub}
         </Text>
       </View>
 
@@ -382,7 +418,7 @@ export function PdfExportingAnimation({
           style={[
             styles.progressFill,
             {
-              backgroundColor: accentColor,
+              backgroundColor: cancelling ? "#DC2626" : accentColor,
               width: "100%",
               transform: [
                 {
@@ -398,45 +434,96 @@ export function PdfExportingAnimation({
       </View>
 
       <View style={styles.stepCounterRow}>
-        <Text style={styles.stepText}>
-          Step {stageIndex + 1} of {STAGES.length}
+        <Text
+          style={[
+            styles.stepText,
+            cancelling && { color: darkMode ? "#FCA5A5" : "#DC2626", fontWeight: "700" },
+          ]}
+        >
+          {cancelling
+            ? "Stopping background task..."
+            : `Step ${stageIndex + 1} of ${STAGES.length}`}
         </Text>
-        <Text style={[styles.percentText, { color: textColor }]}>{percentDisplay}%</Text>
+        <Text
+          style={[
+            styles.percentText,
+            {
+              color: cancelling
+                ? darkMode
+                  ? "#FCA5A5"
+                  : "#DC2626"
+                : textColor,
+            },
+          ]}
+        >
+          {cancelling ? "Cancelling" : `${percentDisplay}%`}
+        </Text>
       </View>
 
       {onCancel && (
-        <TouchableOpacity
-          style={[
-            styles.cancelBtn,
-            {
-              backgroundColor: darkMode ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2",
-              borderColor: darkMode ? "rgba(248, 113, 113, 0.32)" : "#FECACA",
-            },
-          ]}
-          onPress={() => {
+        <Pressable
+          disabled={cancelling}
+          onPressIn={() => {
+            if (cancelling) return;
+            setLocalCancelling(true);
             if (Platform.OS !== "web") {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
             }
             onCancel();
           }}
-          activeOpacity={0.75}
+          onPress={() => {
+            if (cancelling) return;
+            setLocalCancelling(true);
+            onCancel();
+          }}
+          style={({ pressed }) => [
+            styles.cancelBtn,
+            cancelling
+              ? {
+                  backgroundColor: "#DC2626",
+                  borderColor: "#B91C1C",
+                }
+              : {
+                  backgroundColor: pressed
+                    ? darkMode
+                      ? "rgba(239, 68, 68, 0.26)"
+                      : "#FEE2E2"
+                    : darkMode
+                      ? "rgba(239, 68, 68, 0.12)"
+                      : "#FEF2F2",
+                  borderColor: darkMode ? "rgba(248, 113, 113, 0.35)" : "#FECACA",
+                  transform: [{ scale: pressed ? 0.98 : 1 }],
+                },
+          ]}
           accessibilityRole="button"
-          accessibilityLabel={cancelLabel}
+          accessibilityLabel={cancelling ? "Cancelling export" : cancelLabel}
+          accessibilityState={{ busy: cancelling, disabled: cancelling }}
         >
-          <Ionicons
-            name="close-circle-outline"
-            size={17}
-            color={darkMode ? "#FCA5A5" : "#DC2626"}
-          />
-          <Text
-            style={[
-              styles.cancelBtnText,
-              { color: darkMode ? "#FCA5A5" : "#DC2626" },
-            ]}
-          >
-            {cancelLabel}
-          </Text>
-        </TouchableOpacity>
+          {cancelling ? (
+            <>
+              <ActivityIndicator size="small" color="#FFFFFF" />
+              <Text style={[styles.cancelBtnText, { color: "#FFFFFF", fontWeight: "700" }]}>
+                Cancelling export...
+              </Text>
+            </>
+          ) : (
+            <>
+              <Ionicons
+                name="close-circle-outline"
+                size={17}
+                color={darkMode ? "#FCA5A5" : "#DC2626"}
+              />
+              <Text
+                style={[
+                  styles.cancelBtnText,
+                  { color: darkMode ? "#FCA5A5" : "#DC2626" },
+                ]}
+              >
+                {cancelLabel}
+              </Text>
+            </>
+          )}
+        </Pressable>
       )}
     </View>
   );
@@ -660,5 +747,32 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     fontWeight: "600",
     letterSpacing: -0.1,
+  },
+  cancellingSheetOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.56)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  cancellingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#DC2626",
+    shadowColor: "#DC2626",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  cancellingPillText: {
+    color: "#FFFFFF",
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.4,
   },
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { QrCode, CheckCircle2, FileText, XCircle } from "lucide-react";
+import { QrCode, CheckCircle2, FileText, XCircle, Loader2 } from "lucide-react";
 import styles from "./PdfExportingAnimation.module.css";
 
 export interface PdfExportingAnimationProps {
@@ -9,6 +9,7 @@ export interface PdfExportingAnimationProps {
   statusText?: string;
   onCancel?: () => void;
   cancelLabel?: string;
+  isCancelling?: boolean;
 }
 
 export function PdfExportingAnimation({
@@ -18,7 +19,10 @@ export function PdfExportingAnimation({
   statusText,
   onCancel,
   cancelLabel = "Cancel Export",
+  isCancelling = false,
 }: PdfExportingAnimationProps) {
+  const [localCancelling, setLocalCancelling] = useState<boolean>(false);
+  const cancelling = Boolean(isCancelling || localCancelling);
   const [stageIndex, setStageIndex] = useState<number>(0);
   const [percentDisplay, setPercentDisplay] = useState<number>(18);
   const [activeRow, setActiveRow] = useState<number>(1);
@@ -153,9 +157,28 @@ export function PdfExportingAnimation({
           </div>
 
           {/* Sweeping Laser / Print Head Beam */}
-          <div className={styles.laserBar}>
+          <div
+            className={styles.laserBar}
+            style={
+              cancelling
+                ? {
+                    backgroundColor: "#ef4444",
+                    boxShadow: "0 0 8px 1px #ef4444, 0 0 18px 2px rgba(239, 68, 68, 0.45)",
+                  }
+                : undefined
+            }
+          >
             <div className={styles.laserTrail} />
           </div>
+
+          {cancelling && (
+            <div className={styles.cancellingSheetOverlay}>
+              <div className={styles.cancellingPill}>
+                <Loader2 size={14} className={styles.cancelSpinner} />
+                <span>STOPPING EXPORT…</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -164,15 +187,21 @@ export function PdfExportingAnimation({
         <div className={styles.stageTitleRow}>
           <span
             className={styles.pulseDot}
-            style={{ backgroundColor: accentColor }}
+            style={{ backgroundColor: cancelling ? "#dc2626" : accentColor }}
           />
-          <h4 className={styles.stageTitle}>
-            {statusText || currentStage.title}
+          <h4
+            className={styles.stageTitle}
+            style={cancelling ? { color: "#dc2626" } : undefined}
+          >
+            {cancelling
+              ? "Cancelling PDF Export..."
+              : statusText || currentStage.title}
           </h4>
         </div>
         <p className={styles.stageSub}>
-          {quizTitle && !statusText ? `${quizTitle} — ` : ""}
-          {currentStage.sub}
+          {cancelling
+            ? "Cancel pressed — stopping PDF generator and cleaning up..."
+            : `${quizTitle && !statusText ? `${quizTitle} — ` : ""}${currentStage.sub}`}
         </p>
       </div>
 
@@ -182,26 +211,57 @@ export function PdfExportingAnimation({
           className={styles.progressFill}
           style={{
             width: `${percentDisplay}%`,
-            backgroundColor: accentColor,
+            backgroundColor: cancelling ? "#dc2626" : accentColor,
           }}
         />
       </div>
 
       <div className={styles.stepCounterRow}>
-        <span className={styles.stepText}>
-          Step {stageIndex + 1} of {STAGES.length}
+        <span
+          className={styles.stepText}
+          style={cancelling ? { color: "#dc2626", fontWeight: 700 } : undefined}
+        >
+          {cancelling
+            ? "Stopping background task..."
+            : `Step ${stageIndex + 1} of ${STAGES.length}`}
         </span>
-        <span className={styles.percentText}>{percentDisplay}%</span>
+        <span
+          className={styles.percentText}
+          style={cancelling ? { color: "#dc2626" } : undefined}
+        >
+          {cancelling ? "Cancelling" : `${percentDisplay}%`}
+        </span>
       </div>
 
       {onCancel && (
         <button
           type="button"
-          className={styles.cancelExportBtn}
-          onClick={onCancel}
+          disabled={cancelling}
+          className={`${styles.cancelExportBtn} ${
+            cancelling ? styles.cancelExportBtnCancelling : ""
+          }`}
+          onMouseDown={() => {
+            if (cancelling) return;
+            setLocalCancelling(true);
+            onCancel();
+          }}
+          onClick={() => {
+            if (cancelling) return;
+            setLocalCancelling(true);
+            onCancel();
+          }}
         >
-          <XCircle size={16} />
-          <span>{cancelLabel}</span>
+          {cancelling ? (
+            <>
+              <Loader2 size={16} className={styles.cancelSpinner} />
+              <span>Cancelling export...</span>
+            </>
+          ) : (
+            <>
+              <XCircle size={16} />
+              <span>{cancelLabel}</span>
+            </>
+          )}
         </button>
       )}
     </div>

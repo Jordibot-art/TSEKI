@@ -1,7 +1,7 @@
 // teacher-web/src/lib/printEngine/answerSheetRenderer.ts
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
-import { throwIfExportAborted } from './cancel';
+import { abortableDelay, throwIfExportAborted } from './cancel';
 import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { topY } from './layoutJson';
@@ -121,6 +121,9 @@ export async function renderAnswerSheetPDF(
 
     // Draw Answer Sections (with overflow support up to hard max 2 pages)
     drawAnswerSections(pageStates, sheetCtx, questions);
+    if (!options.skipPdfSave) {
+        await abortableDelay(0, options.signal);
+    }
     throwIfExportAborted(options.signal);
 
     // Stamp QR codes & footers now that totalSheetPages (1 or 2) is known
@@ -158,6 +161,9 @@ export async function renderAnswerSheetPDF(
         });
     }
 
+    if (!options.skipPdfSave) {
+        await abortableDelay(0, options.signal);
+    }
     throwIfExportAborted(options.signal);
     const pdfBytes = options.skipPdfSave ? new Uint8Array() : await doc.save();
 

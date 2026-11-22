@@ -43,11 +43,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
   const [forceSeparateMode, setForceSeparateMode] = useState<boolean>(false);
   const [exporting, setExporting] = useState<boolean>(false);
+  const [cancelling, setCancelling] = useState<boolean>(false);
   const [exportStage, setExportStage] = useState<string>("");
   const [cancelledNotice, setCancelledNotice] = useState<boolean>(false);
 
   const exportAbortRef = useRef<AbortController | null>(null);
   const exportRunIdRef = useRef<number>(0);
+  const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCancelExport = useCallback(() => {
     exportRunIdRef.current += 1;
@@ -55,9 +57,17 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       exportAbortRef.current.abort();
       exportAbortRef.current = null;
     }
-    setExporting(false);
-    setExportStage("");
-    setCancelledNotice(true);
+    setCancelling(true);
+    setExportStage("Cancelling PDF Export...");
+    if (cancelTimerRef.current) {
+      clearTimeout(cancelTimerRef.current);
+    }
+    cancelTimerRef.current = setTimeout(() => {
+      setCancelling(false);
+      setExporting(false);
+      setExportStage("");
+      setCancelledNotice(true);
+    }, 420);
   }, []);
 
   // Clean up any in-flight export if modal closes or component unmounts
@@ -68,6 +78,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         exportAbortRef.current.abort();
         exportAbortRef.current = null;
       }
+      if (cancelTimerRef.current) {
+        clearTimeout(cancelTimerRef.current);
+      }
+      setCancelling(false);
       setExporting(false);
       setExportStage("");
       setCancelledNotice(false);
@@ -77,6 +91,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       if (exportAbortRef.current) {
         exportAbortRef.current.abort();
         exportAbortRef.current = null;
+      }
+      if (cancelTimerRef.current) {
+        clearTimeout(cancelTimerRef.current);
       }
     };
   }, [isOpen]);
@@ -217,6 +234,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               accentColor="#EA580C"
               statusText={exportStage}
               onCancel={handleCancelExport}
+              isCancelling={cancelling}
             />
           </div>
         ) : (

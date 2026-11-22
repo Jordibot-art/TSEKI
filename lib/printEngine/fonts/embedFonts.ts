@@ -136,7 +136,9 @@ export async function embedPrintFonts(doc: PDFDocument): Promise<EmbeddedPrintFo
         if (fonts && fonts.regularBytes && fonts.boldBytes) {
             doc.registerFontkit(fontkit);
             const regular = await doc.embedFont(fonts.regularBytes, { subset: false });
+            await new Promise((resolve) => setTimeout(resolve, 0));
             const bold = await doc.embedFont(fonts.boldBytes, { subset: false });
+            await new Promise((resolve) => setTimeout(resolve, 0));
             return { regular, bold };
         }
     } catch (err) {

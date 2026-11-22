@@ -93,6 +93,7 @@ type Props = {
   darkMode: boolean;
   themeColor: string;
   exportingPdf: boolean;
+  cancellingExport?: boolean;
   exportModalVisible: boolean;
   exportVersion: "A" | "B" | "C";
   selectedExportQuizTitle?: string;
@@ -110,6 +111,7 @@ export function AssessmentInspectorModal({
   darkMode,
   themeColor,
   exportingPdf,
+  cancellingExport = false,
   exportModalVisible,
   exportVersion,
   selectedExportQuizTitle,
@@ -2117,7 +2119,11 @@ export function AssessmentInspectorModal({
               },
             ]}
           >
-            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+            <Ionicons
+              name={/cancel/i.test(toastMessage) ? "close-circle" : "checkmark-circle"}
+              size={16}
+              color={/cancel/i.test(toastMessage) ? "#F87171" : "#10B981"}
+            />
             <Text style={styles.draftToastText}>{toastMessage}</Text>
           </Animated.View>
         )}
@@ -2139,11 +2145,12 @@ export function AssessmentInspectorModal({
                 quizTitle={selectedExportQuizTitle || quiz?.quizTitle || "Assessment"}
                 accentColor={accentColor}
                 darkMode={darkMode}
+                isCancelling={cancellingExport}
                 onCancel={
                   onCancelExportPdf
                     ? () => {
                         onCancelExportPdf();
-                        showToast("Export cancelled");
+                        showToast("PDF export cancelled");
                       }
                     : undefined
                 }

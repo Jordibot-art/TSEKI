@@ -91,6 +91,7 @@ export async function renderBookletPDF(
         const qrY = i === 0
             ? dims.height - MARGINS.top - qrSize + 4
             : dims.height - MARGINS.top - qrSize + 6;
+        // Stamp QR codes & footers
         drawQRCode(
             page,
             {
@@ -105,9 +106,10 @@ export async function renderBookletPDF(
             qrSize
         );
         drawBookletFooter(page, ctx, i + 1, totalPages);
+        await abortableDelay(0, signal);
     }
 
-    throwIfExportAborted(signal);
+    await abortableDelay(0, signal);
     return await doc.save();
 }
 

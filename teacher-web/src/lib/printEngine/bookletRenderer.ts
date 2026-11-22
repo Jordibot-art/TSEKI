@@ -105,9 +105,10 @@ export async function renderBookletPDF(
             qrSize
         );
         drawBookletFooter(page, ctx, i + 1, totalPages);
+        await abortableDelay(0, signal);
     }
 
-    throwIfExportAborted(signal);
+    await abortableDelay(0, signal);
     return await doc.save();
 }
 
