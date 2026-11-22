@@ -126,7 +126,51 @@ export async function getFontSingleton(): Promise<FontSingleton | null> {
     return loadingPromise;
 }
 
-export async function embedPrintFonts(doc: PDFDocument): Promise<EmbeddedPrintFonts> {
+const WIN_ANSI_EXTRA = new Set([
+    0x00A0, 0x00A1, 0x00A2, 0x00A3, 0x00A5, 0x00A7, 0x00A9, 0x00AB, 0x00AC, 0x00AE,
+    0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B5, 0x00B7, 0x00BB, 0x00BC, 0x00BD, 0x00BE, 0x00BF,
+    0x00D7, 0x00F7,
+    0x2013, 0x2014,
+    0x2018, 0x2019, 0x201C, 0x201D,
+    0x2022, 0x2026,
+]);
+
+/**
+ * Returns true if the provided text contains glyphs outside PDF Standard WinAnsi
+ * (e.g., Greek letters, math operators >=/<=, arrows, infinity, CJK) that require
+ * embedding our custom Noto Sans TTF font.
+ */
+export function textRequiresUnicodeFont(text?: string): boolean {
+    if (!text) return false;
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        if (code === 0x09 || code === 0x0A || code === 0x0D) continue;
+        if (code >= 0x20 && code <= 0x7E) continue;
+        if (
+            (code >= 0x00C0 && code <= 0x00D6) ||
+            (code >= 0x00D8 && code <= 0x00F6) ||
+            (code >= 0x00F8 && code <= 0x00FF)
+        ) {
+            continue;
+        }
+        if (WIN_ANSI_EXTRA.has(code)) continue;
+        return true;
+    }
+    return false;
+}
+
+export async function embedPrintFonts(
+    doc: PDFDocument,
+    textSample?: string
+): Promise<EmbeddedPrintFonts> {
+    // Fast native WinAnsi path: avoids 1.1 MB TTF parsing/compression on standard quizzes
+    // (~20x faster on mobile phones and eliminates multi-second JS thread blocking).
+    if (textSample !== undefined && !textRequiresUnicodeFont(textSample)) {
+        const regular = await doc.embedFont(StandardFonts.Helvetica);
+        const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+        return { regular, bold };
+    }
+
     try {
         const fonts = await Promise.race([
             getFontSingleton(),
@@ -135,11 +179,19 @@ export async function embedPrintFonts(doc: PDFDocument): Promise<EmbeddedPrintFo
 
         if (fonts && fonts.regularBytes && fonts.boldBytes) {
             doc.registerFontkit(fontkit);
-            const regular = await doc.embedFont(fonts.regularBytes, { subset: false });
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            const bold = await doc.embedFont(fonts.boldBytes, { subset: false });
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            return { regular, bold };
+            try {
+                const regular = await doc.embedFont(fonts.regularBytes, { subset: true });
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                const bold = await doc.embedFont(fonts.boldBytes, { subset: true });
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                return { regular, bold };
+            } catch {
+                const regular = await doc.embedFont(fonts.regularBytes, { subset: false });
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                const bold = await doc.embedFont(fonts.boldBytes, { subset: false });
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                return { regular, bold };
+            }
         }
     } catch (err) {
         console.warn('Fontkit font embed note, falling back to standard Helvetica:', err);

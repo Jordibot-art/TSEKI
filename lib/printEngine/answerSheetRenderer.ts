@@ -70,7 +70,8 @@ export async function renderAnswerSheetPDF(
         } as unknown as PDFDocument;
     } else {
         doc = await PDFDocument.create();
-        const embedded = await embedPrintFonts(doc);
+        const textSample = [options.quizId || '', options.classTitle || '', options.subject || ''].join(' ');
+        const embedded = await embedPrintFonts(doc, textSample);
         font = embedded.regular;
         fontBold = embedded.bold;
     }

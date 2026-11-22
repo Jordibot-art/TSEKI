@@ -66,7 +66,15 @@ type ClassroomOption = {
   id: string;
   title: string;
   subject: string;
+  section?: string | null;
 };
+
+function formatSectionLabel(raw?: string | null): string {
+  if (!raw) return "";
+  const clean = raw.includes(" || ") ? raw.split(" || ")[0].trim() : raw.trim();
+  if (!clean) return "";
+  return /^\d+$/.test(clean) ? `Section ${clean}` : clean;
+}
 
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -113,7 +121,7 @@ export default function AssessmentsPage() {
   // Generated/Draft questions to review/edit
   const [draftQuestions, setDraftQuestions] = useState<ScannableQuestion[]>([]);
   const [draftAnswerKey, setDraftAnswerKey] = useState<AnswerKeyItem[]>([]);
-  const [step, setStep] = useState<"config" | "preview">("config");
+  const [step, setStep] = useState<"config" | "review_setup" | "preview">("config");
 
   // View / Print Modal
   const [selectedQuiz, setSelectedQuiz] = useState<StoredQuiz | null>(null);
@@ -208,7 +216,7 @@ export default function AssessmentsPage() {
       // Fetch classrooms
       const { data: cls } = await supabase
         .from("classrooms")
-        .select("id, title, subject")
+        .select("id, title, subject, section")
         .eq("teacher_id", user!.id)
         .order("title");
 
@@ -315,6 +323,23 @@ export default function AssessmentsPage() {
 
     setDraftQuestions(newQuestions);
     setDraftAnswerKey(newKey);
+  }
+
+  function handleOpenReviewSetup() {
+    const effectiveTopic =
+      topicPrompt.trim() ||
+      (attachedDoc ? `Content of ${attachedDoc.name}` : quizTitle.trim());
+
+    if (!effectiveTopic && !attachedDoc) {
+      showAlert({
+        title: "Missing Topic or File",
+        message: "Please enter an assessment title, topic prompt, or attach a curriculum document.",
+        type: "info",
+      });
+      return;
+    }
+
+    setStep("review_setup");
   }
 
   async function handleGenerateAI() {
@@ -853,11 +878,19 @@ export default function AssessmentsPage() {
                   <Sparkles size={16} />
                 </div>
                 <div>
-                  <h2>{generatorLoading ? "Generating AI Assessment..." : "AI Assessment Builder"}</h2>
+                  <h2>
+                    {generatorLoading
+                      ? "Generating AI Assessment..."
+                      : step === "review_setup"
+                        ? "Review Before Generating"
+                        : "AI Assessment Builder"}
+                  </h2>
                   <p>
                     {generatorLoading
                       ? "Synthesizing question items & scannable layout..."
-                      : "Calibrated to Bloom's Taxonomy & Optical Paper Sheet Layout"}
+                      : step === "review_setup"
+                        ? "Verify your classroom, section, and settings — change anything inline before running TSEKI AI"
+                        : "Calibrated to Bloom's Taxonomy & Optical Paper Sheet Layout"}
                   </p>
                 </div>
               </div>
@@ -880,6 +913,17 @@ export default function AssessmentsPage() {
                 )}
               </div>
             </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.doc,.pptx,.ppt,.txt"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileSelected(file);
+              }}
+            />
 
             {generatorLoading ? (
               <AssessmentGeneratingAnimation
@@ -972,18 +1016,29 @@ export default function AssessmentsPage() {
 
                 {/* Target Classroom */}
                 <div className={styles.formGroup}>
-                  <label>Assign to Classroom (Optional)</label>
+                  <label>Assign to Classroom & Section (Optional)</label>
                   <select
                     value={targetClassroom}
-                    onChange={(e) => setTargetClassroom(e.target.value)}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setTargetClassroom(nextId);
+                      const picked = classrooms.find((c) => c.id === nextId);
+                      if (picked?.subject) {
+                        setSubject(picked.subject);
+                      }
+                    }}
                     className={styles.select}
                   >
                     <option value="">No Classroom (Draft / Unassigned)</option>
-                    {classrooms.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title} — {c.subject}
-                      </option>
-                    ))}
+                    {classrooms.map((c) => {
+                      const sec = formatSectionLabel(c.section);
+                      return (
+                        <option key={c.id} value={c.id}>
+                          {c.title}
+                          {sec ? ` (${sec})` : ""} — {c.subject}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1063,17 +1118,6 @@ export default function AssessmentsPage() {
                   <p className={styles.helpText}>
                     Supports PDF, DOCX, PPTX, or TXT. Questions will be strictly grounded in its contents.
                   </p>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx,.doc,.pptx,.ppt,.txt"
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleFileSelected(file);
-                    }}
-                  />
 
                   {attachedDoc ? (
                     <div className={styles.attachedDocCard}>
@@ -1188,20 +1232,274 @@ export default function AssessmentsPage() {
                   <button
                     type="button"
                     className={styles.generateSubmitBtn}
+                    onClick={handleOpenReviewSetup}
+                    disabled={generatorLoading}
+                  >
+                    <Sparkles size={16} />
+                    Generate with TSEKI AI
+                  </button>
+                </div>
+              </>
+            ) : step === "review_setup" ? (
+              /* Step 1.5: Pre-Generation Review & Quick-Edit Preview */
+              <>
+                <div className={styles.modalBody}>
+                  <div className={styles.reviewSetupStack}>
+                    {/* 1. Target Classroom & Section */}
+                    <div className={`${styles.reviewSetupCard} ${styles.reviewSetupCardHighlight}`}>
+                      <div className={styles.reviewSetupEyebrow}>
+                        <span>Target Classroom &amp; Section</span>
+                        {(() => {
+                          const cls = classrooms.find((c) => c.id === targetClassroom);
+                          const sec = formatSectionLabel(cls?.section);
+                          return cls ? (
+                            <span className={styles.reviewSectionBadge}>
+                              {cls.title}
+                              {sec ? ` · ${sec}` : ""}
+                            </span>
+                          ) : (
+                            <span className={styles.reviewSectionBadge}>Unassigned Draft</span>
+                          );
+                        })()}
+                      </div>
+                      <select
+                        value={targetClassroom}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          setTargetClassroom(nextId);
+                          const picked = classrooms.find((c) => c.id === nextId);
+                          if (picked?.subject) {
+                            setSubject(picked.subject);
+                          }
+                        }}
+                        className={styles.select}
+                      >
+                        <option value="">No Classroom (Draft / Unassigned)</option>
+                        {classrooms.map((c) => {
+                          const sec = formatSectionLabel(c.section);
+                          return (
+                            <option key={c.id} value={c.id}>
+                              {c.title}
+                              {sec ? ` (${sec})` : ""} — {c.subject}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {/* 2. Topic & Core Assessment Parameters */}
+                    <div className={styles.reviewSetupCard}>
+                      <div className={styles.reviewSetupEyebrow}>
+                        <span>Assessment Details (Editable)</span>
+                      </div>
+
+                      <div className={styles.formGroup} style={{ marginBottom: 12 }}>
+                        <label>Assessment Title / Primary Topic</label>
+                        <input
+                          type="text"
+                          value={topicPrompt}
+                          onChange={(e) => setTopicPrompt(e.target.value)}
+                          placeholder="e.g. Cellular Respiration and Photosynthesis"
+                          className={styles.input}
+                        />
+                      </div>
+
+                      <div className={styles.reviewSetupGrid}>
+                        <div className={styles.formGroup}>
+                          <label>Subject</label>
+                          <input
+                            type="text"
+                            value={subject}
+                            onChange={(e) => setSubject(e.target.value)}
+                            className={styles.input}
+                          />
+                        </div>
+
+                        <div className={styles.formGroup}>
+                          <label>Grade Level</label>
+                          <select
+                            value={gradeLevel}
+                            onChange={(e) => setGradeLevel(e.target.value)}
+                            className={styles.select}
+                          >
+                            <option>Grade 7</option>
+                            <option>Grade 8</option>
+                            <option>Grade 9</option>
+                            <option>Grade 10</option>
+                            <option>Grade 11 (SHS)</option>
+                            <option>Grade 12 (SHS)</option>
+                          </select>
+                        </div>
+
+                        <div className={styles.formGroup}>
+                          <label>Question Type</label>
+                          <select
+                            value={questionType}
+                            onChange={(e) => setQuestionType(e.target.value as any)}
+                            className={styles.select}
+                          >
+                            <option value="multiple_choice">Multiple Choice</option>
+                            <option value="true_false">True / False</option>
+                            <option value="identification">Identification</option>
+                            <option value="enumeration">Enumeration</option>
+                            <option value="word_box">Word Box</option>
+                            <option value="mixed">Mixed Assessment</option>
+                          </select>
+                        </div>
+
+                        <div className={styles.formGroup}>
+                          <label>Number of Questions</label>
+                          <select
+                            value={questionCount}
+                            onChange={(e) => setQuestionCount(Number(e.target.value))}
+                            className={styles.select}
+                          >
+                            <option value={5}>5 Questions</option>
+                            <option value={10}>10 Questions</option>
+                            <option value={15}>15 Questions</option>
+                            <option value={20}>20 Questions</option>
+                            <option value={25}>25 Questions</option>
+                            <option value={30}>30 Questions</option>
+                            <option value={40}>40 Questions</option>
+                          </select>
+                        </div>
+
+                        <div className={styles.formGroup} style={{ gridColumn: "1 / -1" }}>
+                          <label>Bloom&apos;s Difficulty</label>
+                          <select
+                            value={difficulty}
+                            onChange={(e) => setDifficulty(e.target.value)}
+                            className={styles.select}
+                          >
+                            <option value="Easy (Recall & Understanding)">Easy (Recall &amp; Understanding)</option>
+                            <option value="Medium (Application & Analysis)">Medium (Application &amp; Analysis)</option>
+                            <option value="Hard (Evaluation & Synthesis)">Hard (Evaluation &amp; Synthesis)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {questionType === "mixed" && (
+                        <div className={styles.mixedTypesContainer} style={{ marginTop: 12 }}>
+                          <span className={styles.mixedTypesTitle}>
+                            Exam Sections / Parts (tick or untick to change):
+                          </span>
+                          <div className={styles.mixedChecklist}>
+                            {[
+                              { key: "multiple_choice", label: "Multiple Choice" },
+                              { key: "enumeration", label: "Enumeration" },
+                              { key: "true_false", label: "True / False" },
+                              { key: "identification", label: "Identification" },
+                              { key: "word_box", label: "Word Box" },
+                            ].map((item) => {
+                              const checked = mixedTypes.includes(item.key);
+                              return (
+                                <label key={item.key} className={styles.mixedCheckLabel}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => {
+                                      if (checked && mixedTypes.length <= 1) {
+                                        showAlert({
+                                          title: "Minimum Selection",
+                                          message: "Please keep at least one question type selected.",
+                                          type: "info",
+                                        });
+                                        return;
+                                      }
+                                      setMixedTypes(
+                                        checked
+                                          ? mixedTypes.filter((k) => k !== item.key)
+                                          : [...mixedTypes, item.key]
+                                      );
+                                    }}
+                                  />
+                                  <span>{item.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 3. Attached Document & Teacher Notes */}
+                    <div className={styles.reviewSetupCard}>
+                      <div className={styles.reviewSetupEyebrow}>
+                        <span>Source File &amp; Teacher Notes</span>
+                      </div>
+                      {attachedDoc ? (
+                        <div className={styles.attachedDocCard} style={{ marginBottom: 10 }}>
+                          <div className={styles.docInfo}>
+                            <div
+                              className={styles.docBadge}
+                              style={{ background: getDocBadgeInfo(attachedDoc.type).color }}
+                            >
+                              {getDocBadgeInfo(attachedDoc.type).label}
+                            </div>
+                            <div className={styles.docDetails}>
+                              <span className={styles.docName}>{attachedDoc.name}</span>
+                              <span className={styles.docMeta}>
+                                {(attachedDoc.size / 1024).toFixed(1)} KB · Content extracted
+                              </span>
+                            </div>
+                          </div>
+                          <div className={styles.docActions}>
+                            <button
+                              type="button"
+                              className={styles.changeFileBtn}
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              Change
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.removeFileBtn}
+                              onClick={handleRemoveFile}
+                              title="Remove file"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <textarea
+                        rows={2}
+                        placeholder="Optional teacher notes or specific focus instructions..."
+                        value={lessonNotes}
+                        onChange={(e) => setLessonNotes(e.target.value)}
+                        className={styles.textarea}
+                      />
+                    </div>
+
+                    {quota && (
+                      <div className={styles.reviewQuotaBanner}>
+                        <Sparkles size={15} />
+                        <span>
+                          Confirming will use 1 of {quota.remainingToday} remaining AI generations today.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={styles.modalFooter}>
+                  <button
+                    type="button"
+                    className={styles.cancelBtn}
+                    onClick={() => setStep("config")}
+                    disabled={generatorLoading}
+                  >
+                    Back to Edit
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.generateSubmitBtn}
                     onClick={handleGenerateAI}
                     disabled={generatorLoading}
                   >
-                    {generatorLoading ? (
-                      <>
-                        <Loader2 size={16} className="spinner" />
-                        Generating Assessment...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} />
-                        Generate AI Assessment
-                      </>
-                    )}
+                    <Sparkles size={16} />
+                    Confirm &amp; Generate with TSEKI AI
                   </button>
                 </div>
               </>

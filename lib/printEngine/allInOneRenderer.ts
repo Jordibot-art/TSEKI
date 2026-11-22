@@ -71,7 +71,13 @@ export async function renderAllInOnePDF(
         } as unknown as PDFDocument;
     } else {
         doc = await PDFDocument.create();
-        const embedded = await embedPrintFonts(doc);
+        const textSample = [
+            assessment.quizTitle || '',
+            options.classTitle || '',
+            options.subject || '',
+            ...assessment.questions.flatMap((q) => [q.questionText || '', ...(q.options || [])]),
+        ].join(' ');
+        const embedded = await embedPrintFonts(doc, textSample);
         font = embedded.regular;
         fontBold = embedded.bold;
     }

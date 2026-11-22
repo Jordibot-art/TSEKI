@@ -27,7 +27,13 @@ export async function renderAnswerKeyPDF(
     const { signal } = options;
     throwIfExportAborted(signal);
     const doc = await PDFDocument.create();
-    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
+    const textSample = [
+        assessment.quizTitle || '',
+        options.classTitle || '',
+        options.quizId || '',
+        ...(assessment.answerKey || []).map((k) => k.correctAnswer || ''),
+    ].join(' ');
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc, textSample);
     throwIfExportAborted(signal);
 
     const paperSize = options.paperSize || 'short';

@@ -1,14 +1,27 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Animated,
   Easing,
-  Pressable,
   Platform,
-  ActivityIndicator,
 } from "react-native";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  cancelAnimation,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -33,6 +46,119 @@ export function PdfExportingAnimation({
 }: PdfExportingAnimationProps) {
   const [localCancelling, setLocalCancelling] = useState(false);
   const cancelling = Boolean(isCancelling || localCancelling);
+  const cancelFiredRef = useRef(false);
+
+  // ── 100% Native UI-Thread Cancel Feedback & Spam Lock (0ms latency even when JS is busy) ──
+  const cancelLockedSV = useSharedValue(isCancelling ? 1 : 0);
+  const cancelGlowSV = useSharedValue(isCancelling ? 1 : 0);
+  const cancelScaleSV = useSharedValue(1);
+  const cancelSpinSV = useSharedValue(0);
+
+  const triggerCancelOnce = useCallback(() => {
+    if (cancelFiredRef.current || !onCancel) return;
+    cancelFiredRef.current = true;
+    setLocalCancelling(true);
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    }
+    onCancel();
+  }, [onCancel]);
+
+  // Sync UI-thread glow if cancellation is triggered externally (e.g. Android hardware back button)
+  useEffect(() => {
+    if (isCancelling && cancelLockedSV.value === 0) {
+      cancelLockedSV.value = 1;
+      cancelGlowSV.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 300 }),
+          withTiming(0.45, { duration: 300 })
+        ),
+        -1,
+        true
+      );
+      cancelSpinSV.value = withRepeat(
+        withTiming(360, { duration: 750, easing: ReanimatedEasing.linear }),
+        -1,
+        false
+      );
+    }
+  }, [isCancelling, cancelLockedSV, cancelGlowSV, cancelSpinSV]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimation(cancelGlowSV);
+      cancelAnimation(cancelScaleSV);
+      cancelAnimation(cancelSpinSV);
+    };
+  }, [cancelGlowSV, cancelScaleSV, cancelSpinSV]);
+
+  const cancelTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .maxDuration(60000)
+        .onBegin(() => {
+          "worklet";
+          // Lock out duplicate/spam taps right on the UI thread
+          if (cancelLockedSV.value === 1) return;
+          cancelLockedSV.value = 1;
+
+          cancelScaleSV.value = withSequence(
+            withTiming(0.95, { duration: 65 }),
+            withTiming(1.02, { duration: 110 }),
+            withTiming(1, { duration: 95 })
+          );
+
+          cancelGlowSV.value = withRepeat(
+            withSequence(
+              withTiming(1, { duration: 300 }),
+              withTiming(0.45, { duration: 300 })
+            ),
+            -1,
+            true
+          );
+
+          cancelSpinSV.value = withRepeat(
+            withTiming(360, {
+              duration: 750,
+              easing: ReanimatedEasing.linear,
+            }),
+            -1,
+            false
+          );
+
+          runOnJS(triggerCancelOnce)();
+        }),
+    [cancelLockedSV, cancelScaleSV, cancelGlowSV, cancelSpinSV, triggerCancelOnce]
+  );
+
+  const cancelBtnOuterStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: cancelScaleSV.value }],
+  }));
+
+  const cancelGlowHaloStyle = useAnimatedStyle(() => ({
+    opacity: cancelLockedSV.value * (0.28 + cancelGlowSV.value * 0.42),
+    transform: [{ scale: 1 + cancelLockedSV.value * (0.015 + cancelGlowSV.value * 0.02) }],
+  }));
+
+  const cancelActiveFillStyle = useAnimatedStyle(() => ({
+    opacity: withTiming(cancelLockedSV.value, { duration: 80 }),
+  }));
+
+  const cancelIdleLayerStyle = useAnimatedStyle(() => ({
+    opacity: cancelLockedSV.value === 1 ? 0 : 1,
+  }));
+
+  const cancelActiveLayerStyle = useAnimatedStyle(() => ({
+    opacity: cancelLockedSV.value === 1 ? 1 : 0,
+  }));
+
+  const cancelSpinnerRingStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${cancelSpinSV.value}deg` }],
+  }));
+
+  const sheetOverlayAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: withTiming(cancelLockedSV.value, { duration: 110 }),
+  }));
   // Laser / print sweep vertical animation (0 -> 1 -> 0) [100% Native Driver]
   const laserAnim = useRef(new Animated.Value(0)).current;
 
@@ -358,15 +484,16 @@ export function PdfExportingAnimation({
             />
           </Animated.View>
 
-          {/* Instant Cancelling Sheet Overlay Badge */}
-          {cancelling && (
-            <View style={styles.cancellingSheetOverlay}>
-              <View style={styles.cancellingPill}>
-                <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text style={styles.cancellingPillText}>STOPPING EXPORT…</Text>
-              </View>
+          {/* Instant Native UI-Thread Cancelling Sheet Overlay Badge */}
+          <Reanimated.View
+            pointerEvents="none"
+            style={[styles.cancellingSheetOverlay, sheetOverlayAnimatedStyle]}
+          >
+            <View style={styles.cancellingPill}>
+              <Reanimated.View style={[styles.uiSpinnerRingSmall, cancelSpinnerRingStyle]} />
+              <Text style={styles.cancellingPillText}>STOPPING EXPORT…</Text>
             </View>
-          )}
+          </Reanimated.View>
         </View>
       </View>
 
@@ -461,69 +588,71 @@ export function PdfExportingAnimation({
       </View>
 
       {onCancel && (
-        <Pressable
-          disabled={cancelling}
-          onPressIn={() => {
-            if (cancelling) return;
-            setLocalCancelling(true);
-            if (Platform.OS !== "web") {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-            }
-            onCancel();
-          }}
-          onPress={() => {
-            if (cancelling) return;
-            setLocalCancelling(true);
-            onCancel();
-          }}
-          style={({ pressed }) => [
-            styles.cancelBtn,
-            cancelling
-              ? {
-                  backgroundColor: "#DC2626",
-                  borderColor: "#B91C1C",
-                }
-              : {
-                  backgroundColor: pressed
-                    ? darkMode
-                      ? "rgba(239, 68, 68, 0.26)"
-                      : "#FEE2E2"
-                    : darkMode
-                      ? "rgba(239, 68, 68, 0.12)"
-                      : "#FEF2F2",
-                  borderColor: darkMode ? "rgba(248, 113, 113, 0.35)" : "#FECACA",
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={cancelling ? "Cancelling export" : cancelLabel}
-          accessibilityState={{ busy: cancelling, disabled: cancelling }}
-        >
-          {cancelling ? (
-            <>
-              <ActivityIndicator size="small" color="#FFFFFF" />
-              <Text style={[styles.cancelBtnText, { color: "#FFFFFF", fontWeight: "700" }]}>
-                Cancelling export...
-              </Text>
-            </>
-          ) : (
-            <>
-              <Ionicons
-                name="close-circle-outline"
-                size={17}
-                color={darkMode ? "#FCA5A5" : "#DC2626"}
-              />
-              <Text
+        <GestureHandlerRootView style={styles.cancelGestureRoot}>
+          <Reanimated.View style={[styles.cancelBtnWrap, cancelBtnOuterStyle]}>
+            {/* Outer luminous crimson glow ring (100% Native UI Thread) */}
+            <Reanimated.View
+              pointerEvents="none"
+              style={[styles.cancelGlowHalo, cancelGlowHaloStyle]}
+            />
+
+            <GestureDetector gesture={cancelTapGesture}>
+              <View
                 style={[
-                  styles.cancelBtnText,
-                  { color: darkMode ? "#FCA5A5" : "#DC2626" },
+                  styles.cancelBtn,
+                  {
+                    backgroundColor: darkMode ? "rgba(239, 68, 68, 0.14)" : "#FEF2F2",
+                    borderColor: darkMode ? "rgba(248, 113, 113, 0.38)" : "#FECACA",
+                  },
                 ]}
+                accessible
+                accessibilityRole="button"
+                accessibilityLabel={cancelling ? "Cancelling export" : cancelLabel}
+                accessibilityState={{ busy: cancelling, disabled: cancelling }}
               >
-                {cancelLabel}
-              </Text>
-            </>
-          )}
-        </Pressable>
+                {/* Bright glowing active fill layer (100% Native UI Thread) */}
+                <Reanimated.View
+                  pointerEvents="none"
+                  style={[styles.cancelActiveFill, cancelActiveFillStyle]}
+                />
+
+                {/* Layer 1: Idle "Cancel Export" */}
+                <Reanimated.View
+                  pointerEvents="none"
+                  style={[styles.cancelBtnLayer, cancelIdleLayerStyle]}
+                >
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={17}
+                    color={darkMode ? "#FCA5A5" : "#DC2626"}
+                  />
+                  <Text
+                    style={[
+                      styles.cancelBtnText,
+                      { color: darkMode ? "#FCA5A5" : "#DC2626" },
+                    ]}
+                  >
+                    {cancelLabel}
+                  </Text>
+                </Reanimated.View>
+
+                {/* Layer 2: Instant Glowing "Cancelling export..." + 60fps UI-Thread Spinner */}
+                <Reanimated.View
+                  pointerEvents="none"
+                  style={[styles.cancelBtnLayer, styles.cancelBtnLayerOverlay, cancelActiveLayerStyle]}
+                >
+                  <Reanimated.View style={[styles.uiSpinnerRing, cancelSpinnerRingStyle]} />
+                  <Text style={[styles.cancelBtnText, { color: "#FFFFFF", fontWeight: "700" }]}>
+                    Cancelling export...
+                  </Text>
+                  <View style={styles.cancelPressedBadge}>
+                    <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                  </View>
+                </Reanimated.View>
+              </View>
+            </GestureDetector>
+          </Reanimated.View>
+        </GestureHandlerRootView>
       )}
     </View>
   );
@@ -732,16 +861,79 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-  cancelBtn: {
-    marginTop: 16,
+  cancelGestureRoot: {
     width: "100%",
-    height: 44,
+    marginTop: 16,
+  },
+  cancelBtnWrap: {
+    width: "100%",
+    position: "relative",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cancelGlowHalo: {
+    position: "absolute",
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 16,
+    backgroundColor: "#EF4444",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  cancelBtn: {
+    width: "100%",
+    height: 46,
     borderRadius: 12,
     borderWidth: 1,
+    overflow: "hidden",
+    position: "relative",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cancelActiveFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#EF4444",
+    borderWidth: 1.5,
+    borderColor: "#FCA5A5",
+    borderRadius: 12,
+  },
+  cancelBtnLayer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    gap: 8,
+  },
+  cancelBtnLayerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  uiSpinnerRing: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2.2,
+    borderColor: "rgba(255, 255, 255, 0.35)",
+    borderTopColor: "#FFFFFF",
+  },
+  uiSpinnerRingSmall: {
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.35)",
+    borderTopColor: "#FFFFFF",
+  },
+  cancelPressedBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(255, 255, 255, 0.24)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   cancelBtnText: {
     fontSize: 13.5,

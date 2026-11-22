@@ -6,9 +6,11 @@ import {
     Alert,
     Image,
     Modal,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from "react-native";
@@ -51,17 +53,38 @@ export type Student = {
 
 // ── Reusable Dropdown ─────────────────────────────────────────────────────────
 function Dropdown({
-    label, value, options, onSelect, accentColor, placeholder,
+    label, value, options, onSelect, accentColor, placeholder, initialVisibleCount,
 }: {
     label: string; value: string; options: string[];
     onSelect: (v: string) => void; accentColor: string;
     placeholder?: string;
+    initialVisibleCount?: number;
 }) {
     const { darkMode } = useTheme();
     const [open, setOpen] = useState(false);
+    const pageSize = initialVisibleCount && initialVisibleCount > 0 ? initialVisibleCount : options.length;
+    const [visibleCount, setVisibleCount] = useState<number>(pageSize);
+    const [searchQuery, setSearchQuery] = useState<string>("");
     const hasValue = Boolean(value && value.trim().length > 0);
     const textSub = darkMode ? "#9CA3AF" : "#6B7280";
     const textMain = darkMode ? "#F9FAFB" : "#374151";
+    const borderCol = darkMode ? "#374151" : "#E5E7EB";
+
+    const usePagination = Boolean(initialVisibleCount && options.length > initialVisibleCount);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const filteredOptions = usePagination && normalizedQuery
+        ? options.filter((opt) => opt.toLowerCase().includes(normalizedQuery))
+        : options;
+    const displayedOptions = usePagination
+        ? filteredOptions.slice(0, visibleCount)
+        : filteredOptions;
+    const remainingCount = Math.max(0, filteredOptions.length - displayedOptions.length);
+
+    function openDropdown() {
+        setVisibleCount(initialVisibleCount || options.length);
+        setSearchQuery("");
+        setOpen(true);
+    }
 
     return (
         <View style={styles.dropdownContainer}>
@@ -73,19 +96,76 @@ function Dropdown({
                         borderColor: darkMode ? "#4B5563" : "#E5E7EB",
                     },
                 ]}
-                onPress={() => setOpen(true)}
+                onPress={openDropdown}
                 activeOpacity={0.7}
             >
-                <Text style={[styles.dropdownValue, { color: hasValue ? textMain : textSub }]}>
+                <Text style={[styles.dropdownValue, { color: hasValue ? textMain : textSub }]} numberOfLines={1}>
                     {hasValue ? value : (placeholder || "Select option")}
                 </Text>
                 <Ionicons name="chevron-down" size={16} color={textSub} />
             </TouchableOpacity>
 
-            <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-                <TouchableOpacity style={styles.ddOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
+            <Modal
+                visible={open}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                navigationBarTranslucent
+                onRequestClose={() => setOpen(false)}
+            >
+                <View style={styles.ddOverlay}>
+                    <Pressable
+                        style={StyleSheet.absoluteFillObject}
+                        onPress={() => setOpen(false)}
+                    />
                     <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
-                        <Text style={[styles.ddTitle, { color: accentColor }]}>{label}</Text>
+                        <View style={styles.ddHeaderRow}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.ddTitle, { color: accentColor, marginBottom: 0 }]}>{label}</Text>
+                                {usePagination && (
+                                    <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
+                                        Showing {displayedOptions.length} of {filteredOptions.length}
+                                    </Text>
+                                )}
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setOpen(false)}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={19} color={textSub} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {usePagination && (
+                            <View
+                                style={[
+                                    styles.ddSearchBox,
+                                    {
+                                        backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                        borderColor: borderCol,
+                                    },
+                                ]}
+                            >
+                                <Ionicons name="search-outline" size={15} color={textSub} />
+                                <TextInput
+                                    style={[styles.ddSearchInput, { color: textMain }]}
+                                    value={searchQuery}
+                                    onChangeText={(txt) => {
+                                        setSearchQuery(txt);
+                                        setVisibleCount(initialVisibleCount || 5);
+                                    }}
+                                    placeholder="Search assessments..."
+                                    placeholderTextColor={textSub}
+                                    returnKeyType="search"
+                                />
+                                {searchQuery.length > 0 && (
+                                    <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                        <Ionicons name="close-circle" size={16} color={textSub} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
+
                         {options.length === 0 ? (
                             <View style={{ paddingVertical: 24, alignItems: "center" }}>
                                 <Ionicons name="document-text-outline" size={32} color={textSub} style={{ marginBottom: 8 }} />
@@ -96,9 +176,15 @@ function Dropdown({
                                     Create and publish a quiz in the AI Builder tab to grade against it.
                                 </Text>
                             </View>
+                        ) : displayedOptions.length === 0 ? (
+                            <View style={{ paddingVertical: 22, alignItems: "center" }}>
+                                <Text style={{ color: textSub, fontSize: 13 }}>
+                                    No matching assessments found.
+                                </Text>
+                            </View>
                         ) : (
-                            <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
-                                {options.map((opt, idx) => (
+                            <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={true}>
+                                {displayedOptions.map((opt, idx) => (
                                     <TouchableOpacity
                                         key={`${opt}-${idx}`}
                                         style={[
@@ -107,11 +193,14 @@ function Dropdown({
                                         ]}
                                         onPress={() => { onSelect(opt); setOpen(false); }}
                                     >
-                                        <Text style={[
-                                            styles.ddItemText,
-                                            { color: textMain },
-                                            value === opt && { color: accentColor, fontWeight: "700" },
-                                        ]}>
+                                        <Text
+                                            style={[
+                                                styles.ddItemText,
+                                                { color: textMain, flex: 1, marginRight: 8 },
+                                                value === opt && { color: accentColor, fontWeight: "700" },
+                                            ]}
+                                            numberOfLines={2}
+                                        >
                                             {opt}
                                         </Text>
                                         {value === opt && (
@@ -121,8 +210,65 @@ function Dropdown({
                                 ))}
                             </ScrollView>
                         )}
+
+                        {usePagination && filteredOptions.length > (initialVisibleCount || 5) && (
+                            <View style={[styles.ddFooterActions, { borderTopColor: borderCol }]}>
+                                {remainingCount > 0 ? (
+                                    <>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.ddFooterBtn,
+                                                {
+                                                    backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                                    borderColor: borderCol,
+                                                },
+                                            ]}
+                                            onPress={() =>
+                                                setVisibleCount((prev) => prev + (initialVisibleCount || 5))
+                                            }
+                                            activeOpacity={0.75}
+                                        >
+                                            <Text style={[styles.ddFooterBtnText, { color: textMain }]}>
+                                                Show {Math.min(initialVisibleCount || 5, remainingCount)} More
+                                            </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.ddFooterBtn,
+                                                {
+                                                    backgroundColor: accentColor + "16",
+                                                    borderColor: accentColor + "40",
+                                                },
+                                            ]}
+                                            onPress={() => setVisibleCount(filteredOptions.length)}
+                                            activeOpacity={0.75}
+                                        >
+                                            <Text style={[styles.ddFooterBtnText, { color: accentColor }]}>
+                                                View All ({filteredOptions.length})
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </>
+                                ) : (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.ddFooterBtn,
+                                            {
+                                                backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                                borderColor: borderCol,
+                                            },
+                                        ]}
+                                        onPress={() => setVisibleCount(initialVisibleCount || 5)}
+                                        activeOpacity={0.75}
+                                    >
+                                        <Text style={[styles.ddFooterBtnText, { color: textSub }]}>
+                                            Show Less (Top {initialVisibleCount || 5})
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
                     </View>
-                </TouchableOpacity>
+                </View>
             </Modal>
         </View>
     );
@@ -154,6 +300,8 @@ export default function GraderTab({
     const [gradedQuiz, setGradedQuiz] = useState<StoredQuiz | null>(null);
     const [wasAssessmentAutoDetected, setWasAssessmentAutoDetected] = useState(false);
     const [assessmentPickerOpen, setAssessmentPickerOpen] = useState(false);
+    const [switchQuizVisibleCount, setSwitchQuizVisibleCount] = useState(5);
+    const [switchQuizSearchQuery, setSwitchQuizSearchQuery] = useState("");
     const lastGradedImageRef = useRef<{ base64: string; mimeType: "image/jpeg" | "image/png" } | null>(null);
 
     // 2. Identify student sheet (functional with real database students)
@@ -1205,6 +1353,8 @@ export default function GraderTab({
                                     <TouchableOpacity
                                         onPress={() => {
                                             if (!isRecorded && publishedQuizzes.length > 1) {
+                                                setSwitchQuizVisibleCount(5);
+                                                setSwitchQuizSearchQuery("");
                                                 setAssessmentPickerOpen(true);
                                             }
                                         }}
@@ -1633,6 +1783,7 @@ export default function GraderTab({
                                     options={quizOptions}
                                     onSelect={setSelectedQuiz}
                                     accentColor={accentColor}
+                                    initialVisibleCount={5}
                                 />
                             </View>
 
@@ -1679,6 +1830,7 @@ export default function GraderTab({
                                     options={quizOptions}
                                     onSelect={setSelectedQuiz}
                                     accentColor={accentColor}
+                                    initialVisibleCount={5}
                                 />
                             </View>
 
@@ -1934,72 +2086,201 @@ export default function GraderTab({
                 </TouchableOpacity>
             </Modal>
 
-            {/* ── Switch Assessment & Re-Grade Modal (Single Paper) ── */}
+            {/* ── Switch Assessment & Re-Grade Modal (Single Paper — 5 initially + Show More / View All) ── */}
             <Modal
                 visible={assessmentPickerOpen}
                 transparent
                 animationType="fade"
+                statusBarTranslucent
+                navigationBarTranslucent
                 onRequestClose={() => setAssessmentPickerOpen(false)}
             >
-                <TouchableOpacity
-                    style={styles.ddOverlay}
-                    activeOpacity={1}
-                    onPress={() => setAssessmentPickerOpen(false)}
-                >
-                    <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
-                        <Text style={[styles.ddTitle, { color: accentColor }]}>
-                            Switch Assessment &amp; Re-Grade Sheet
-                        </Text>
-                        <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
-                            {quizOptionEntries.map(({ label, quiz }) => {
-                                const isSelected = (gradedQuiz || activePublishedQuiz)?.id === quiz.id;
-                                const itemCount = quiz.questions?.length || quiz.answerKey?.length || 0;
-                                return (
-                                    <TouchableOpacity
-                                        key={quiz.id}
-                                        style={[
-                                            styles.ddItem,
-                                            isSelected && { backgroundColor: accentColor + "18" },
-                                        ]}
-                                        onPress={() => {
-                                            setAssessmentPickerOpen(false);
-                                            if (isSelected) return;
-                                            setGradedQuiz(quiz);
-                                            setWasAssessmentAutoDetected(false);
-                                            if (lastGradedImageRef.current) {
-                                                void processGrading(
-                                                    lastGradedImageRef.current.base64,
-                                                    lastGradedImageRef.current.mimeType,
-                                                    null,
-                                                    quiz
-                                                );
-                                            }
-                                        }}
-                                    >
-                                        <View style={{ flex: 1, marginRight: 8 }}>
-                                            <Text
-                                                style={[
-                                                    styles.ddItemText,
-                                                    { color: textMain },
-                                                    isSelected && { color: accentColor, fontWeight: "700" },
-                                                ]}
-                                                numberOfLines={2}
-                                            >
-                                                {label}
+                <View style={styles.ddOverlay}>
+                    <Pressable
+                        style={StyleSheet.absoluteFillObject}
+                        onPress={() => setAssessmentPickerOpen(false)}
+                    />
+                    {(() => {
+                        const pageSize = 5;
+                        const usePagination = quizOptionEntries.length > pageSize;
+                        const qNorm = switchQuizSearchQuery.trim().toLowerCase();
+                        const filteredEntries = usePagination && qNorm
+                            ? quizOptionEntries.filter((e) => e.label.toLowerCase().includes(qNorm))
+                            : quizOptionEntries;
+                        const visibleEntries = usePagination
+                            ? filteredEntries.slice(0, switchQuizVisibleCount)
+                            : filteredEntries;
+                        const remaining = Math.max(0, filteredEntries.length - visibleEntries.length);
+
+                        return (
+                            <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
+                                <View style={styles.ddHeaderRow}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.ddTitle, { color: accentColor, marginBottom: 0 }]}>
+                                            Switch Assessment &amp; Re-Grade Sheet
+                                        </Text>
+                                        {usePagination && (
+                                            <Text style={{ fontSize: 11.5, color: textSub, marginTop: 2 }}>
+                                                Showing {visibleEntries.length} of {filteredEntries.length}
                                             </Text>
-                                            <Text style={{ fontSize: 11, color: textSub, marginTop: 2 }}>
-                                                {itemCount} {itemCount === 1 ? "item" : "items"}
+                                        )}
+                                    </View>
+                                    <TouchableOpacity
+                                        onPress={() => setAssessmentPickerOpen(false)}
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    >
+                                        <Ionicons name="close" size={19} color={textSub} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {usePagination && (
+                                    <View
+                                        style={[
+                                            styles.ddSearchBox,
+                                            {
+                                                backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                                borderColor: darkMode ? "#374151" : "#E5E7EB",
+                                            },
+                                        ]}
+                                    >
+                                        <Ionicons name="search-outline" size={15} color={textSub} />
+                                        <TextInput
+                                            style={[styles.ddSearchInput, { color: textMain }]}
+                                            value={switchQuizSearchQuery}
+                                            onChangeText={(txt) => {
+                                                setSwitchQuizSearchQuery(txt);
+                                                setSwitchQuizVisibleCount(pageSize);
+                                            }}
+                                            placeholder="Search assessments..."
+                                            placeholderTextColor={textSub}
+                                            returnKeyType="search"
+                                        />
+                                        {switchQuizSearchQuery.length > 0 && (
+                                            <TouchableOpacity
+                                                onPress={() => setSwitchQuizSearchQuery("")}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                            >
+                                                <Ionicons name="close-circle" size={16} color={textSub} />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                )}
+
+                                <ScrollView style={{ maxHeight: 330 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={true}>
+                                    {visibleEntries.length === 0 ? (
+                                        <View style={{ paddingVertical: 22, alignItems: "center" }}>
+                                            <Text style={{ color: textSub, fontSize: 13 }}>
+                                                No matching assessments found.
                                             </Text>
                                         </View>
-                                        {isSelected && (
-                                            <Ionicons name="checkmark" size={16} color={accentColor} />
+                                    ) : (
+                                        visibleEntries.map(({ label, quiz }) => {
+                                            const isSelected = (gradedQuiz || activePublishedQuiz)?.id === quiz.id;
+                                            const itemCount = quiz.questions?.length || quiz.answerKey?.length || 0;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={quiz.id}
+                                                    style={[
+                                                        styles.ddItem,
+                                                        isSelected && { backgroundColor: accentColor + "18" },
+                                                    ]}
+                                                    onPress={() => {
+                                                        setAssessmentPickerOpen(false);
+                                                        if (isSelected) return;
+                                                        setGradedQuiz(quiz);
+                                                        setWasAssessmentAutoDetected(false);
+                                                        if (lastGradedImageRef.current) {
+                                                            void processGrading(
+                                                                lastGradedImageRef.current.base64,
+                                                                lastGradedImageRef.current.mimeType,
+                                                                null,
+                                                                quiz
+                                                            );
+                                                        }
+                                                    }}
+                                                >
+                                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                                        <Text
+                                                            style={[
+                                                                styles.ddItemText,
+                                                                { color: textMain },
+                                                                isSelected && { color: accentColor, fontWeight: "700" },
+                                                            ]}
+                                                            numberOfLines={2}
+                                                        >
+                                                            {label}
+                                                        </Text>
+                                                        <Text style={{ fontSize: 11, color: textSub, marginTop: 2 }}>
+                                                            {itemCount} {itemCount === 1 ? "item" : "items"}
+                                                        </Text>
+                                                    </View>
+                                                    {isSelected && (
+                                                        <Ionicons name="checkmark" size={16} color={accentColor} />
+                                                    )}
+                                                </TouchableOpacity>
+                                            );
+                                        })
+                                    )}
+                                </ScrollView>
+
+                                {usePagination && filteredEntries.length > pageSize && (
+                                    <View style={[styles.ddFooterActions, { borderTopColor: darkMode ? "#374151" : "#E5E7EB" }]}>
+                                        {remaining > 0 ? (
+                                            <>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.ddFooterBtn,
+                                                        {
+                                                            backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                                            borderColor: darkMode ? "#374151" : "#E5E7EB",
+                                                        },
+                                                    ]}
+                                                    onPress={() => setSwitchQuizVisibleCount((prev) => prev + pageSize)}
+                                                    activeOpacity={0.75}
+                                                >
+                                                    <Text style={[styles.ddFooterBtnText, { color: textMain }]}>
+                                                        Show {Math.min(pageSize, remaining)} More
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.ddFooterBtn,
+                                                        {
+                                                            backgroundColor: accentColor + "16",
+                                                            borderColor: accentColor + "40",
+                                                        },
+                                                    ]}
+                                                    onPress={() => setSwitchQuizVisibleCount(filteredEntries.length)}
+                                                    activeOpacity={0.75}
+                                                >
+                                                    <Text style={[styles.ddFooterBtnText, { color: accentColor }]}>
+                                                        View All ({filteredEntries.length})
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </>
+                                        ) : (
+                                            <TouchableOpacity
+                                                style={[
+                                                    styles.ddFooterBtn,
+                                                    {
+                                                        backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                                        borderColor: darkMode ? "#374151" : "#E5E7EB",
+                                                    },
+                                                ]}
+                                                onPress={() => setSwitchQuizVisibleCount(pageSize)}
+                                                activeOpacity={0.75}
+                                            >
+                                                <Text style={[styles.ddFooterBtnText, { color: textSub }]}>
+                                                    Show Less (Top {pageSize})
+                                                </Text>
+                                            </TouchableOpacity>
                                         )}
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </ScrollView>
-                    </View>
-                </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
+                        );
+                    })()}
+                </View>
             </Modal>
         </ScrollView>
     );
@@ -2780,5 +3061,47 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: "#9CA3AF",
         fontWeight: "500",
+    },
+    ddHeaderRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        marginBottom: 10,
+    },
+    ddSearchBox: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        height: 38,
+        marginBottom: 8,
+    },
+    ddSearchInput: {
+        flex: 1,
+        fontSize: 13,
+        paddingVertical: 0,
+    },
+    ddFooterActions: {
+        flexDirection: "row",
+        gap: 8,
+        paddingTop: 10,
+        marginTop: 8,
+        borderTopWidth: 1,
+    },
+    ddFooterBtn: {
+        flex: 1,
+        height: 38,
+        borderRadius: 10,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 10,
+    },
+    ddFooterBtnText: {
+        fontSize: 12.5,
+        fontWeight: "700",
     },
 });

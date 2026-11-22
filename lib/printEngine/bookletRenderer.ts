@@ -9,6 +9,7 @@ import {
     canPairMcOptions,
     fitHeaderText,
     getLineHeightFactor,
+    getMeasureFont,
     measureQuestionHeight,
     truncateTextToWidth,
     wrapText,
@@ -43,7 +44,13 @@ export async function renderBookletPDF(
     const { signal } = options;
     throwIfExportAborted(signal);
     const doc = await PDFDocument.create();
-    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
+    const textSample = [
+        assessment.quizTitle || '',
+        options.classTitle || '',
+        options.subject || '',
+        ...assessment.questions.flatMap((q) => [q.questionText || '', ...(q.options || [])]),
+    ].join(' ');
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc, textSample);
     throwIfExportAborted(signal);
 
     const paperSize = options.paperSize || 'short';
@@ -58,7 +65,7 @@ export async function renderBookletPDF(
     const fontSize =
         typeof selectedFontSize === 'number' && Number.isFinite(selectedFontSize)
             ? selectedFontSize
-            : chooseBookletFontSize(assessment.questions, paperSize, options.gradeLevel, font).fontSize;
+            : chooseBookletFontSize(assessment.questions, paperSize, options.gradeLevel, await getMeasureFont()).fontSize;
     const lineHeight = fontSize * getLineHeightFactor(fontSize);
 
     const ctx: BookletRenderContext = {

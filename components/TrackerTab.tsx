@@ -4,9 +4,11 @@ import {
   Alert,
   Image,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -129,7 +131,11 @@ export default function TrackerTab({
   const [itemAnalysis, setItemAnalysis] = useState<ClassQuizAnalysis | null>(null);
   const [itemAnalysisLoading, setItemAnalysisLoading] = useState(false);
   const [itemAnalysisModalVisible, setItemAnalysisModalVisible] = useState(false);
+  const ASSESSMENT_PAGE_SIZE = 5;
   const [quizDropdownOpen, setQuizDropdownOpen] = useState(false);
+  const [quizVisibleCount, setQuizVisibleCount] = useState<number>(ASSESSMENT_PAGE_SIZE);
+  const [quizSearchQuery, setQuizSearchQuery] = useState<string>("");
+  const [showAllTrendPoints, setShowAllTrendPoints] = useState<boolean>(false);
   const [itemAnalysisViewMode, setItemAnalysisViewMode] = useState<"MOST_MISSED" | "DIFFICULTY_INDEX">("MOST_MISSED");
   const [difficultyFilter, setDifficultyFilter] = useState<"ALL" | DifficultyLevel>("ALL");
   const [activeQuizTitle, setActiveQuizTitle] = useState<string>(selectedQuizTitle || "");
@@ -144,6 +150,20 @@ export default function TrackerTab({
       ].filter(Boolean)
     )
   );
+
+  useEffect(() => {
+    if (quizDropdownOpen) {
+      setQuizVisibleCount(ASSESSMENT_PAGE_SIZE);
+      setQuizSearchQuery("");
+    }
+  }, [quizDropdownOpen]);
+
+  const normalizedQuizQuery = quizSearchQuery.trim().toLowerCase();
+  const filteredQuizOptions = normalizedQuizQuery
+    ? availableQuizOptions.filter((q) => q.toLowerCase().includes(normalizedQuizQuery))
+    : availableQuizOptions;
+  const visibleQuizOptions = filteredQuizOptions.slice(0, quizVisibleCount);
+  const remainingQuizCount = Math.max(0, filteredQuizOptions.length - visibleQuizOptions.length);
 
   useEffect(() => {
     let isMounted = true;
@@ -253,21 +273,32 @@ export default function TrackerTab({
     ];
   }
 
+  const allTrendPoints = trendPoints;
+  const visibleTrendPoints =
+    allTrendPoints.length > ASSESSMENT_PAGE_SIZE && !showAllTrendPoints
+      ? allTrendPoints.slice(-ASSESSMENT_PAGE_SIZE)
+      : allTrendPoints;
+
   // Track user interactive selection on chart
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
-  const activeIndex = Math.min(selectedIndex, Math.max(0, trendPoints.length - 1));
-  const selectedPoint = trendPoints[activeIndex];
+  const activeIndex = Math.min(selectedIndex, Math.max(0, visibleTrendPoints.length - 1));
+  const selectedPoint = visibleTrendPoints[activeIndex];
 
   // Chart layout geometry: full 0% to 100% linear scale
   const leftPadding = 42;
   const rightPadding = 20;
-  const plotWidth = Math.max(chartWidth - leftPadding - rightPadding, 180);
+  const basePlotWidth = Math.max(chartWidth - leftPadding - rightPadding, 180);
+  const plotWidth =
+    showAllTrendPoints && visibleTrendPoints.length > ASSESSMENT_PAGE_SIZE
+      ? Math.max(basePlotWidth, (visibleTrendPoints.length - 1) * 66)
+      : basePlotWidth;
+  const chartCanvasWidth = plotWidth + leftPadding + rightPadding;
   const plotHeight = 100;
   const minY = 0;
   const maxY = 100;
 
   const getX = (index: number) =>
-    leftPadding + (trendPoints.length > 1 ? (index / (trendPoints.length - 1)) * plotWidth : plotWidth / 2);
+    leftPadding + (visibleTrendPoints.length > 1 ? (index / (visibleTrendPoints.length - 1)) * plotWidth : plotWidth / 2);
   const getY = (val: number) => {
     const clamped = Math.max(minY, Math.min(maxY, val));
     return plotHeight - ((clamped - minY) / (maxY - minY)) * plotHeight;
@@ -510,8 +541,48 @@ export default function TrackerTab({
               </View>
             )}
 
+            {allTrendPoints.length > ASSESSMENT_PAGE_SIZE && (
+              <View style={styles.trendLimitBar}>
+                <Text style={[styles.trendLimitText, { color: textSub }]}>
+                  {showAllTrendPoints
+                    ? `Showing all ${allTrendPoints.length} assessments · swipe chart`
+                    : `Showing latest ${ASSESSMENT_PAGE_SIZE} of ${allTrendPoints.length} assessments`}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.trendLimitBtn,
+                    {
+                      backgroundColor: showAllTrendPoints
+                        ? darkMode
+                          ? "#1F2937"
+                          : "#F1F5F9"
+                        : accentColor + "16",
+                      borderColor: showAllTrendPoints
+                        ? subBorder
+                        : accentColor + "40",
+                    },
+                  ]}
+                  onPress={() => {
+                    setShowAllTrendPoints((prev) => !prev);
+                    setSelectedIndex(0);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.trendLimitBtnText,
+                      { color: showAllTrendPoints ? textMain : accentColor },
+                    ]}
+                  >
+                    {showAllTrendPoints
+                      ? `Show Latest ${ASSESSMENT_PAGE_SIZE}`
+                      : `View All (${allTrendPoints.length})`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View
-              style={styles.chartContainer}
               onLayout={(e) => {
                 const w = e.nativeEvent.layout.width;
                 if (w > 0 && Math.abs(w - chartWidth) > 5) {
@@ -519,151 +590,160 @@ export default function TrackerTab({
                 }
               }}
             >
-              {/* Full Y-Axis Grid Lines & Labels: 100%, 75%, 50%, 25%, 0% */}
-              {[100, 75, 50, 25, 0].map((level) => {
-                const yPos = getY(level);
-                return (
-                  <View key={level} style={[styles.gridLineRow, { top: yPos }]}>
-                    <Text style={[styles.gridLabel, { color: textSub }]}>{level}%</Text>
-                    <View style={[styles.gridLine, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]} />
-                  </View>
-                );
-              })}
+              <ScrollView
+                horizontal
+                scrollEnabled={showAllTrendPoints && visibleTrendPoints.length > ASSESSMENT_PAGE_SIZE}
+                showsHorizontalScrollIndicator={showAllTrendPoints && visibleTrendPoints.length > ASSESSMENT_PAGE_SIZE}
+                contentContainerStyle={{ width: Math.max(chartWidth, chartCanvasWidth) }}
+              >
+                <View style={[styles.chartContainer, { width: Math.max(chartWidth, chartCanvasWidth) }]}>
+                  {/* Full Y-Axis Grid Lines & Labels: 100%, 75%, 50%, 25%, 0% */}
+                  {[100, 75, 50, 25, 0].map((level) => {
+                    const yPos = getY(level);
+                    return (
+                      <View key={level} style={[styles.gridLineRow, { top: yPos }]}>
+                        <Text style={[styles.gridLabel, { color: textSub }]}>{level}%</Text>
+                        <View style={[styles.gridLine, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]} />
+                      </View>
+                    );
+                  })}
 
-              {/* Shaded Area Tint Under Graph */}
-              <View style={[styles.chartAreaFill, { left: leftPadding, width: plotWidth, height: plotHeight }]} />
+                  {/* Shaded Area Tint Under Graph */}
+                  <View style={[styles.chartAreaFill, { left: leftPadding, width: plotWidth, height: plotHeight }]} />
 
-              {/* Connected Line Segments */}
-              {trendPoints.map((pt, idx) => {
-                if (idx === trendPoints.length - 1) return null;
-                const nextPt = trendPoints[idx + 1];
+                  {/* Connected Line Segments */}
+                  {visibleTrendPoints.map((pt, idx) => {
+                    if (idx === visibleTrendPoints.length - 1) return null;
+                    const nextPt = visibleTrendPoints[idx + 1];
 
-                const x1 = getX(idx);
-                const y1 = getY(pt.value);
-                const x2 = getX(idx + 1);
-                const y2 = getY(nextPt.value);
+                    const x1 = getX(idx);
+                    const y1 = getY(pt.value);
+                    const x2 = getX(idx + 1);
+                    const y2 = getY(nextPt.value);
 
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const length = Math.hypot(dx, dy);
-                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                    const dx = x2 - x1;
+                    const dy = y2 - y1;
+                    const length = Math.hypot(dx, dy);
+                    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-                const isDropSegment = nextPt.value <= 50 || nextPt.isDrop;
+                    const isDropSegment = nextPt.value <= 50 || nextPt.isDrop;
 
-                const cx = (x1 + x2) / 2;
-                const cy = (y1 + y2) / 2;
+                    const cx = (x1 + x2) / 2;
+                    const cy = (y1 + y2) / 2;
 
-                return (
-                  <View
-                    key={`line-${idx}`}
-                    style={{
-                      position: "absolute",
-                      left: cx - length / 2,
-                      top: cy - 1.75,
-                      width: length,
-                      height: 3.5,
-                      backgroundColor: isDropSegment ? "#EA580C" : "#3B82F6",
-                      borderRadius: 2,
-                      transform: [{ rotate: `${angle}deg` }],
-                      zIndex: 2,
-                    }}
-                  />
-                );
-              })}
-
-              {/* Interactive Tap Zones & Dots on Data Points */}
-              {trendPoints.map((pt, idx) => {
-                const x = getX(idx);
-                const y = getY(pt.value);
-                const isSelected = activeIndex === idx;
-                const isDrop = pt.value <= 50 || pt.isDrop;
-
-                return (
-                  <React.Fragment key={`interactive-${idx}`}>
-                    {/* Highlight Pulse Ring when selected */}
-                    {isSelected && (
+                    return (
                       <View
-                        style={[
-                          styles.selectedDotRing,
-                          {
-                            left: x - 10,
-                            top: y - 10,
-                            borderColor: isDrop ? "rgba(234, 88, 12, 0.35)" : "rgba(37, 99, 235, 0.35)",
-                          },
-                        ]}
+                        key={`line-${idx}`}
+                        style={{
+                          position: "absolute",
+                          left: cx - length / 2,
+                          top: cy - 1.75,
+                          width: length,
+                          height: 3.5,
+                          backgroundColor: isDropSegment ? "#EA580C" : "#3B82F6",
+                          borderRadius: 2,
+                          transform: [{ rotate: `${angle}deg` }],
+                          zIndex: 2,
+                        }}
                       />
-                    )}
+                    );
+                  })}
 
-                    {/* Dot */}
-                    <TouchableOpacity
-                      style={[
-                        styles.chartDot,
-                        {
-                          left: x - 6,
-                          top: y - 6,
-                          backgroundColor: isDrop ? "#EA580C" : "#2563EB",
-                          borderColor: darkMode ? "#1F2937" : "#FFFFFF",
-                          transform: [{ scale: isSelected ? 1.25 : 1 }],
-                        },
-                      ]}
-                      onPress={() => {
-                        setSelectedIndex(idx);
-                        if (trendPoints[idx]?.fullTitle) {
-                          setActiveQuizTitle(trendPoints[idx].fullTitle);
-                        }
-                      }}
-                      activeOpacity={0.8}
-                    />
-                  </React.Fragment>
-                );
-              })}
+                  {/* Interactive Tap Zones & Dots on Data Points */}
+                  {visibleTrendPoints.map((pt, idx) => {
+                    const x = getX(idx);
+                    const y = getY(pt.value);
+                    const isSelected = activeIndex === idx;
+                    const isDrop = pt.value <= 50 || pt.isDrop;
 
-              {/* Chart Baseline */}
-              <View style={[styles.chartBaseline, { left: leftPadding, width: plotWidth, top: plotHeight + 4, backgroundColor: subBorder }]} />
+                    return (
+                      <React.Fragment key={`interactive-${idx}`}>
+                        {/* Highlight Pulse Ring when selected */}
+                        {isSelected && (
+                          <View
+                            style={[
+                              styles.selectedDotRing,
+                              {
+                                left: x - 10,
+                                top: y - 10,
+                                borderColor: isDrop ? "rgba(234, 88, 12, 0.35)" : "rgba(37, 99, 235, 0.35)",
+                              },
+                            ]}
+                          />
+                        )}
 
-              {/* X-Axis Labels (Centered directly under dot, tap to select) */}
-              <View style={[styles.xAxisRow, { top: plotHeight + 10, left: 0, right: 0 }]}>
-                {trendPoints.map((pt, idx) => {
-                  const x = getX(idx);
-                  const isSelected = activeIndex === idx;
-                  return (
-                    <TouchableOpacity
-                      key={`lbl-${idx}`}
-                      style={{
-                        position: "absolute",
-                        left: x - 35,
-                        width: 70,
-                        alignItems: "center",
-                      }}
-                      onPress={() => {
-                        setSelectedIndex(idx);
-                        if (trendPoints[idx]?.fullTitle) {
-                          setActiveQuizTitle(trendPoints[idx].fullTitle);
-                        }
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.xAxisLabel,
-                          { color: textSub },
-                          isSelected && { color: "#2563EB", fontWeight: "800" },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {pt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                        {/* Dot */}
+                        <TouchableOpacity
+                          style={[
+                            styles.chartDot,
+                            {
+                              left: x - 6,
+                              top: y - 6,
+                              backgroundColor: isDrop ? "#EA580C" : "#2563EB",
+                              borderColor: darkMode ? "#1F2937" : "#FFFFFF",
+                              transform: [{ scale: isSelected ? 1.25 : 1 }],
+                            },
+                          ]}
+                          onPress={() => {
+                            setSelectedIndex(idx);
+                            if (visibleTrendPoints[idx]?.fullTitle) {
+                              setActiveQuizTitle(visibleTrendPoints[idx].fullTitle);
+                            }
+                          }}
+                          activeOpacity={0.8}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Chart Baseline */}
+                  <View style={[styles.chartBaseline, { left: leftPadding, width: plotWidth, top: plotHeight + 4, backgroundColor: subBorder }]} />
+
+                  {/* X-Axis Labels (Centered directly under dot, tap to select) */}
+                  <View style={[styles.xAxisRow, { top: plotHeight + 10, left: 0, right: 0 }]}>
+                    {visibleTrendPoints.map((pt, idx) => {
+                      const x = getX(idx);
+                      const isSelected = activeIndex === idx;
+                      return (
+                        <TouchableOpacity
+                          key={`lbl-${idx}`}
+                          style={{
+                            position: "absolute",
+                            left: x - 35,
+                            width: 70,
+                            alignItems: "center",
+                          }}
+                          onPress={() => {
+                            setSelectedIndex(idx);
+                            if (visibleTrendPoints[idx]?.fullTitle) {
+                              setActiveQuizTitle(visibleTrendPoints[idx].fullTitle);
+                            }
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.xAxisLabel,
+                              { color: textSub },
+                              isSelected && { color: "#2563EB", fontWeight: "800" },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {pt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              </ScrollView>
             </View>
 
             {/* Tip / helper below chart */}
             <View style={[styles.chartFooterHint, { borderTopColor: subBorder }]}>
               <Ionicons name="information-circle-outline" size={13} color={textSub} />
               <Text style={[styles.chartFooterHintText, { color: textSub }]}>
-                {trendPoints.length <= 1
+                {allTrendPoints.length <= 1
                   ? "1 assessment recorded. Subsequent quizzes will form the trend line."
                   : "Tap any quiz point above to view detailed assessment metrics"}
               </Text>
@@ -1072,60 +1152,180 @@ export default function TrackerTab({
         </View>
       </View>
 
-      {/* ── Quiz Selector Dropdown Modal ── */}
+      {/* ── Quiz Selector Dropdown Modal (5 visible initially + Show More / View All + Search) ── */}
       <Modal
         visible={quizDropdownOpen}
         transparent
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => setQuizDropdownOpen(false)}
       >
-        <TouchableOpacity
-          style={styles.quizPickerOverlay}
-          activeOpacity={1}
-          onPress={() => setQuizDropdownOpen(false)}
-        >
+        <View style={styles.quizPickerOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setQuizDropdownOpen(false)}
+          />
           <View style={[styles.quizPickerSheet, { backgroundColor: cardBg, borderColor: subBorder }]}>
             <View style={[styles.quizPickerHeader, { borderBottomColor: subBorder }]}>
-              <Text style={[styles.quizPickerTitle, { color: textMain }]}>Select Assessment</Text>
-              <TouchableOpacity onPress={() => setQuizDropdownOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={[styles.quizPickerTitle, { color: textMain }]}>Select Assessment</Text>
+                {availableQuizOptions.length > ASSESSMENT_PAGE_SIZE && (
+                  <Text style={[styles.quizPickerCountSub, { color: textSub }]}>
+                    Showing {visibleQuizOptions.length} of {filteredQuizOptions.length}
+                    {normalizedQuizQuery ? ` matching (${availableQuizOptions.length} total)` : " assessments"}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => setQuizDropdownOpen(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Close assessment selector"
+              >
                 <Ionicons name="close" size={20} color={textSub} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ maxHeight: 280 }}>
-              {availableQuizOptions.map((q) => {
-                const isSelected = q === (activeQuizTitle || activeQuizName);
-                return (
+
+            {/* Quick Search when classroom has more than 5 assessments */}
+            {availableQuizOptions.length > ASSESSMENT_PAGE_SIZE && (
+              <View
+                style={[
+                  styles.quizPickerSearchBox,
+                  {
+                    backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                    borderColor: subBorder,
+                  },
+                ]}
+              >
+                <Ionicons name="search-outline" size={15} color={textSub} />
+                <TextInput
+                  style={[styles.quizPickerSearchInput, { color: textMain }]}
+                  value={quizSearchQuery}
+                  onChangeText={(txt) => {
+                    setQuizSearchQuery(txt);
+                    setQuizVisibleCount(ASSESSMENT_PAGE_SIZE);
+                  }}
+                  placeholder="Search assessments..."
+                  placeholderTextColor={textSub}
+                  returnKeyType="search"
+                />
+                {quizSearchQuery.length > 0 && (
                   <TouchableOpacity
-                    key={q}
-                    style={[
-                      styles.quizPickerItem,
-                      isSelected && { backgroundColor: darkMode ? "#334155" : "#F1F5F9" },
-                    ]}
-                    onPress={() => {
-                      setActiveQuizTitle(q);
-                      setQuizDropdownOpen(false);
-                    }}
+                    onPress={() => setQuizSearchQuery("")}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                   >
-                    <Ionicons
-                      name={isSelected ? "radio-button-on" : "radio-button-off"}
-                      size={18}
-                      color={isSelected ? accentColor : textSub}
-                    />
-                    <Text
+                    <Ionicons name="close-circle" size={16} color={textSub} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            <ScrollView
+              style={{ maxHeight: 330 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
+              {visibleQuizOptions.length === 0 ? (
+                <View style={{ paddingVertical: 24, alignItems: "center" }}>
+                  <Text style={{ fontSize: 13, color: textSub }}>
+                    No assessments match &ldquo;{quizSearchQuery.trim()}&rdquo;
+                  </Text>
+                </View>
+              ) : (
+                visibleQuizOptions.map((q) => {
+                  const isSelected = q === (activeQuizTitle || activeQuizName);
+                  return (
+                    <TouchableOpacity
+                      key={q}
                       style={[
-                        styles.quizPickerItemText,
-                        { color: isSelected ? textMain : textSub, fontWeight: isSelected ? "700" : "500" },
+                        styles.quizPickerItem,
+                        isSelected && { backgroundColor: darkMode ? "#334155" : "#F1F5F9" },
                       ]}
-                      numberOfLines={1}
+                      onPress={() => {
+                        setActiveQuizTitle(q);
+                        setQuizDropdownOpen(false);
+                      }}
                     >
-                      {q}
+                      <Ionicons
+                        name={isSelected ? "radio-button-on" : "radio-button-off"}
+                        size={18}
+                        color={isSelected ? accentColor : textSub}
+                      />
+                      <Text
+                        style={[
+                          styles.quizPickerItemText,
+                          { color: isSelected ? textMain : textSub, fontWeight: isSelected ? "700" : "500" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {q}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Pagination Footer: Show 5 More / View All / Show Less */}
+            {filteredQuizOptions.length > ASSESSMENT_PAGE_SIZE && (
+              <View style={[styles.quizPickerFooter, { borderTopColor: subBorder }]}>
+                {remainingQuizCount > 0 ? (
+                  <>
+                    <TouchableOpacity
+                      style={[
+                        styles.quizPickerFooterBtn,
+                        {
+                          backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                          borderColor: subBorder,
+                        },
+                      ]}
+                      onPress={() =>
+                        setQuizVisibleCount((prev) => prev + ASSESSMENT_PAGE_SIZE)
+                      }
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.quizPickerFooterBtnText, { color: textMain }]}>
+                        Show {Math.min(ASSESSMENT_PAGE_SIZE, remainingQuizCount)} More
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.quizPickerFooterBtn,
+                        {
+                          backgroundColor: accentColor + "16",
+                          borderColor: accentColor + "40",
+                        },
+                      ]}
+                      onPress={() => setQuizVisibleCount(filteredQuizOptions.length)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.quizPickerFooterBtnText, { color: accentColor }]}>
+                        View All ({filteredQuizOptions.length})
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={[
+                      styles.quizPickerFooterBtn,
+                      {
+                        backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                        borderColor: subBorder,
+                      },
+                    ]}
+                    onPress={() => setQuizVisibleCount(ASSESSMENT_PAGE_SIZE)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.quizPickerFooterBtnText, { color: textSub }]}>
+                      Show Less (Top {ASSESSMENT_PAGE_SIZE})
                     </Text>
                   </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                )}
+              </View>
+            )}
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );
@@ -1705,6 +1905,68 @@ const styles = StyleSheet.create({
   quizPickerItemText: {
     fontSize: 13,
     flex: 1,
+  },
+  quizPickerCountSub: {
+    fontSize: 11.5,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  quizPickerSearchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 38,
+    marginBottom: 8,
+  },
+  quizPickerSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    paddingVertical: 0,
+  },
+  quizPickerFooter: {
+    flexDirection: "row",
+    gap: 8,
+    paddingTop: 10,
+    marginTop: 8,
+    borderTopWidth: 1,
+  },
+  quizPickerFooterBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  quizPickerFooterBtnText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  trendLimitBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 8,
+  },
+  trendLimitText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    flex: 1,
+  },
+  trendLimitBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  trendLimitBtnText: {
+    fontSize: 11.5,
+    fontWeight: "700",
   },
 
   /* ── 3-Column Stat Strip ── */

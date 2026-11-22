@@ -340,11 +340,23 @@
 }
 
 .cancelExportBtnCancelling {
-  background-color: #dc2626;
-  border-color: #b91c1c;
+  background-color: #ef4444;
+  border-color: #fca5a5;
   color: #ffffff;
   cursor: wait;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.28), 0 6px 18px rgba(220, 38, 38, 0.4);
+  animation: cancelBtnGlow 0.75s ease-in-out infinite alternate;
+}
+
+@keyframes cancelBtnGlow {
+  0% {
+    background-color: #dc2626;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.22), 0 4px 12px rgba(220, 38, 38, 0.3);
+  }
+  100% {
+    background-color: #ef4444;
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.36), 0 6px 20px rgba(239, 68, 68, 0.5);
+  }
 }
 
 .cancelSpinner {

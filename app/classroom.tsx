@@ -185,6 +185,7 @@ export default function ClassroomScreen() {
   // Student Profile Detail Modal
   const [selectedProfile, setSelectedProfile] = useState<Student | null>(null);
   const [studentQuizResults, setStudentQuizResults] = useState<StudentQuizResult[]>([]);
+  const [profileVisibleAssessments, setProfileVisibleAssessments] = useState<number>(5);
 
   // Quiz Grade Sheet Edit & Delete States (inside Student Profile Modal)
   const [editingGradeEntry, setEditingGradeEntry] = useState<StudentQuizResult | null>(null);
@@ -318,6 +319,7 @@ export default function ClassroomScreen() {
 
   // Load all recorded per-assessment results for selected student profile (newest first)
   useEffect(() => {
+    setProfileVisibleAssessments(5);
     if (selectedProfile && id) {
       getStudentResults(id as string, selectedProfile.id, selectedProfile.full_name).then(
         setStudentQuizResults
@@ -1816,6 +1818,7 @@ export default function ClassroomScreen() {
             classroomId={id as string}
             classTitle={(classroomTitle || title) as string}
             classSubject={classroomSubject}
+            classSection={classroomSection}
             accentColor={cardColor}
             onQuizPublished={(quizTitle) => {
               setSelectedGradingQuiz(quizTitle);
@@ -2510,7 +2513,7 @@ export default function ClassroomScreen() {
 
                     {sortedStudentResults.length > 0 ? (
                       <View style={{ gap: 10 }}>
-                        {sortedStudentResults.map((res, idx) => {
+                        {sortedStudentResults.slice(0, profileVisibleAssessments).map((res, idx) => {
                           const maxPts = Number(res.maxScore) || 0;
                           const rawPts = Number(res.totalScore) || 0;
                           const pct =
@@ -2630,6 +2633,70 @@ export default function ClassroomScreen() {
                             </View>
                           );
                         })}
+
+                        {sortedStudentResults.length > 5 && (
+                          <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+                            {sortedStudentResults.length > profileVisibleAssessments ? (
+                              <>
+                                <TouchableOpacity
+                                  style={{
+                                    flex: 1,
+                                    paddingVertical: 10,
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    borderColor: border,
+                                    backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                  onPress={() => setProfileVisibleAssessments((prev) => prev + 5)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Text style={{ fontSize: 12.5, fontWeight: "700", color: textMain }}>
+                                    Show {Math.min(5, sortedStudentResults.length - profileVisibleAssessments)} More
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={{
+                                    flex: 1,
+                                    paddingVertical: 10,
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    borderColor: cardColor + "40",
+                                    backgroundColor: cardColor + "16",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                  onPress={() => setProfileVisibleAssessments(sortedStudentResults.length)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Text style={{ fontSize: 12.5, fontWeight: "700", color: cardColor }}>
+                                    View All ({sortedStudentResults.length})
+                                  </Text>
+                                </TouchableOpacity>
+                              </>
+                            ) : (
+                              <TouchableOpacity
+                                style={{
+                                  flex: 1,
+                                  paddingVertical: 10,
+                                  borderRadius: 10,
+                                  borderWidth: 1,
+                                  borderColor: border,
+                                  backgroundColor: darkMode ? "#111827" : "#F8FAFC",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                                onPress={() => setProfileVisibleAssessments(5)}
+                                activeOpacity={0.75}
+                              >
+                                <Text style={{ fontSize: 12.5, fontWeight: "700", color: textSub }}>
+                                  Show Less (Top 5)
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
                       </View>
                     ) : profileAvg > 0 ? (
                       <View style={[styles.quizScoreCard, { backgroundColor: cardBg, borderColor: border }]}>
