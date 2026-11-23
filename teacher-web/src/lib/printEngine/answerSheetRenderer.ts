@@ -70,7 +70,12 @@ export async function renderAnswerSheetPDF(
         } as unknown as PDFDocument;
     } else {
         doc = await PDFDocument.create();
-        const embedded = await embedPrintFonts(doc);
+        const textSample = [
+            options.classTitle,
+            options.subject,
+            ...questions.map((q) => `${q.questionText || ''} ${(q.options || []).join(' ')}`),
+        ].filter(Boolean).join('\n');
+        const embedded = await embedPrintFonts(doc, textSample);
         font = embedded.regular;
         fontBold = embedded.bold;
     }

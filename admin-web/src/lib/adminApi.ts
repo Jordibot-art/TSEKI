@@ -7,7 +7,12 @@ export interface Teacher {
   username: string;
   email: string;
   full_name: string;
+  first_name?: string;
+  middle_name?: string | null;
+  last_name?: string;
+  school_name?: string;
   school_id_url?: string;
+  school_id_back_url?: string;
   facial_verification_url?: string;
   status: TeacherStatus;
   rejection_reason?: string | null;
@@ -15,9 +20,11 @@ export interface Teacher {
   approved_at?: string | null;
   approved_by?: string | null;
   grade_level?: string;
+  grade_levels?: string[];
   subject?: string;
-  teacher_id?: string;
   strand?: string;
+  subjects?: string[];
+  teacher_id?: string;
 }
 
 export interface ActivityLogEntry {

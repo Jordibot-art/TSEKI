@@ -96,17 +96,15 @@ function runExcelScoreTests() {
     const rosterSheet = rosterWb.Sheets[rosterWb.SheetNames[0]];
     const rosterRows: any[][] = XLSX.utils.sheet_to_json(rosterSheet, { header: 1, defval: undefined });
     const rosterHeader = rosterRows.find((r) => r && r[0] === 'Item') || [];
-    assert(rosterHeader[1] === 'Last Name', 'Classlist col 1 is "Last Name"');
-    assert(rosterHeader[2] === 'First Name', 'Classlist col 2 is "First Name"');
-    assert(rosterHeader[3] === 'Middle Name', 'Classlist col 3 is "Middle Name"');
-    assert(rosterHeader[4] === 'Email Address', 'Classlist col 4 is "Email Address"');
-    assert(rosterHeader[5] === 'Quiz 1: Network Concepts (25 pts)', 'Classlist col 5 is Quiz 1');
-    assert(rosterHeader[6] === 'Quiz 2: Server Architecture (20 pts)', 'Classlist col 6 is Quiz 2');
-    assert(rosterHeader[7] === 'Average Scores', 'Classlist col 7 is "Average Scores"');
+    assert(rosterHeader[1] === 'Student Name', 'Classlist col 1 is "Student Name"');
+    assert(rosterHeader[2] === 'Email Address', 'Classlist col 2 is "Email Address"');
+    assert(rosterHeader[3] === 'Quiz 1: Network Concepts (25 pts)', 'Classlist col 3 is Quiz 1');
+    assert(rosterHeader[4] === 'Quiz 2: Server Architecture (20 pts)', 'Classlist col 4 is Quiz 2');
+    assert(rosterHeader[5] === 'Average Scores', 'Classlist col 5 is "Average Scores"');
 
     // Verify row 7 has 85% average score
     const studentRow = rosterRows[7] || [];
-    assert(studentRow[7] === '85%', `Student row has 85% average score (got ${studentRow[7]})`);
+    assert(studentRow[5] === '85%', `Student row has 85% average score (got ${studentRow[5]})`);
 
     // Verify BSIT-4 template generation
     const templateBase64 = generateExcelTemplateBase64({
@@ -120,10 +118,8 @@ function runExcelScoreTests() {
     const templateRows: any[][] = XLSX.utils.sheet_to_json(templateSheet, { header: 1 });
     const templateHeader = templateRows[6] || [];
     assert(templateHeader[0] === 'Item', 'Template col 0 is "Item"');
-    assert(templateHeader[1] === 'Last Name', 'Template col 1 is "Last Name"');
-    assert(templateHeader[2] === 'First Name', 'Template col 2 is "First Name"');
-    assert(templateHeader[3] === 'Middle Name', 'Template col 3 is "Middle Name"');
-    assert(templateHeader[4] === 'Email Address', 'Template col 4 is "Email Address"');
+    assert(templateHeader[1] === 'Student Name', 'Template col 1 is "Student Name"');
+    assert(templateHeader[2] === 'Email Address', 'Template col 2 is "Email Address"');
     assert(templateRows.length >= 10, 'Template contains sample student rows');
 
     console.log(`\nResults: ${passed} passed, ${failed} failed.\n`);

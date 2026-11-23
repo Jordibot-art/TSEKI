@@ -42,7 +42,14 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TSEKI needs photo library access to upload your Teacher ID card and verification selfie.",
+          "cameraPermission": "TSEKI needs camera access to capture your Teacher ID card and verification selfie."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

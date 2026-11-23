@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,26 +14,75 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../supabase";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { AnimatedTsekiLogo } from "../components/AnimatedTsekiLogo";
+import {
+  AuthInput,
+  formatSubjectsSummaryDisplay,
+  getAuthTheme,
+} from "../components/auth/AuthInput";
+import { TeacherRegistrationStep1 } from "../components/auth/TeacherRegistrationStep1";
+import {
+  TeacherVerificationAnimation,
+  type VerificationAnimationMode,
+} from "../components/auth/TeacherVerificationAnimation";
+import { TeacherVerificationStep2 } from "../components/auth/TeacherVerificationStep2";
+import { useTheme } from "../context/ThemeContext";
+import {
+  submitTeacherVerification,
+  type VerificationPhotoSet,
+} from "../lib/teacherVerificationUpload";
+import { checkTeacherAccountApproval } from "../shared/teacherApproval";
+import {
+  DEFAULT_SCHOOL_NAME,
+  extractProfileFromUserMetadata,
+  validateRegistrationStep1,
+  type TeacherRegistrationProfile,
+  type TeacherRegistrationStep1Data,
+} from "../shared/teacherRegistration";
+import { supabase } from "../supabase";
 
-type AuthView = "welcome" | "login" | "register" | "otp";
+type AuthView =
+  | "welcome"
+  | "login"
+  | "register"
+  | "otp"
+  | "verify_identity"
+  | "pending_approval";
 
-// ── Orange & White Theme Palette ────────────────────────────────
-const ORANGE = "#FF6B00";
-const ORANGE_LIGHT = "#FFF7ED";
+const ORANGE = "#EA580C";
+
+const INITIAL_STEP1_FORM: TeacherRegistrationStep1Data = {
+  firstName: "",
+  middleName: "",
+  lastName: "",
+  email: "",
+  schoolName: DEFAULT_SCHOOL_NAME,
+  teacherId: "",
+  gradeLevels: [],
+  subjects: [],
+  password: "",
+  confirmPassword: "",
+};
 
 export default function AuthScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { darkMode } = useTheme();
+  const theme = getAuthTheme(darkMode);
 
   // Navigation State
   const [currentView, setCurrentView] = useState<AuthView>("welcome");
 
   // Common State
   const [loading, setLoading] = useState(false);
-  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [animMode, setAnimMode] = useState<VerificationAnimationMode>("login");
 
   // Login Form
   const [loginEmail, setLoginEmail] = useState("");
@@ -40,13 +90,14 @@ export default function AuthScreen() {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  // Register Form
-  const [registerName, setRegisterName] = useState("");
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
-  const [registerConfirm, setRegisterConfirm] = useState("");
-  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
+  // 2-Step Register Form
+  const [regForm, setRegForm] =
+    useState<TeacherRegistrationStep1Data>(INITIAL_STEP1_FORM);
+  const [verifiedProfile, setVerifiedProfile] =
+    useState<TeacherRegistrationProfile | null>(null);
+  const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null);
+  const [submittingDocs, setSubmittingDocs] = useState(false);
+  const [uploadProgressText, setUploadProgressText] = useState("");
 
   // OTP Form (Single unified 6-digit master token)
   const [otpToken, setOtpToken] = useState("");
@@ -61,22 +112,81 @@ export default function AuthScreen() {
 
   const [checkingSession, setCheckingSession] = useState(true);
 
+  function enterStep2Identity(
+    userId: string,
+    meta?: Record<string, unknown> | null,
+    fallbackEmail?: string
+  ) {
+    const profile =
+      verifiedProfile ||
+      extractProfileFromUserMetadata(meta, fallbackEmail || regForm.email) || {
+        firstName: regForm.firstName.trim(),
+        middleName: regForm.middleName.trim(),
+        lastName: regForm.lastName.trim(),
+        fullName:
+          [regForm.firstName, regForm.middleName, regForm.lastName]
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .join(" ") || "Teacher",
+        email: (fallbackEmail || regForm.email).trim(),
+        schoolName: regForm.schoolName || DEFAULT_SCHOOL_NAME,
+        teacherId: regForm.teacherId.trim(),
+        gradeLevels: regForm.gradeLevels,
+        gradeLevelSummary: regForm.gradeLevels.join(", "),
+        subjects: regForm.subjects,
+        subjectsSummary: regForm.subjects.join(", "),
+      };
+    setVerifiedUserId(userId);
+    setVerifiedProfile(profile);
+    setCurrentView("verify_identity");
+  }
+
   // Check existing session on mount
   useEffect(() => {
     let isMounted = true;
     (async () => {
       try {
         const rememberMePref = await AsyncStorage.getItem("tseki_remember_me");
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
         if (!isMounted) return;
 
         if (session) {
-          if (rememberMePref === "true") {
-            router.replace("/homepage");
+          const userMeta = (session.user?.user_metadata || {}) as Record<
+            string,
+            unknown
+          >;
+          const approval = await checkTeacherAccountApproval(
+            supabase,
+            session.user?.id,
+            userMeta
+          );
+          if (!isMounted) return;
+
+          if (approval.needsIdentityVerification && session.user?.id) {
+            enterStep2Identity(
+              session.user.id,
+              userMeta,
+              session.user.email || ""
+            );
             return;
+          }
+
+          if (rememberMePref === "true") {
+            if (!approval.allowed) {
+              await supabase.auth.signOut();
+              Alert.alert(
+                approval.title || "Account Not Approved",
+                approval.message ||
+                  "Your teacher account is not currently active."
+              );
+            } else {
+              router.replace("/homepage");
+              return;
+            }
           } else {
-            // User did not select "Remember me": sign out on app reopen
             await supabase.auth.signOut();
           }
         }
@@ -110,9 +220,13 @@ export default function AuthScreen() {
   // ── Handle Login ──────────────────────────────────────────────
   async function handleLogin() {
     if (!loginEmail.trim() || !loginPassword) {
-      Alert.alert("Missing Fields", "Please enter both your email and password.");
+      Alert.alert(
+        "Missing Fields",
+        "Please enter both your email and password."
+      );
       return;
     }
+    setAnimMode("login");
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -126,7 +240,37 @@ export default function AuthScreen() {
       }
 
       if (data.session) {
-        await AsyncStorage.setItem("tseki_remember_me", rememberMe ? "true" : "false");
+        const userMeta = (data.session.user?.user_metadata || {}) as Record<
+          string,
+          unknown
+        >;
+        const approval = await checkTeacherAccountApproval(
+          supabase,
+          data.session.user?.id,
+          userMeta
+        );
+
+        if (approval.needsIdentityVerification && data.session.user?.id) {
+          enterStep2Identity(
+            data.session.user.id,
+            userMeta,
+            data.session.user.email || loginEmail.trim()
+          );
+          return;
+        }
+
+        if (!approval.allowed) {
+          await supabase.auth.signOut();
+          Alert.alert(
+            approval.title || "Account Not Approved",
+            approval.message || "Your teacher account is not currently active."
+          );
+          return;
+        }
+        await AsyncStorage.setItem(
+          "tseki_remember_me",
+          rememberMe ? "true" : "false"
+        );
         router.replace("/homepage");
       }
     } catch (err: any) {
@@ -136,36 +280,41 @@ export default function AuthScreen() {
     }
   }
 
-  // ── Handle Register ───────────────────────────────────────────
-  async function handleRegister() {
-    if (
-      !registerName.trim() ||
-      !registerEmail.trim() ||
-      !registerPassword ||
-      !registerConfirm
-    ) {
-      Alert.alert("Missing Fields", "Please fill in all fields to create your account.");
+  // ── Handle Register Step 1 ────────────────────────────────────
+  async function handleRegisterStep1() {
+    const validated = validateRegistrationStep1(regForm);
+    if (!validated.ok || !validated.profile) {
+      Alert.alert(
+        "Check Your Details",
+        validated.error || "Please complete all required fields."
+      );
       return;
     }
 
-    if (registerPassword !== registerConfirm) {
-      Alert.alert("Password Mismatch", "Passwords do not match. Please verify and try again.");
-      return;
-    }
-
-    if (registerPassword.length < 6) {
-      Alert.alert("Weak Password", "Password must be at least 6 characters long.");
-      return;
-    }
-
+    const profile = validated.profile;
+    setAnimMode("signup");
     setLoading(true);
     try {
+      const username =
+        profile.email.split("@")[0] || profile.firstName.toLowerCase();
       const { data, error } = await supabase.auth.signUp({
-        email: registerEmail.trim(),
-        password: registerPassword,
+        email: profile.email,
+        password: regForm.password,
         options: {
           data: {
-            full_name: registerName.trim(),
+            full_name: profile.fullName,
+            first_name: profile.firstName,
+            middle_name: profile.middleName || null,
+            last_name: profile.lastName,
+            username,
+            school_name: profile.schoolName,
+            teacher_id: profile.teacherId,
+            grade_level: profile.gradeLevelSummary,
+            grade_levels: profile.gradeLevels,
+            subject: profile.subjectsSummary,
+            strand: profile.subjectsSummary,
+            subjects: profile.subjects,
+            needs_identity_verification: true,
           },
         },
       });
@@ -175,10 +324,12 @@ export default function AuthScreen() {
         return;
       }
 
-      if (data.session) {
-        router.replace("/homepage");
+      setVerifiedProfile(profile);
+
+      if (data.session?.user?.id) {
+        setVerifiedUserId(data.session.user.id);
+        setCurrentView("verify_identity");
       } else {
-        // Verification OTP required
         setOtpToken("");
         setResendCountdown(60);
         setCurrentView("otp");
@@ -193,13 +344,17 @@ export default function AuthScreen() {
   // ── Handle Verify OTP ─────────────────────────────────────────
   async function handleVerifyOtp() {
     const token = otpToken.trim();
-    const targetEmail = registerEmail.trim() || loginEmail.trim();
+    const targetEmail = regForm.email.trim() || loginEmail.trim();
 
     if (token.length < 6) {
-      Alert.alert("Enter Code", "Please enter the complete 6-digit verification code.");
+      Alert.alert(
+        "Enter Code",
+        "Please enter the complete 6-digit verification code."
+      );
       return;
     }
 
+    setAnimMode("otp");
     setLoading(true);
     try {
       let { data, error } = await supabase.auth.verifyOtp({
@@ -223,23 +378,102 @@ export default function AuthScreen() {
         return;
       }
 
+      const authedUser =
+        data?.user || (await supabase.auth.getUser()).data?.user;
+      const userMeta = (authedUser?.user_metadata || {}) as Record<
+        string,
+        unknown
+      >;
+      const approval = await checkTeacherAccountApproval(
+        supabase,
+        authedUser?.id,
+        userMeta
+      );
+
+      // Step 2: Upload Physical Teacher ID (Front & Back) + Face Selfie
+      if (approval.needsIdentityVerification && authedUser?.id) {
+        enterStep2Identity(
+          authedUser.id,
+          userMeta,
+          authedUser.email || targetEmail
+        );
+        return;
+      }
+
+      if (!approval.allowed) {
+        await supabase.auth.signOut();
+        Alert.alert(
+          approval.title || "Account Not Approved",
+          approval.message ||
+            "Your teacher account is pending administrator approval."
+        );
+        setCurrentView("login");
+        return;
+      }
+
       router.replace("/homepage");
     } catch (err: any) {
-      Alert.alert("Error", err.message || "An error occurred during verification.");
+      Alert.alert(
+        "Error",
+        err.message || "An error occurred during verification."
+      );
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ── Handle Step 2 Photo Submission ────────────────────────────
+  async function handleSubmitIdentityPhotos(photos: VerificationPhotoSet) {
+    const activeUserId =
+      verifiedUserId ||
+      (await supabase.auth.getSession()).data?.session?.user?.id;
+
+    if (!activeUserId || !verifiedProfile) {
+      Alert.alert(
+        "Session Expired",
+        "Please sign in again to finish uploading your verification photos."
+      );
+      setCurrentView("login");
+      return;
+    }
+
+    setAnimMode("upload_docs");
+    setSubmittingDocs(true);
+    setUploadProgressText("Uploading Teacher ID (Front)...");
+    try {
+      await submitTeacherVerification({
+        userId: activeUserId,
+        profile: verifiedProfile,
+        photos,
+        onProgress: (msg) => setUploadProgressText(msg),
+      });
+
+      // Keep unapproved session signed out until Admin approves in Admin Portal
+      await supabase.auth.signOut();
+      setRegForm(INITIAL_STEP1_FORM);
+      setCurrentView("pending_approval");
+    } catch (err: any) {
+      Alert.alert(
+        "Verification Upload Failed",
+        err?.message ||
+          "Could not upload your verification photos. Please try again."
+      );
+    } finally {
+      setSubmittingDocs(false);
+      setUploadProgressText("");
     }
   }
 
   // ── Handle Resend OTP ─────────────────────────────────────────
   async function handleResendOtp() {
     if (resendCountdown > 0) return;
-    const targetEmail = registerEmail.trim() || loginEmail.trim();
+    const targetEmail = regForm.email.trim() || loginEmail.trim();
     if (!targetEmail) {
       Alert.alert("Error", "No email address found for resending.");
       return;
     }
 
+    setAnimMode("otp");
     setLoading(true);
     try {
       const { error } = await supabase.auth.resend({
@@ -252,7 +486,10 @@ export default function AuthScreen() {
       } else {
         setOtpToken("");
         setResendCountdown(60);
-        Alert.alert("Code Resent 📩", `A new OTP has been sent to ${targetEmail}.`);
+        Alert.alert(
+          "Code Resent 📩",
+          `A new OTP has been sent to ${targetEmail}.`
+        );
       }
     } catch (err: any) {
       Alert.alert("Error", err.message || "Could not resend code.");
@@ -264,13 +501,18 @@ export default function AuthScreen() {
   // ── Handle Forgot Password ────────────────────────────────────
   async function handleForgotPasswordSubmit() {
     if (!forgotEmail.trim()) {
-      Alert.alert("Missing Email", "Please enter your registered email address.");
+      Alert.alert(
+        "Missing Email",
+        "Please enter your registered email address."
+      );
       return;
     }
 
     setForgotLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim());
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        forgotEmail.trim()
+      );
       if (error) {
         Alert.alert("Request Failed", error.message);
       } else {
@@ -288,598 +530,951 @@ export default function AuthScreen() {
     }
   }
 
-
+  function handleHeaderBack() {
+    if (currentView === "login" || currentView === "register") {
+      setCurrentView("welcome");
+    } else if (currentView === "otp") {
+      setCurrentView("register");
+    } else if (currentView === "pending_approval") {
+      setCurrentView("login");
+    }
+  }
 
   if (checkingSession) {
     return (
-      <View style={[styles.root, styles.centeredLoading]}>
+      <SafeAreaView
+        style={[
+          styles.safeRoot,
+          styles.centeredLoading,
+          { backgroundColor: theme.bgSurface },
+        ]}
+        edges={["top", "bottom", "left", "right"]}
+      >
+        <StatusBar style={darkMode ? "light" : "dark"} />
         <ActivityIndicator size="large" color={ORANGE} />
-      </View>
+      </SafeAreaView>
     );
   }
 
+  const fullTeacherName =
+    verifiedProfile?.fullName ||
+    ([regForm.firstName, regForm.middleName, regForm.lastName]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(" ") ||
+      "Teacher");
+
+  const summaryRows = verifiedProfile
+    ? [
+        { label: "Teacher", value: verifiedProfile.fullName, tabular: false },
+        { label: "ID", value: verifiedProfile.teacherId, tabular: true },
+        {
+          label: "Grades",
+          value: verifiedProfile.gradeLevelSummary,
+          tabular: false,
+        },
+        {
+          label: "Subjects",
+          value: formatSubjectsSummaryDisplay(verifiedProfile.subjectsSummary),
+          tabular: false,
+        },
+      ]
+    : [];
+
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <SafeAreaView
+      style={[styles.safeRoot, { backgroundColor: theme.bgSurface }]}
+      edges={["top", "left", "right"]}
     >
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <StatusBar style={darkMode ? "light" : "dark"} />
+
+      <KeyboardAvoidingView
+        style={styles.flex1}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View style={styles.cardContainer}>
-          {/* ══════════════════════════════════════════════════════
-              SCREEN 1: WELCOME / INTRO ("Hello !")
-             ══════════════════════════════════════════════════════ */}
-          {currentView === "welcome" && (
-            <View style={styles.welcomeView}>
-              {/* Brand mark top left */}
-              <View style={styles.topBrandRow}>
+        {/* ══════════════════════════════════════════════════════
+            SCREEN 1: WELCOME
+           ══════════════════════════════════════════════════════ */}
+        {currentView === "welcome" && (
+          <View
+            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+          >
+            {/* Minimal Top Brand Header */}
+            <View style={styles.welcomeHeader}>
+              <View style={styles.brandRow}>
                 <View style={styles.brandMarkCircle}>
                   <View style={styles.brandMarkInnerDot} />
                 </View>
-                <Text style={styles.brandMarkText}>TSEKI</Text>
-              </View>
-
-              {/* Logo Mascot Presentation */}
-              <View style={styles.heroLogoContainer}>
-                <AnimatedTsekiLogo size={210} />
-              </View>
-
-              {/* Title & Subtitle */}
-              <View style={styles.welcomeTextContainer}>
-                <Text style={styles.helloTitle}>Hello !</Text>
-                <Text style={styles.helloSubtitle}>
-                  Best place to grade, manage classrooms and share your learning experiences
+                <Text
+                  style={[styles.brandMarkText, { color: theme.textPrimary }]}
+                >
+                  TSEKI
                 </Text>
               </View>
+            </View>
 
-              {/* Action Buttons (Orange & White combination) */}
-              <View style={styles.welcomeActions}>
+            {/* Centered Hero Artwork & Messaging */}
+            <ScrollView
+              style={styles.flex1}
+              contentContainerStyle={styles.welcomeScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.welcomeHeroInner}>
+                <View style={styles.mascotStage}>
+                  <AnimatedTsekiLogo size={172} />
+                </View>
+
+                <Text
+                  style={[styles.welcomeHeading, { color: theme.textPrimary }]}
+                >
+                  Grade faster. Teach more.
+                </Text>
+                <Text
+                  style={[styles.welcomeSubtitle, { color: theme.textMuted }]}
+                >
+                  Scan papers, manage classrooms, and track student progress
+                  from one place.
+                </Text>
+              </View>
+            </ScrollView>
+
+            {/* Bottom Button Stack */}
+            <View
+              style={[
+                styles.welcomeFooter,
+                {
+                  backgroundColor: theme.bgSurface,
+                  paddingBottom: Math.max(insets.bottom, 20),
+                },
+              ]}
+            >
+              <View style={styles.footerInner}>
                 <Pressable
                   style={({ pressed }) => [
-                    styles.primarySolidBtn,
+                    styles.primaryBtn,
+                    { backgroundColor: theme.accent },
                     pressed && styles.btnPressed,
                   ]}
                   onPress={() => setCurrentView("login")}
                 >
-                  <Text style={styles.primarySolidBtnText}>LOGIN</Text>
+                  <Text style={styles.primaryBtnText}>Sign In</Text>
                 </Pressable>
 
                 <Pressable
                   style={({ pressed }) => [
-                    styles.secondaryOutlineBtn,
+                    styles.secondaryBtn,
+                    {
+                      backgroundColor: theme.bgSurface,
+                      borderColor: theme.borderInput,
+                    },
                     pressed && styles.btnPressed,
                   ]}
                   onPress={() => setCurrentView("register")}
                 >
-                  <Text style={styles.secondaryOutlineBtnText}>SIGNUP</Text>
+                  <Text
+                    style={[
+                      styles.secondaryBtnText,
+                      { color: theme.textPrimary },
+                    ]}
+                  >
+                    Create Teacher Account
+                  </Text>
                 </Pressable>
               </View>
             </View>
-          )}
+          </View>
+        )}
 
-          {/* ══════════════════════════════════════════════════════
-              SCREEN 2: LOGIN ("Welcome!")
-             ══════════════════════════════════════════════════════ */}
-          {currentView === "login" && (
-            <View style={styles.screenInner}>
-              {/* Back Arrow */}
-              <Pressable
-                style={styles.backButton}
-                onPress={() => setCurrentView("welcome")}
-                hitSlop={12}
-              >
-                <Ionicons name="arrow-back" size={26} color="#181920" />
-              </Pressable>
-
-              {/* Header */}
-              <View style={styles.headerBlock}>
-                <Text style={styles.screenTitle}>Welcome!</Text>
-                <Text style={styles.screenSubtitle}>Sign in to continue</Text>
-              </View>
-
-              {/* Underline Inputs */}
-              <View style={styles.inputsBlock}>
-                {/* Email */}
-                <View
-                  style={[
-                    styles.underlineWrapper,
-                    focusedField === "loginEmail" && styles.underlineWrapperFocused,
-                  ]}
+        {/* ══════════════════════════════════════════════════════
+            SCREEN 2: LOGIN
+           ══════════════════════════════════════════════════════ */}
+        {currentView === "login" && (
+          <View
+            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+          >
+            {/* Fixed Opaque Header (Outside ScrollView) */}
+            <View
+              style={[
+                styles.fixedHeader,
+                {
+                  backgroundColor: theme.bgSurface,
+                  borderBottomColor: theme.borderHairline,
+                },
+              ]}
+            >
+              <View style={styles.fixedHeaderInner}>
+                <TouchableOpacity
+                  style={styles.backBtn}
+                  onPress={handleHeaderBack}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel="Go back"
                 >
-                  <TextInput
-                    style={styles.underlineInput}
-                    placeholder="amishkr@gmail.com"
-                    placeholderTextColor="#9EA0B4"
+                  <Ionicons
+                    name="arrow-back"
+                    size={22}
+                    color={theme.textPrimary}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView
+              style={styles.flex1}
+              contentContainerStyle={[
+                styles.authScrollContent,
+                { paddingBottom: Math.max(insets.bottom + 24, 32) },
+              ]}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.formColumn}>
+                <Text
+                  style={[styles.screenTitle, { color: theme.textPrimary }]}
+                >
+                  Welcome back
+                </Text>
+                <Text
+                  style={[styles.screenSubtitle, { color: theme.textMuted }]}
+                >
+                  Sign in to your TSEKI teacher account.
+                </Text>
+
+                {/* Unified Inputs */}
+                <View style={styles.inputsStack}>
+                  <AuthInput
+                    label="Email address"
+                    placeholder="teacher@school.edu.ph"
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoCorrect={false}
                     value={loginEmail}
                     onChangeText={setLoginEmail}
-                    onFocus={() => setFocusedField("loginEmail")}
-                    onBlur={() => setFocusedField(null)}
                     editable={!loading}
+                    darkMode={darkMode}
                   />
-                </View>
 
-                {/* Password */}
-                <View
-                  style={[
-                    styles.underlineWrapper,
-                    styles.passwordUnderlineWrapper,
-                    focusedField === "loginPassword" && styles.underlineWrapperFocused,
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.underlineInput, styles.passwordFlexInput]}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9EA0B4"
+                  <AuthInput
+                    label="Password"
+                    placeholder="Enter your password"
                     secureTextEntry={!showLoginPassword}
                     value={loginPassword}
                     onChangeText={setLoginPassword}
-                    onFocus={() => setFocusedField("loginPassword")}
-                    onBlur={() => setFocusedField(null)}
                     editable={!loading}
+                    darkMode={darkMode}
+                    rightElement={
+                      <Pressable
+                        style={styles.eyeToggleBtn}
+                        onPress={() =>
+                          setShowLoginPassword(!showLoginPassword)
+                        }
+                        hitSlop={10}
+                      >
+                        <Ionicons
+                          name={
+                            showLoginPassword
+                              ? "eye-off-outline"
+                              : "eye-outline"
+                          }
+                          size={20}
+                          color={theme.textMuted}
+                        />
+                      </Pressable>
+                    }
                   />
+                </View>
+
+                {/* Remember Me & Forgot Password */}
+                <View style={styles.rememberForgotRow}>
                   <Pressable
-                    style={styles.eyeToggleBtn}
-                    onPress={() => setShowLoginPassword(!showLoginPassword)}
-                    hitSlop={10}
+                    style={styles.rememberMeContainer}
+                    onPress={() => setRememberMe((prev) => !prev)}
+                    hitSlop={8}
+                    accessible={true}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: rememberMe }}
                   >
-                    <Ionicons
-                      name={showLoginPassword ? "eye-off-outline" : "eye-outline"}
-                      size={20}
-                      color="#8E8EA8"
-                    />
+                    <View
+                      style={[
+                        styles.checkbox,
+                        {
+                          backgroundColor: rememberMe
+                            ? theme.accent
+                            : theme.bgSurface,
+                          borderColor: rememberMe
+                            ? theme.accent
+                            : theme.borderInput,
+                        },
+                      ]}
+                    >
+                      {rememberMe && (
+                        <Ionicons
+                          name="checkmark"
+                          size={12}
+                          color="#FFFFFF"
+                        />
+                      )}
+                    </View>
+                    <Text
+                      style={[
+                        styles.rememberMeText,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Remember me
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      setForgotEmail(loginEmail);
+                      setForgotModalVisible(true);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text
+                      style={[styles.forgotPassText, { color: theme.accent }]}
+                    >
+                      Forgot password?
+                    </Text>
                   </Pressable>
                 </View>
-              </View>
 
-              {/* Options: Remember Me & Forgot Password */}
-              <View style={styles.rememberForgotRow}>
+                {/* Primary CTA */}
                 <Pressable
-                  style={styles.rememberMeContainer}
-                  onPress={() => setRememberMe((prev) => !prev)}
-                  hitSlop={8}
-                  accessible={true}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: rememberMe }}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    { backgroundColor: theme.accent },
+                    pressed && styles.btnPressed,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={handleLogin}
+                  disabled={loading}
                 >
-                  <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                    {rememberMe && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
-                  </View>
-                  <Text style={styles.rememberMeText}>Remember me</Text>
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>Sign In</Text>
+                  )}
                 </Pressable>
 
-                <Pressable
-                  style={styles.forgotPassBtn}
-                  onPress={() => {
-                    setForgotEmail(loginEmail);
-                    setForgotModalVisible(true);
-                  }}
-                  hitSlop={8}
-                >
-                  <Text style={styles.forgotPassText}>Forgot Password?</Text>
-                </Pressable>
-              </View>
-
-              {/* Action Button */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primarySolidBtn,
-                  styles.actionSubmitBtn,
-                  pressed && styles.btnPressed,
-                  loading && styles.btnDisabled,
-                ]}
-                onPress={handleLogin}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primarySolidBtnText}>LOGIN</Text>
-                )}
-              </Pressable>
-
-              {/* Footer switch to Sign up */}
-              <View style={styles.footerSwitchRow}>
-                <Text style={styles.footerSwitchText}>Don't have an account? </Text>
-                <Pressable onPress={() => setCurrentView("register")}>
-                  <Text style={styles.footerSwitchLink}>Sign up</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-          {/* ══════════════════════════════════════════════════════
-              SCREEN 3: REGISTER ("Hi!")
-             ══════════════════════════════════════════════════════ */}
-          {currentView === "register" && (
-            <View style={styles.screenInner}>
-              {/* Back Arrow */}
-              <Pressable
-                style={styles.backButton}
-                onPress={() => setCurrentView("welcome")}
-                hitSlop={12}
-              >
-                <Ionicons name="arrow-back" size={26} color="#181920" />
-              </Pressable>
-
-              {/* Header */}
-              <View style={styles.headerBlock}>
-                <Text style={styles.screenTitle}>Hi!</Text>
-                <Text style={styles.screenSubtitle}>Create a new account</Text>
-              </View>
-
-              {/* Underline Inputs */}
-              <View style={styles.inputsBlock}>
-                {/* Username / Full Name */}
-                <View
-                  style={[
-                    styles.underlineWrapper,
-                    focusedField === "regName" && styles.underlineWrapperFocused,
-                  ]}
-                >
-                  <TextInput
-                    style={styles.underlineInput}
-                    placeholder="Amish567"
-                    placeholderTextColor="#9EA0B4"
-                    autoCapitalize="words"
-                    value={registerName}
-                    onChangeText={setRegisterName}
-                    onFocus={() => setFocusedField("regName")}
-                    onBlur={() => setFocusedField(null)}
-                    editable={!loading}
-                  />
-                </View>
-
-                {/* Email */}
-                <View
-                  style={[
-                    styles.underlineWrapper,
-                    focusedField === "regEmail" && styles.underlineWrapperFocused,
-                  ]}
-                >
-                  <TextInput
-                    style={styles.underlineInput}
-                    placeholder="amishkr@gmail.com"
-                    placeholderTextColor="#9EA0B4"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={registerEmail}
-                    onChangeText={setRegisterEmail}
-                    onFocus={() => setFocusedField("regEmail")}
-                    onBlur={() => setFocusedField(null)}
-                    editable={!loading}
-                  />
-                </View>
-
-                {/* Password */}
-                <View
-                  style={[
-                    styles.underlineWrapper,
-                    styles.passwordUnderlineWrapper,
-                    focusedField === "regPassword" && styles.underlineWrapperFocused,
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.underlineInput, styles.passwordFlexInput]}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9EA0B4"
-                    secureTextEntry={!showRegisterPassword}
-                    value={registerPassword}
-                    onChangeText={setRegisterPassword}
-                    onFocus={() => setFocusedField("regPassword")}
-                    onBlur={() => setFocusedField(null)}
-                    editable={!loading}
-                  />
-                  <Pressable
-                    style={styles.eyeToggleBtn}
-                    onPress={() => setShowRegisterPassword(!showRegisterPassword)}
-                    hitSlop={10}
+                {/* Footer Switch to Sign Up */}
+                <View style={styles.footerSwitchRow}>
+                  <Text
+                    style={[
+                      styles.footerSwitchText,
+                      { color: theme.textMuted },
+                    ]}
                   >
-                    <Ionicons
-                      name={showRegisterPassword ? "eye-off-outline" : "eye-outline"}
-                      size={20}
-                      color="#8E8EA8"
-                    />
-                  </Pressable>
-                </View>
-
-                {/* Confirm Password */}
-                <View
-                  style={[
-                    styles.underlineWrapper,
-                    styles.passwordUnderlineWrapper,
-                    focusedField === "regConfirm" && styles.underlineWrapperFocused,
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.underlineInput, styles.passwordFlexInput]}
-                    placeholder="Confirm password"
-                    placeholderTextColor="#9EA0B4"
-                    secureTextEntry={!showRegisterConfirm}
-                    value={registerConfirm}
-                    onChangeText={setRegisterConfirm}
-                    onFocus={() => setFocusedField("regConfirm")}
-                    onBlur={() => setFocusedField(null)}
-                    editable={!loading}
-                  />
-                  <Pressable
-                    style={styles.eyeToggleBtn}
-                    onPress={() => setShowRegisterConfirm(!showRegisterConfirm)}
-                    hitSlop={10}
-                  >
-                    <Ionicons
-                      name={showRegisterConfirm ? "eye-off-outline" : "eye-outline"}
-                      size={20}
-                      color="#8E8EA8"
-                    />
-                  </Pressable>
-                </View>
-              </View>
-
-              {/* Action Button */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primarySolidBtn,
-                  styles.actionSubmitBtn,
-                  pressed && styles.btnPressed,
-                  loading && styles.btnDisabled,
-                ]}
-                onPress={handleRegister}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primarySolidBtnText}>SIGN UP</Text>
-                )}
-              </Pressable>
-
-              {/* Footer switch to Sign in */}
-              <View style={styles.footerSwitchRow}>
-                <Text style={styles.footerSwitchText}>Already have an account? </Text>
-                <Pressable onPress={() => setCurrentView("login")}>
-                  <Text style={styles.footerSwitchLink}>Sign in</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-          {/* ══════════════════════════════════════════════════════
-              SCREEN 4: OTP VERIFICATION ("Verification")
-             ══════════════════════════════════════════════════════ */}
-          {currentView === "otp" && (
-            <View style={styles.screenInner}>
-              {/* Back Arrow */}
-              <Pressable
-                style={styles.backButton}
-                onPress={() => setCurrentView("register")}
-                hitSlop={12}
-              >
-                <Ionicons name="arrow-back" size={26} color="#181920" />
-              </Pressable>
-
-              {/* Header */}
-              <View style={styles.headerBlock}>
-                <Text style={styles.screenTitle}>Verification</Text>
-                <Text style={styles.screenSubtitle}>
-                  Enter the 6-digit code sent to{"\n"}
-                  <Text style={styles.highlightEmail}>
-                    {registerEmail.trim() || loginEmail.trim()}
+                    Don&apos;t have an account?{" "}
                   </Text>
+                  <Pressable
+                    onPress={() => setCurrentView("register")}
+                    hitSlop={8}
+                  >
+                    <Text
+                      style={[
+                        styles.footerSwitchLink,
+                        { color: theme.accent },
+                      ]}
+                    >
+                      Create account
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            SCREEN 3: REGISTER STEP 1 ("Teacher Sign Up")
+           ══════════════════════════════════════════════════════ */}
+        {currentView === "register" && (
+          <TeacherRegistrationStep1
+            values={regForm}
+            onChange={(patch) =>
+              setRegForm((prev) => ({ ...prev, ...patch }))
+            }
+            loading={loading}
+            onSubmit={handleRegisterStep1}
+            onBack={() => setCurrentView("welcome")}
+            onGoToLogin={() => setCurrentView("login")}
+          />
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            SCREEN 4: OTP VERIFICATION
+           ══════════════════════════════════════════════════════ */}
+        {currentView === "otp" && (
+          <View
+            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+          >
+            {/* Fixed Opaque Header + 3px Progress Bar */}
+            <View
+              style={[
+                styles.otpHeader,
+                { backgroundColor: theme.bgSurface },
+              ]}
+            >
+              <View style={styles.fixedHeaderInner}>
+                <TouchableOpacity
+                  style={styles.backBtn}
+                  onPress={handleHeaderBack}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel="Go back"
+                >
+                  <Ionicons
+                    name="arrow-back"
+                    size={22}
+                    color={theme.textPrimary}
+                  />
+                </TouchableOpacity>
+                <Text
+                  style={[styles.stepMetaText, { color: theme.textMuted }]}
+                >
+                  Email verification
                 </Text>
               </View>
-
-              {/* ── Single Master Input with 6 Display Cells ── */}
-              <View style={styles.otpInputContainer}>
-                {/* Single invisible master input handling all inputs, backspaces, pastes, and autofills */}
-                <TextInput
-                  ref={hiddenOtpInputRef}
-                  style={styles.hiddenOtpInput}
-                  value={otpToken}
-                  onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9]/g, "").slice(0, 6);
-                    setOtpToken(cleaned);
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  textContentType="oneTimeCode"
-                  autoComplete="one-time-code"
-                  autoFocus={false}
-                  caretHidden={true}
-                  onFocus={() => setIsOtpFocused(true)}
-                  onBlur={() => setIsOtpFocused(false)}
-                  editable={!loading}
-                />
-
-                {/* 6 Visual Display Cells */}
-                <Pressable
-                  style={styles.otpGridRow}
-                  onPress={() => hiddenOtpInputRef.current?.focus()}
-                >
-                  {[0, 1, 2, 3, 4, 5].map((idx) => {
-                    const digit = otpToken[idx] || "";
-                    const isCurrent =
-                      isOtpFocused &&
-                      (otpToken.length === idx || (idx === 5 && otpToken.length === 6));
-                    const isFilled = digit.length > 0;
-
-                    return (
-                      <View
-                        key={idx}
-                        style={[
-                          styles.otpCellBox,
-                          isCurrent && styles.otpCellBoxFocused,
-                          isFilled && styles.otpCellBoxFilled,
-                        ]}
-                      >
-                        <Text style={styles.otpCellText}>{digit}</Text>
-                        {isCurrent && otpToken.length < 6 && (
-                          <View style={styles.otpCursorBar} />
-                        )}
-                      </View>
-                    );
-                  })}
-                </Pressable>
-              </View>
-
-              {/* Action Button */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primarySolidBtn,
-                  styles.actionSubmitBtn,
-                  pressed && styles.btnPressed,
-                  loading && styles.btnDisabled,
-                ]}
-                onPress={handleVerifyOtp}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primarySolidBtnText}>VERIFY</Text>
-                )}
-              </Pressable>
-
-              {/* Resend Section */}
-              <View style={styles.resendSection}>
-                <Text style={styles.resendNoticeText}>Didn't receive the code?</Text>
-                {resendCountdown > 0 ? (
-                  <Text style={styles.resendTimerText}>
-                    Resend OTP in{" "}
-                    <Text style={styles.resendTimerHighlight}>{resendCountdown}s</Text>
-                  </Text>
-                ) : (
-                  <Pressable onPress={handleResendOtp} disabled={loading}>
-                    <Text style={styles.resendActiveBtnText}>Resend OTP</Text>
-                  </Pressable>
-                )}
-              </View>
-
-              {/* Switch / Back link */}
-              <View style={[styles.footerSwitchRow, { marginTop: 32 }]}>
-                <Pressable onPress={() => setCurrentView("login")}>
-                  <Text style={styles.footerSwitchLink}>Back to Login</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* ── Forgot Password Modal ── */}
-        <Modal
-          visible={forgotModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setForgotModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>Reset Password</Text>
-                <Pressable
-                  onPress={() => setForgotModalVisible(false)}
-                  hitSlop={8}
-                >
-                  <Ionicons name="close" size={24} color="#6B7280" />
-                </Pressable>
-              </View>
-
-              <Text style={styles.modalSubtitle}>
-                Enter the email address associated with your account and we'll send you a password reset link.
-              </Text>
-
               <View
                 style={[
-                  styles.underlineWrapper,
-                  focusedField === "forgotEmail" && styles.underlineWrapperFocused,
-                  { marginBottom: 24 },
+                  styles.progressTrack,
+                  { backgroundColor: theme.bgSubtle },
                 ]}
               >
-                <TextInput
-                  style={styles.underlineInput}
-                  placeholder="amishkr@gmail.com"
-                  placeholderTextColor="#9EA0B4"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={forgotEmail}
-                  onChangeText={setForgotEmail}
-                  onFocus={() => setFocusedField("forgotEmail")}
-                  onBlur={() => setFocusedField(null)}
-                  editable={!forgotLoading}
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: "75%", backgroundColor: theme.accent },
+                  ]}
                 />
               </View>
+            </View>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primarySolidBtn,
-                  pressed && styles.btnPressed,
-                  forgotLoading && styles.btnDisabled,
-                ]}
-                onPress={handleForgotPasswordSubmit}
-                disabled={forgotLoading}
-              >
-                {forgotLoading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primarySolidBtnText}>SEND RESET LINK</Text>
+            <ScrollView
+              style={styles.flex1}
+              contentContainerStyle={[
+                styles.authScrollContent,
+                { paddingBottom: Math.max(insets.bottom + 24, 32) },
+              ]}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.formColumn}>
+                <Text
+                  style={[styles.screenTitle, { color: theme.textPrimary }]}
+                >
+                  Verify your email
+                </Text>
+                <Text
+                  style={[styles.screenSubtitle, { color: theme.textMuted }]}
+                >
+                  Enter the 6-digit code sent to{" "}
+                  <Text
+                    style={{
+                      color: theme.textPrimary,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {regForm.email.trim() || loginEmail.trim()}
+                  </Text>
+                  .
+                </Text>
+
+                {/* Single Master Input with 6 Display Cells */}
+                <View style={styles.otpInputContainer}>
+                  <TextInput
+                    ref={hiddenOtpInputRef}
+                    style={styles.hiddenOtpInput}
+                    value={otpToken}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/[^0-9]/g, "").slice(0, 6);
+                      setOtpToken(cleaned);
+                    }}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    textContentType="oneTimeCode"
+                    autoComplete="one-time-code"
+                    autoFocus={false}
+                    caretHidden={true}
+                    onFocus={() => setIsOtpFocused(true)}
+                    onBlur={() => setIsOtpFocused(false)}
+                    editable={!loading}
+                  />
+
+                  <Pressable
+                    style={styles.otpGridRow}
+                    onPress={() => hiddenOtpInputRef.current?.focus()}
+                  >
+                    {[0, 1, 2, 3, 4, 5].map((idx) => {
+                      const digit = otpToken[idx] || "";
+                      const isCurrent =
+                        isOtpFocused &&
+                        (otpToken.length === idx ||
+                          (idx === 5 && otpToken.length === 6));
+                      const isFilled = digit.length > 0;
+
+                      return (
+                        <View
+                          key={idx}
+                          style={[
+                            styles.otpCellBox,
+                            {
+                              backgroundColor: isCurrent
+                                ? theme.accentBg
+                                : theme.bgSurface,
+                              borderColor:
+                                isCurrent || isFilled
+                                  ? theme.accent
+                                  : theme.borderInput,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.otpCellText,
+                              { color: theme.textPrimary },
+                            ]}
+                          >
+                            {digit}
+                          </Text>
+                          {isCurrent && otpToken.length < 6 && (
+                            <View
+                              style={[
+                                styles.otpCursorBar,
+                                { backgroundColor: theme.accent },
+                              ]}
+                            />
+                          )}
+                        </View>
+                      );
+                    })}
+                  </Pressable>
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    { backgroundColor: theme.accent },
+                    pressed && styles.btnPressed,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={handleVerifyOtp}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>Continue</Text>
+                  )}
+                </Pressable>
+
+                <View style={styles.resendSection}>
+                  <Text
+                    style={[
+                      styles.resendNoticeText,
+                      { color: theme.textMuted },
+                    ]}
+                  >
+                    Didn&apos;t receive the code?
+                  </Text>
+                  {resendCountdown > 0 ? (
+                    <Text
+                      style={[
+                        styles.resendTimerText,
+                        { color: theme.textMuted },
+                      ]}
+                    >
+                      Resend code in{" "}
+                      <Text
+                        style={[
+                          styles.resendTimerHighlight,
+                          { color: theme.textPrimary },
+                        ]}
+                      >
+                        {resendCountdown}s
+                      </Text>
+                    </Text>
+                  ) : (
+                    <Pressable
+                      onPress={handleResendOtp}
+                      disabled={loading}
+                      hitSlop={8}
+                    >
+                      <Text
+                        style={[
+                          styles.resendActiveBtnText,
+                          { color: theme.accent },
+                        ]}
+                      >
+                        Resend code
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+
+                <View style={styles.footerSwitchRow}>
+                  <Pressable
+                    onPress={() => setCurrentView("login")}
+                    hitSlop={8}
+                  >
+                    <Text
+                      style={[
+                        styles.footerSwitchLink,
+                        { color: theme.textMuted },
+                      ]}
+                    >
+                      Back to Sign In
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            SCREEN 3B: REGISTER STEP 2 (ID Front/Back + Face Selfie)
+           ══════════════════════════════════════════════════════ */}
+        {currentView === "verify_identity" && verifiedProfile && (
+          <TeacherVerificationStep2
+            profile={verifiedProfile}
+            submitting={submittingDocs}
+            progressStatus={uploadProgressText}
+            onSubmitPhotos={handleSubmitIdentityPhotos}
+            onSignOut={async () => {
+              await supabase.auth.signOut();
+              setCurrentView("login");
+            }}
+          />
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            SCREEN 5: APPLICATION SUBMITTED
+           ══════════════════════════════════════════════════════ */}
+        {currentView === "pending_approval" && (
+          <View
+            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+          >
+            <ScrollView
+              style={styles.flex1}
+              contentContainerStyle={styles.submittedScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.submittedInner}>
+                {/* 56px Status Icon Container */}
+                <View
+                  style={[
+                    styles.statusIconCircle,
+                    { backgroundColor: theme.successBg },
+                  ]}
+                >
+                  <Ionicons
+                    name="shield-checkmark"
+                    size={28}
+                    color={theme.success}
+                  />
+                </View>
+
+                <Text
+                  style={[
+                    styles.submittedTitle,
+                    { color: theme.textPrimary },
+                  ]}
+                >
+                  Application Submitted
+                </Text>
+
+                <Text
+                  style={[styles.submittedBody, { color: theme.textMuted }]}
+                >
+                  Your Teacher ID and selfie have been sent to{" "}
+                  <Text
+                    style={{
+                      color: theme.textPrimary,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {verifiedProfile?.schoolName || DEFAULT_SCHOOL_NAME}
+                  </Text>{" "}
+                  for review.
+                </Text>
+
+                {/* Key-Value Specification Table */}
+                {summaryRows.length > 0 && (
+                  <View
+                    style={[
+                      styles.specTable,
+                      {
+                        backgroundColor: theme.bgPage,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    {summaryRows.map((row, idx) => (
+                      <View
+                        key={row.label}
+                        style={[
+                          styles.specRow,
+                          idx > 0 && {
+                            borderTopWidth: 1,
+                            borderTopColor: theme.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[styles.specKey, { color: theme.textMuted }]}
+                        >
+                          {row.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.specValue,
+                            { color: theme.textPrimary },
+                            row.tabular && styles.tabularNums,
+                          ]}
+                        >
+                          {row.value}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
                 )}
-              </Pressable>
+
+                <Text
+                  style={[styles.submittedNote, { color: theme.textMuted }]}
+                >
+                  You can sign in as soon as your school administrator approves
+                  your account.
+                </Text>
+              </View>
+            </ScrollView>
+
+            {/* Pinned Full-Width Back to Sign In CTA */}
+            <View
+              style={[
+                styles.stickyFooter,
+                {
+                  backgroundColor: theme.bgSurface,
+                  borderTopColor: theme.border,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                },
+              ]}
+            >
+              <View style={styles.footerInner}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    { backgroundColor: theme.accent },
+                    pressed && styles.btnPressed,
+                  ]}
+                  onPress={() => setCurrentView("login")}
+                >
+                  <Text style={styles.primaryBtnText}>Back to Sign In</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </Modal>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        )}
+      </KeyboardAvoidingView>
+
+      {/* ── Forgot Password Modal ── */}
+      <Modal
+        visible={forgotModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setForgotModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setForgotModalVisible(false)}
+          />
+          <View
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: theme.bgSurface,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>
+                Reset password
+              </Text>
+              <Pressable
+                onPress={() => setForgotModalVisible(false)}
+                hitSlop={10}
+              >
+                <Ionicons name="close" size={22} color={theme.textMuted} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}>
+              Enter the email address linked to your teacher account and
+              we&apos;ll send a reset link.
+            </Text>
+
+            <AuthInput
+              containerStyle={styles.modalInputGap}
+              label="Email address"
+              placeholder="teacher@school.edu.ph"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={forgotEmail}
+              onChangeText={setForgotEmail}
+              editable={!forgotLoading}
+              darkMode={darkMode}
+            />
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: theme.accent },
+                pressed && styles.btnPressed,
+                forgotLoading && styles.btnDisabled,
+              ]}
+              onPress={handleForgotPasswordSubmit}
+              disabled={forgotLoading}
+            >
+              {forgotLoading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.primaryBtnText}>Send Reset Link</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ══════════════════════════════════════════════════════
+          SIGNATURE TSEKI MULTI-STAGE VERIFICATION ANIMATION
+         ══════════════════════════════════════════════════════ */}
+      <TeacherVerificationAnimation
+        visible={loading || submittingDocs}
+        mode={submittingDocs ? "upload_docs" : animMode}
+        teacherName={fullTeacherName}
+        schoolName={
+          verifiedProfile?.schoolName ||
+          regForm.schoolName ||
+          DEFAULT_SCHOOL_NAME
+        }
+        progressStatus={submittingDocs ? uploadProgressText : undefined}
+        accentColor={ORANGE}
+        darkMode={darkMode}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
+  safeRoot: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
     width: "100%",
     minHeight: Platform.OS === "web" ? ("100vh" as any) : "100%",
+  },
+  flex1: {
+    flex: 1,
   },
   centeredLoading: {
     alignItems: "center",
     justifyContent: "center",
   },
-  scrollView: {
-    flex: 1,
-    width: "100%",
-    backgroundColor: "#FFFFFF",
+  tabularNums: {
+    fontVariant: ["tabular-nums"],
   },
-  scrollContent: {
-    flexGrow: 1,
+
+  /* ── Shared Fixed Header ── */
+  fixedHeader: {
+    width: "100%",
+    borderBottomWidth: 1,
+    zIndex: 10,
+  },
+  otpHeader: {
+    width: "100%",
+    zIndex: 10,
+  },
+  fixedHeaderInner: {
+    width: "100%",
+    maxWidth: 460,
+    alignSelf: "center",
+    height: 52,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    marginLeft: -6,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Platform.OS === "web" ? 36 : 24,
-    paddingHorizontal: 20,
-    backgroundColor: "#FFFFFF",
   },
-  cardContainer: {
+  stepMetaText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  progressTrack: {
     width: "100%",
-    maxWidth: 400,
-    backgroundColor: "#FFFFFF",
-    alignSelf: "center",
+    height: 3,
+  },
+  progressFill: {
+    height: "100%",
+  },
+
+  /* ── Shared Buttons ── */
+  primaryBtn: {
+    width: "100%",
+    height: 52,
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  secondaryBtn: {
+    width: "100%",
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  btnPressed: {
+    opacity: 0.88,
+  },
+  btnDisabled: {
+    opacity: 0.65,
   },
 
   /* ══════════════════════════════════════════════════════════════
-     SCREEN 1: WELCOME SCREEN STYLES
+     SCREEN 1: WELCOME
      ══════════════════════════════════════════════════════════════ */
-  welcomeView: {
+  welcomeHeader: {
     width: "100%",
-    paddingTop: Platform.OS === "web" ? 10 : 20,
-    paddingBottom: 24,
+    maxWidth: 460,
+    alignSelf: "center",
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 6,
   },
-  topBrandRow: {
+  brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
   },
   brandMarkCircle: {
     width: 24,
@@ -898,160 +1493,89 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE,
   },
   brandMarkText: {
-    fontSize: 15,
-    fontWeight: "900",
+    fontSize: 16,
+    fontWeight: "800",
     letterSpacing: 2,
-    color: "#181920",
   },
-  heroLogoContainer: {
+  welcomeScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  welcomeHeroInner: {
     width: "100%",
-    height: 240,
+    maxWidth: 420,
+    alignSelf: "center",
+    alignItems: "center",
+  },
+  mascotStage: {
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 14,
+    marginBottom: 28,
   },
-  heroLogoImage: {
-    width: 210,
-    height: 210,
-  },
-  welcomeTextContainer: {
-    alignItems: "center",
-    marginTop: 18,
-    marginBottom: 32,
-    paddingHorizontal: 16,
-  },
-  helloTitle: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#181920",
-    letterSpacing: -0.5,
+  welcomeHeading: {
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.6,
+    textAlign: "center",
     marginBottom: 10,
   },
-  helloSubtitle: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: "#8E8EA8",
+  welcomeSubtitle: {
+    fontSize: 15,
+    lineHeight: 22,
     textAlign: "center",
-    maxWidth: 290,
+    maxWidth: 320,
   },
-  welcomeActions: {
+  welcomeFooter: {
     width: "100%",
-    gap: 14,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
-  primarySolidBtn: {
-    backgroundColor: ORANGE,
-    borderRadius: 12,
-    height: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  primarySolidBtnText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  secondaryOutlineBtn: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.8,
-    borderColor: ORANGE,
-    borderRadius: 12,
-    height: 52,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryOutlineBtnText: {
-    color: ORANGE,
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  btnPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.99 }],
-  },
-  btnDisabled: {
-    opacity: 0.65,
+  footerInner: {
+    width: "100%",
+    maxWidth: 460,
+    alignSelf: "center",
+    gap: 12,
   },
 
   /* ══════════════════════════════════════════════════════════════
-     SCREENS 2 & 3: FORM SHARED STYLES
+     SCREEN 2 & 4: LOGIN & OTP
      ══════════════════════════════════════════════════════════════ */
-  screenInner: {
+  authScrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 28,
+  },
+  formColumn: {
     width: "100%",
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  backButton: {
-    alignSelf: "flex-start",
-    padding: 6,
-    marginLeft: -6,
-    marginBottom: 28,
-  },
-  headerBlock: {
-    marginBottom: 36,
+    maxWidth: 460,
+    alignSelf: "center",
   },
   screenTitle: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#181920",
+    fontSize: 26,
+    fontWeight: "700",
     letterSpacing: -0.5,
-    marginBottom: 8,
   },
   screenSubtitle: {
-    fontSize: 14,
-    color: "#8E8EA8",
-    lineHeight: 20,
-  },
-  highlightEmail: {
-    color: ORANGE,
-    fontWeight: "700",
-  },
-
-  /* ── Minimalist Underline Inputs ── */
-  inputsBlock: {
-    width: "100%",
-    marginBottom: 20,
-    gap: 22,
-  },
-  underlineWrapper: {
-    borderBottomWidth: 1.4,
-    borderBottomColor: "#E2E4EA",
-    paddingBottom: 6,
-  },
-  underlineWrapperFocused: {
-    borderBottomColor: ORANGE,
-    borderBottomWidth: 2,
-  },
-  underlineInput: {
     fontSize: 15,
-    color: "#181920",
-    paddingVertical: 8,
-    paddingHorizontal: 0,
-    outlineWidth: 0 as any,
+    lineHeight: 22,
+    marginTop: 6,
+    marginBottom: 28,
   },
-  passwordUnderlineWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  passwordFlexInput: {
-    flex: 1,
+  inputsStack: {
+    width: "100%",
+    gap: 16,
   },
   eyeToggleBtn: {
-    padding: 6,
+    padding: 4,
   },
-
-  /* ── Remember Me & Forgot Password ── */
   rememberForgotRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+    marginTop: 16,
     marginBottom: 24,
   },
   rememberMeContainer: {
@@ -1063,63 +1587,38 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 5,
-    borderWidth: 1.6,
-    borderColor: "#C4C7D4",
-    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
   },
-  checkboxChecked: {
-    backgroundColor: ORANGE,
-    borderColor: ORANGE,
-  },
   rememberMeText: {
     fontSize: 13,
-    color: "#5A5D72",
     fontWeight: "500",
   },
-  forgotPassBtn: {
-    paddingVertical: 2,
-  },
-
-  /* ── Action Submit ── */
-  actionSubmitBtn: {
-    width: "100%",
-  },
-
-  /* ── Forgot Password ── */
   forgotPassText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#181920",
   },
-
-
-
-  /* ── Footer Switch ── */
   footerSwitchRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 28,
+    marginTop: 24,
+    flexWrap: "wrap",
   },
   footerSwitchText: {
-    fontSize: 13,
-    color: "#8E8EA8",
+    fontSize: 14,
   },
   footerSwitchLink: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: ORANGE,
+    fontSize: 14,
+    fontWeight: "600",
   },
 
-  /* ══════════════════════════════════════════════════════════════
-     SCREEN 4: OTP STYLES (Single unified input + 6 cells)
-     ══════════════════════════════════════════════════════════════ */
+  /* ── OTP Cells ── */
   otpInputContainer: {
     width: "100%",
     position: "relative",
-    marginVertical: 30,
+    marginBottom: 24,
   },
   hiddenOtpInput: {
     position: "absolute",
@@ -1139,71 +1638,127 @@ const styles = StyleSheet.create({
   },
   otpCellBox: {
     flex: 1,
-    maxWidth: 52,
-    height: 58,
+    maxWidth: 54,
+    height: 54,
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#E2E4EA",
-    backgroundColor: "#FAFAFC",
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
-  otpCellBoxFocused: {
-    borderColor: ORANGE,
-    backgroundColor: ORANGE_LIGHT,
-    shadowColor: ORANGE,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  otpCellBoxFilled: {
-    borderColor: ORANGE,
-    backgroundColor: "#FFFFFF",
-  },
   otpCellText: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#181920",
+    fontSize: 22,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
     textAlign: "center",
   },
   otpCursorBar: {
     position: "absolute",
     width: 2,
     height: 22,
-    backgroundColor: ORANGE,
     borderRadius: 1,
   },
   resendSection: {
     alignItems: "center",
-    marginTop: 24,
-    gap: 6,
+    marginTop: 20,
+    gap: 4,
   },
   resendNoticeText: {
     fontSize: 13,
-    color: "#8E8EA8",
   },
   resendTimerText: {
     fontSize: 13,
-    color: "#8E8EA8",
+    fontVariant: ["tabular-nums"],
   },
   resendTimerHighlight: {
-    fontWeight: "700",
-    color: ORANGE,
+    fontWeight: "600",
   },
   resendActiveBtnText: {
     fontSize: 14,
-    fontWeight: "700",
-    color: ORANGE,
+    fontWeight: "600",
   },
 
   /* ══════════════════════════════════════════════════════════════
-     MODAL STYLES (Forgot Password)
-     ══════════════════════════════════════════════════════ */
+     SCREEN 5: APPLICATION SUBMITTED
+     ══════════════════════════════════════════════════════════════ */
+  submittedScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 32,
+  },
+  submittedInner: {
+    width: "100%",
+    maxWidth: 460,
+    alignSelf: "center",
+    alignItems: "center",
+  },
+  statusIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  submittedTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  submittedBody: {
+    fontSize: 14.5,
+    lineHeight: 21,
+    textAlign: "center",
+    maxWidth: 320,
+    marginBottom: 24,
+  },
+  specTable: {
+    width: "100%",
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  specRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    gap: 16,
+  },
+  specKey: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  specValue: {
+    fontSize: 13.5,
+    fontWeight: "600",
+    flex: 1,
+    textAlign: "right",
+  },
+  submittedNote: {
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 20,
+    maxWidth: 310,
+  },
+  stickyFooter: {
+    width: "100%",
+    borderTopWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+
+  /* ══════════════════════════════════════════════════════════════
+     MODAL: FORGOT PASSWORD
+     ══════════════════════════════════════════════════════════════ */
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: "rgba(9, 9, 11, 0.45)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
@@ -1211,30 +1766,26 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 380,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 20,
   },
   modalHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#181920",
+    fontSize: 18,
+    fontWeight: "700",
   },
   modalSubtitle: {
-    fontSize: 13,
-    color: "#8E8EA8",
-    lineHeight: 19,
-    marginBottom: 24,
+    fontSize: 13.5,
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  modalInputGap: {
+    marginBottom: 20,
   },
 });

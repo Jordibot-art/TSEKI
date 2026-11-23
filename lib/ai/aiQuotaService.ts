@@ -1,8 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../supabase";
-import { AI_QUOTA_CONFIG, getManilaDateString, getManilaDayBoundsIso } from "./aiQuotaConfig";
+import { AI_QUOTA_CONFIG, getManilaDateString, getManilaDayBoundsIso, isProductionBuild } from "./aiQuotaConfig";
 
-export { getManilaDateString, getManilaDayBoundsIso };
+export { getManilaDateString, getManilaDayBoundsIso, isProductionBuild };
 
 export interface QuotaState {
     teacherId: string | null;
@@ -150,7 +150,8 @@ export async function getTeacherQuotaState(explicitTeacherId?: string | null): P
             }
         }
 
-        const queryStartIso = (store.testResetTimestamp && store.testResetTimestamp > new Date(startIso).getTime())
+        const allowTestResetCheckpoint = !isProductionBuild();
+        const queryStartIso = (allowTestResetCheckpoint && store.testResetTimestamp && store.testResetTimestamp > new Date(startIso).getTime())
             ? new Date(store.testResetTimestamp).toISOString()
             : startIso;
 
@@ -368,11 +369,15 @@ export async function applyRateLimitPenalty(
 }
 
 /**
- * Resets the teacher's daily AI quota for testing purposes.
- * Clears local usage and sets a reset checkpoint so previous logs from today are ignored.
+ * Resets the teacher's daily AI quota for testing purposes (DEV / test environments ONLY).
+ * Disabled in production builds so teachers cannot bypass the 10/day quota.
  */
 export async function resetTeacherQuotaForTesting(explicitTeacherId?: string | null): Promise<QuotaState> {
     const teacherId = await resolveCurrentTeacherId(explicitTeacherId);
+    if (isProductionBuild()) {
+        return getTeacherQuotaState(teacherId);
+    }
+
     const { manilaDate } = getManilaDayBoundsIso();
     const now = Date.now();
 

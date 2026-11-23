@@ -12,13 +12,19 @@
     "ios": "node --use-system-ca ./node_modules/expo/bin/cli start --ios",
     "web": "node --use-system-ca ./node_modules/expo/bin/cli start --web",
     "lint": "expo lint",
-    "test": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts && npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts && npx tsx lib/printEngine/__tests__/runStep1Tests.ts && npx tsx lib/printEngine/__tests__/runStep2Tests.ts && npx tsx lib/printEngine/__tests__/runStep3Tests.ts && npx tsx lib/printEngine/__tests__/targetExportTest.ts && npx tsx lib/printEngine/__tests__/fontSymbolsTest.ts && npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
+    "typecheck": "npx tsc --noEmit",
+    "sync:shared": "node scripts/syncSharedCore.mjs",
+    "check:shared": "node scripts/syncSharedCore.mjs --check",
+    "test": "node scripts/runAllTests.mjs",
+    "test:all": "node scripts/runAllTests.mjs",
+    "test:security": "npx tsx lib/ai/__tests__/testSecurityAndCoreGuards.ts",
     "test:excel": "npx tsx lib/printEngine/__tests__/runExcelScoreTest.ts",
     "test:print": "npx tsx lib/printEngine/__tests__/runSmokeTestCheck.ts",
     "test:ai": "npx tsx lib/ai/__tests__/runBackupAiFailoverTest.ts",
     "test:failover": "npx tsx lib/ai/__tests__/simulateGeminiDown.ts",
     "test:retry": "npx tsx lib/ai/__tests__/simulateRetryAndBackoff.ts",
-    "test:quota": "npx tsx lib/ai/__tests__/testAiQuotaLogic.ts"
+    "test:quota": "npx tsx lib/ai/__tests__/testAiQuotaLogic.ts",
+    "verify:all": "npm run check:shared && npm run typecheck && npm run lint && npm run test:all"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

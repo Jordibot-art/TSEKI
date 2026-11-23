@@ -1,8 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { checkTeacherAccountApproval } from "../lib/teacherApproval";
+import {
+  DEFAULT_SCHOOL_NAME,
+  extractProfileFromUserMetadata,
+  validateRegistrationStep1,
+  type TeacherRegistrationProfile,
+  type TeacherRegistrationStep1Data,
+} from "../lib/teacherRegistration";
+import {
+  submitWebTeacherVerification,
+  type WebVerificationPhotoFiles,
+} from "../lib/teacherRegistrationUpload";
+import { TeacherRegistrationStep1Web } from "../components/TeacherRegistrationStep1Web";
+import { TeacherVerificationStep2Web } from "../components/TeacherVerificationStep2Web";
 import { AnimatedTsekiLogo } from "../components/AnimatedTsekiLogo";
 import styles from "./LoginPage.module.css";
+import regStyles from "../components/TeacherRegistrationWeb.module.css";
 import {
   Eye,
   EyeOff,
@@ -10,10 +25,30 @@ import {
   Check,
   Loader2,
   ArrowLeft,
+  ShieldCheck,
   X,
 } from "lucide-react";
 
-type AuthView = "welcome" | "login" | "register" | "otp";
+type AuthView =
+  | "welcome"
+  | "login"
+  | "register"
+  | "otp"
+  | "verify_identity"
+  | "pending_approval";
+
+const INITIAL_STEP1_WEB: TeacherRegistrationStep1Data = {
+  firstName: "",
+  middleName: "",
+  lastName: "",
+  email: "",
+  schoolName: DEFAULT_SCHOOL_NAME,
+  teacherId: "",
+  gradeLevels: [],
+  subjects: [],
+  password: "",
+  confirmPassword: "",
+};
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -32,20 +67,19 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  // Register Form
-  const [registerName, setRegisterName] = useState("");
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
-  const [registerConfirm, setRegisterConfirm] = useState("");
-  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
+  // 2-Step Register Form
+  const [regForm, setRegForm] = useState<TeacherRegistrationStep1Data>(INITIAL_STEP1_WEB);
+  const [verifiedProfile, setVerifiedProfile] = useState<TeacherRegistrationProfile | null>(null);
+  const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null);
+  const [submittingDocs, setSubmittingDocs] = useState(false);
+  const [uploadProgressText, setUploadProgressText] = useState("");
 
   // OTP Form (Single unified 6-digit master token with 6 visual cells)
   const [otpToken, setOtpToken] = useState("");
   const [isOtpFocused, setIsOtpFocused] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(60);
   const hiddenOtpInputRef = useRef<HTMLInputElement | null>(null);
-  const targetEmail = registerEmail.trim() || email.trim();
+  const targetEmail = regForm.email.trim() || email.trim();
 
   // Forgot Password Modal
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
@@ -116,6 +150,46 @@ export default function LoginPage() {
       }
 
       if (data.session) {
+        const userMeta = (data.session.user?.user_metadata || {}) as Record<string, unknown>;
+        const approval = await checkTeacherAccountApproval(
+          supabase,
+          data.session.user?.id,
+          userMeta
+        );
+        if (approval.needsIdentityVerification && data.session.user?.id) {
+          const recovered = extractProfileFromUserMetadata(
+            userMeta,
+            data.session.user.email || cleanEmail
+          );
+          setVerifiedUserId(data.session.user.id);
+          setVerifiedProfile(
+            recovered || {
+              firstName: "",
+              middleName: "",
+              lastName: "",
+              fullName: String(userMeta.full_name || "Teacher"),
+              email: cleanEmail,
+              schoolName: DEFAULT_SCHOOL_NAME,
+              teacherId: "",
+              gradeLevels: [],
+              gradeLevelSummary: "",
+              subjects: [],
+              subjectsSummary: "",
+            }
+          );
+          setCurrentView("verify_identity");
+          setLoading(false);
+          return;
+        }
+        if (!approval.allowed) {
+          await supabase.auth.signOut();
+          setError(
+            approval.message ||
+              "Your teacher account is pending administrator approval."
+          );
+          setLoading(false);
+          return;
+        }
         try {
           if (rememberMe) {
             localStorage.setItem("tseki_remember_me", "true");
@@ -136,40 +210,40 @@ export default function LoginPage() {
     }
   }
 
-  // ── Handle Register ───────────────────────────────────────────
+  // ── Handle Register Step 1 ────────────────────────────────────
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    if (
-      !registerName.trim() ||
-      !registerEmail.trim() ||
-      !registerPassword ||
-      !registerConfirm
-    ) {
-      setError("Please fill in all fields to create your account.");
+    const validated = validateRegistrationStep1(regForm);
+    if (!validated.ok || !validated.profile) {
+      setError(validated.error || "Please complete all required fields.");
       return;
     }
 
-    if (registerPassword !== registerConfirm) {
-      setError("Passwords do not match. Please verify and try again.");
-      return;
-    }
-
-    if (registerPassword.length < 6) {
-      setError("Password must be at least 6 characters long.");
-      return;
-    }
-
+    const profile = validated.profile;
     setLoading(true);
     try {
+      const username = profile.email.split("@")[0] || profile.firstName.toLowerCase();
       const { data, error: err } = await supabase.auth.signUp({
-        email: registerEmail.trim(),
-        password: registerPassword,
+        email: profile.email,
+        password: regForm.password,
         options: {
           data: {
-            full_name: registerName.trim(),
+            full_name: profile.fullName,
+            first_name: profile.firstName,
+            middle_name: profile.middleName || null,
+            last_name: profile.lastName,
+            username,
+            school_name: profile.schoolName,
+            teacher_id: profile.teacherId,
+            grade_level: profile.gradeLevelSummary,
+            grade_levels: profile.gradeLevels,
+            subject: profile.subjectsSummary,
+            strand: profile.subjectsSummary,
+            subjects: profile.subjects,
+            needs_identity_verification: true,
           },
         },
       });
@@ -180,10 +254,12 @@ export default function LoginPage() {
         return;
       }
 
-      if (data.session) {
-        navigate("/dashboard");
+      setVerifiedProfile(profile);
+
+      if (data.session?.user?.id) {
+        setVerifiedUserId(data.session.user.id);
+        setCurrentView("verify_identity");
       } else {
-        // Verification OTP required
         setOtpToken("");
         setResendCountdown(60);
         setCurrentView("otp");
@@ -209,7 +285,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      let { error: err } = await supabase.auth.verifyOtp({
+      let { data: otpData, error: err } = await supabase.auth.verifyOtp({
         email: targetEmail,
         token,
         type: "signup",
@@ -221,6 +297,7 @@ export default function LoginPage() {
           token,
           type: "email",
         });
+        otpData = fallback.data;
         err = fallback.error;
       }
 
@@ -230,11 +307,77 @@ export default function LoginPage() {
         return;
       }
 
+      const authedUser = otpData?.user || (await supabase.auth.getUser()).data?.user;
+      const userMeta = (authedUser?.user_metadata || {}) as Record<string, unknown>;
+      const approval = await checkTeacherAccountApproval(
+        supabase,
+        authedUser?.id,
+        userMeta
+      );
+
+      if (approval.needsIdentityVerification && authedUser?.id) {
+        const profile =
+          verifiedProfile ||
+          extractProfileFromUserMetadata(userMeta, authedUser.email || targetEmail);
+        setVerifiedUserId(authedUser.id);
+        if (profile) setVerifiedProfile(profile);
+        setCurrentView("verify_identity");
+        setLoading(false);
+        return;
+      }
+
+      if (!approval.allowed) {
+        await supabase.auth.signOut();
+        setError(
+          approval.message ||
+            "Your email is verified, and your teacher account is awaiting administrator approval."
+        );
+        setCurrentView("login");
+        setLoading(false);
+        return;
+      }
+
       navigate("/dashboard");
     } catch (err: any) {
       setError(err?.message || "An error occurred during verification.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ── Handle Step 2 Photo Upload Submission ─────────────────────
+  async function handleSubmitIdentityPhotos(photos: WebVerificationPhotoFiles) {
+    setError(null);
+    const activeUserId =
+      verifiedUserId ||
+      (await supabase.auth.getSession()).data?.session?.user?.id;
+
+    if (!activeUserId || !verifiedProfile) {
+      setError("Your verification session expired. Please sign in again to complete Step 2.");
+      setCurrentView("login");
+      return;
+    }
+
+    setSubmittingDocs(true);
+    setUploadProgressText("Preparing photos...");
+    try {
+      await submitWebTeacherVerification({
+        userId: activeUserId,
+        profile: verifiedProfile,
+        photos,
+        onProgress: (msg) => setUploadProgressText(msg),
+      });
+
+      await supabase.auth.signOut();
+      setRegForm(INITIAL_STEP1_WEB);
+      setCurrentView("pending_approval");
+    } catch (err: any) {
+      setError(
+        err?.message || "Failed to upload your verification photos. Please try again."
+      );
+    } finally {
+      setSubmittingDocs(false);
+      setUploadProgressText("");
     }
   }
 
@@ -564,163 +707,82 @@ export default function LoginPage() {
           )}
 
           {/* ══════════════════════════════════════════════════════
-              VIEW 3: REGISTER SCREEN ("Hi!")
+              VIEW 3: REGISTER STEP 1 ("Teacher Sign Up")
              ══════════════════════════════════════════════════════ */}
           {currentView === "register" && (
             <div className={styles.screenInner}>
-              <button
-                type="button"
-                className={styles.backButton}
-                onClick={() => {
+              <TeacherRegistrationStep1Web
+                values={regForm}
+                onChange={(patch) => setRegForm((prev) => ({ ...prev, ...patch }))}
+                loading={loading}
+                onSubmit={handleRegister}
+                onBackToLogin={() => {
                   setError(null);
                   setSuccess(null);
                   setCurrentView("login");
                 }}
-                aria-label="Back to login"
-              >
-                <ArrowLeft size={22} color="#181920" />
-              </button>
+              />
+            </div>
+          )}
 
-              <div className={styles.headerBlock}>
-                <h2 className={styles.screenTitle}>Hi!</h2>
-                <p className={styles.screenSubtitle}>Create a new teacher account</p>
-              </div>
+          {/* ══════════════════════════════════════════════════════
+              VIEW 3B: REGISTER STEP 2 (ID Front/Back + Face Selfie)
+             ══════════════════════════════════════════════════════ */}
+          {currentView === "verify_identity" && verifiedProfile && (
+            <div className={styles.screenInner}>
+              <TeacherVerificationStep2Web
+                profile={verifiedProfile}
+                submitting={submittingDocs}
+                progressText={uploadProgressText}
+                onSubmitPhotos={handleSubmitIdentityPhotos}
+                onSignOut={async () => {
+                  await supabase.auth.signOut();
+                  setCurrentView("login");
+                }}
+              />
+            </div>
+          )}
 
-              <form onSubmit={handleRegister} className={styles.formCard}>
-                <div className={styles.inputsBlock}>
-                  {/* Full Name */}
-                  <div className={styles.underlineWrapper}>
-                    <label className={styles.fieldLabel} htmlFor="reg-name">
-                      Full Name
-                    </label>
-                    <input
-                      id="reg-name"
-                      type="text"
-                      placeholder="e.g. John Ariel"
-                      value={registerName}
-                      onChange={(e) => setRegisterName(e.target.value)}
-                      autoComplete="name"
-                      className={styles.underlineInput}
-                      autoFocus
-                    />
-                  </div>
-
-                  {/* Email */}
-                  <div className={styles.underlineWrapper}>
-                    <label className={styles.fieldLabel} htmlFor="reg-email">
-                      Email Address
-                    </label>
-                    <input
-                      id="reg-email"
-                      type="email"
-                      placeholder="teacher@cec.edu.ph"
-                      value={registerEmail}
-                      onChange={(e) => setRegisterEmail(e.target.value)}
-                      autoComplete="email"
-                      className={styles.underlineInput}
-                    />
-                  </div>
-
-                  {/* Password */}
-                  <div className={styles.underlineWrapper}>
-                    <label className={styles.fieldLabel} htmlFor="reg-password">
-                      Password
-                    </label>
-                    <div className={styles.passwordUnderlineWrapper}>
-                      <input
-                        id="reg-password"
-                        type={showRegisterPassword ? "text" : "password"}
-                        placeholder="At least 6 characters"
-                        value={registerPassword}
-                        onChange={(e) => setRegisterPassword(e.target.value)}
-                        autoComplete="new-password"
-                        className={styles.underlineInput}
-                      />
-                      <button
-                        type="button"
-                        className={styles.eyeToggleBtn}
-                        onClick={() =>
-                          setShowRegisterPassword(!showRegisterPassword)
-                        }
-                        aria-label={
-                          showRegisterPassword ? "Hide password" : "Show password"
-                        }
-                      >
-                        {showRegisterPassword ? (
-                          <EyeOff size={18} color="#8E8EA8" />
-                        ) : (
-                          <Eye size={18} color="#8E8EA8" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Confirm Password */}
-                  <div className={styles.underlineWrapper}>
-                    <label className={styles.fieldLabel} htmlFor="reg-confirm">
-                      Confirm Password
-                    </label>
-                    <div className={styles.passwordUnderlineWrapper}>
-                      <input
-                        id="reg-confirm"
-                        type={showRegisterConfirm ? "text" : "password"}
-                        placeholder="Confirm password"
-                        value={registerConfirm}
-                        onChange={(e) => setRegisterConfirm(e.target.value)}
-                        autoComplete="new-password"
-                        className={styles.underlineInput}
-                      />
-                      <button
-                        type="button"
-                        className={styles.eyeToggleBtn}
-                        onClick={() =>
-                          setShowRegisterConfirm(!showRegisterConfirm)
-                        }
-                        aria-label={
-                          showRegisterConfirm ? "Hide password" : "Show password"
-                        }
-                      >
-                        {showRegisterConfirm ? (
-                          <EyeOff size={18} color="#8E8EA8" />
-                        ) : (
-                          <Eye size={18} color="#8E8EA8" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
+          {/* ══════════════════════════════════════════════════════
+              VIEW 3C: PENDING ADMIN APPROVAL CONFIRMATION
+             ══════════════════════════════════════════════════════ */}
+          {currentView === "pending_approval" && (
+            <div className={styles.screenInner}>
+              <div className={regStyles.pendingBox}>
+                <div className={regStyles.pendingIcon}>
+                  <ShieldCheck size={34} />
                 </div>
+                <h2 className={regStyles.heading}>Application Submitted!</h2>
+                <p className={regStyles.subtext}>
+                  Your Teacher ID (Front &amp; Back) and Face Selfie have been sent to{" "}
+                  <strong>{verifiedProfile?.schoolName || DEFAULT_SCHOOL_NAME}</strong> for administrator review.
+                </p>
 
-                {/* Submit Action */}
+                {verifiedProfile && (
+                  <div className={regStyles.summaryCard} style={{ textAlign: "left" }}>
+                    <div className={regStyles.summaryTop}>
+                      <span className={regStyles.summaryName}>{verifiedProfile.fullName}</span>
+                      <span className={regStyles.idChip}>ID: {verifiedProfile.teacherId}</span>
+                    </div>
+                    <div className={regStyles.summaryMeta}>
+                      {verifiedProfile.schoolName} · {verifiedProfile.gradeLevelSummary}
+                    </div>
+                    <div className={regStyles.summarySubjects}>{verifiedProfile.subjectsSummary}</div>
+                  </div>
+                )}
+
                 <button
-                  type="submit"
-                  className={styles.primarySolidBtn}
-                  disabled={loading}
+                  type="button"
+                  className={regStyles.primaryBtn}
+                  onClick={() => {
+                    setError(null);
+                    setSuccess(null);
+                    setCurrentView("login");
+                  }}
                 >
-                  {loading ? (
-                    <Loader2 size={18} className={styles.spinner} color="#FFFFFF" />
-                  ) : (
-                    "SIGN UP"
-                  )}
+                  BACK TO SIGN IN
                 </button>
-
-                {/* Footer Switch to Sign In */}
-                <div className={styles.footerSwitchRow}>
-                  <span className={styles.footerSwitchText}>
-                    Already have an account?{" "}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.footerSwitchLink}
-                    onClick={() => {
-                      setError(null);
-                      setSuccess(null);
-                      setCurrentView("login");
-                    }}
-                  >
-                    Sign in
-                  </button>
-                </div>
-              </form>
+              </div>
             </div>
           )}
 

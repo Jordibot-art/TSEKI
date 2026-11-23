@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
@@ -11,9 +11,16 @@ import {
   HelpCircle,
   BrainCircuit,
   Target,
+  Search,
 } from "lucide-react";
 import styles from "./AnalyticsPage.module.css";
 import { normalizeStudentRecord } from "../lib/studentNameUtils";
+import {
+  computeClassQuizAnalysis,
+  type ClassQuizAnalysis,
+  type QuizDefinitionMeta,
+  type QuizResultInput,
+} from "../lib/itemAnalysisCore";
 
 type ClassroomOption = {
   id: string;
@@ -33,11 +40,37 @@ type StudentRecord = {
   classroom_name?: string;
 };
 
+type RawQuizResultRow = {
+  student_id: string;
+  classroom_id: string;
+  quiz_title: string;
+  total_score: number;
+  max_score: number;
+  score_percentage: number;
+  item_results?: any[];
+  graded_at?: string;
+};
+
+type ArchivedAssessmentRow = {
+  id: string;
+  classroom_id: string;
+  quiz_title: string;
+  questions?: any[];
+  answer_key?: any[];
+};
+
+const INITIAL_ASSESSMENTS_VISIBLE = 5;
+
 export default function AnalyticsPage() {
   const { user } = useAuth();
   const [classrooms, setClassrooms] = useState<ClassroomOption[]>([]);
   const [selectedClassroom, setSelectedClassroom] = useState<string>("ALL");
   const [students, setStudents] = useState<StudentRecord[]>([]);
+  const [quizResultRows, setQuizResultRows] = useState<RawQuizResultRow[]>([]);
+  const [assessments, setAssessments] = useState<ArchivedAssessmentRow[]>([]);
+  const [selectedQuizTitle, setSelectedQuizTitle] = useState<string>("");
+  const [quizSearch, setQuizSearch] = useState<string>("");
+  const [visibleQuizCount, setVisibleQuizCount] = useState<number>(INITIAL_ASSESSMENTS_VISIBLE);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,13 +97,21 @@ export default function AnalyticsPage() {
         clsMap[c.id] = c.title;
       });
 
-      // Fetch students for these classrooms
+      // Fetch students, graded results, and assessments in parallel
       const classIds = classList.map((c) => c.id);
       if (classIds.length > 0) {
-        const { data: studs } = await supabase
-          .from("students")
-          .select("*")
-          .in("classroom_id", classIds);
+        const [{ data: studs }, { data: qResults }, { data: archived }] = await Promise.all([
+          supabase.from("students").select("*").in("classroom_id", classIds),
+          supabase
+            .from("student_quiz_results")
+            .select("student_id, classroom_id, quiz_title, total_score, max_score, score_percentage, item_results, graded_at")
+            .in("classroom_id", classIds)
+            .order("graded_at", { ascending: false }),
+          supabase
+            .from("archived_assessments")
+            .select("id, classroom_id, quiz_title, questions, answer_key")
+            .in("classroom_id", classIds),
+        ]);
 
         const mappedStudents: StudentRecord[] = (studs || []).map((s) => {
           const norm = normalizeStudentRecord(s);
@@ -81,6 +122,8 @@ export default function AnalyticsPage() {
           };
         });
         setStudents(mappedStudents);
+        setQuizResultRows((qResults as RawQuizResultRow[]) || []);
+        setAssessments((archived as ArchivedAssessmentRow[]) || []);
       }
     } catch (err) {
       console.error("Error loading analytics:", err);
@@ -94,6 +137,77 @@ export default function AnalyticsPage() {
     selectedClassroom === "ALL"
       ? students
       : students.filter((s) => s.classroom_id === selectedClassroom);
+
+  const activeQuizResultRows = useMemo(
+    () =>
+      selectedClassroom === "ALL"
+        ? quizResultRows
+        : quizResultRows.filter((r) => r.classroom_id === selectedClassroom),
+    [quizResultRows, selectedClassroom]
+  );
+
+  // Distinct graded assessments ordered by most recent grading timestamp
+  const distinctQuizTitles = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const row of activeQuizResultRows) {
+      const title = String(row.quiz_title || "").trim();
+      if (!title) continue;
+      const ts = row.graded_at ? new Date(row.graded_at).getTime() : 0;
+      if (!seen.has(title) || ts > (seen.get(title) || 0)) {
+        seen.set(title, ts);
+      }
+    }
+    return Array.from(seen.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([title]) => title);
+  }, [activeQuizResultRows]);
+
+  const filteredQuizTitles = useMemo(() => {
+    const q = quizSearch.trim().toLowerCase();
+    if (!q) return distinctQuizTitles;
+    return distinctQuizTitles.filter((t) => t.toLowerCase().includes(q));
+  }, [distinctQuizTitles, quizSearch]);
+
+  const activeQuizTitle = useMemo(() => {
+    if (selectedQuizTitle && distinctQuizTitles.includes(selectedQuizTitle)) {
+      return selectedQuizTitle;
+    }
+    return distinctQuizTitles[0] || "";
+  }, [distinctQuizTitles, selectedQuizTitle]);
+
+  // Compute live Item Analysis for the selected assessment
+  const itemAnalysis: ClassQuizAnalysis | null = useMemo(() => {
+    if (!activeQuizTitle) return null;
+    const rowsForQuiz = activeQuizResultRows.filter(
+      (r) => String(r.quiz_title || "").trim() === activeQuizTitle
+    );
+    if (rowsForQuiz.length === 0) return null;
+
+    const studentMap = new Map(activeStudents.map((s) => [s.id, s.full_name]));
+    const inputs: QuizResultInput[] = rowsForQuiz.map((r) => ({
+      studentId: r.student_id,
+      studentName: studentMap.get(r.student_id) || "",
+      quizTitle: r.quiz_title,
+      scorePercentage: Number(r.score_percentage) || 0,
+      totalScore: Number(r.total_score) || 0,
+      maxScore: Number(r.max_score) || 0,
+      results: Array.isArray(r.item_results) ? r.item_results : [],
+    }));
+
+    const matchedAssessment = assessments.find(
+      (a) =>
+        String(a.quiz_title || "").trim().toLowerCase() === activeQuizTitle.toLowerCase() &&
+        (selectedClassroom === "ALL" || a.classroom_id === selectedClassroom)
+    );
+    const quizMeta: QuizDefinitionMeta | null = matchedAssessment
+      ? {
+          questions: matchedAssessment.questions,
+          answerKey: matchedAssessment.answer_key,
+        }
+      : null;
+
+    return computeClassQuizAnalysis(activeQuizTitle, inputs, quizMeta, activeStudents);
+  }, [activeQuizTitle, activeQuizResultRows, activeStudents, assessments, selectedClassroom]);
 
   // Calculations
   const totalStudents = activeStudents.length;
@@ -435,39 +549,174 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Item Analysis Card */}
+        {/* Live Question Performance & Item Analysis Card */}
         <div className={styles.itemAnalysisCard}>
           <div className={styles.cardHeader}>
             <div className={styles.cardTitleArea}>
               <HelpCircle size={20} />
               <div>
-                <h3>Item Diagnostics</h3>
-                <span>Distractor & Difficulty Flags</span>
+                <h3>Question Performance &amp; Item Analysis</h3>
+                <span>
+                  {itemAnalysis
+                    ? `${itemAnalysis.totalStudentsGraded} graded · Avg p-value ${itemAnalysis.averageDifficultyIndex.toFixed(2)}`
+                    : "Difficulty Index (p-value) & Distractor Diagnostics"}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className={styles.itemDiagList}>
-            <div className={styles.diagItem}>
-              <div className={styles.diagBadgeDanger}>Hardest Item (38% accuracy)</div>
-              <p className={styles.diagTitle}>
-                "Distinguishing dominant vs codominant alleles in non-Mendelian inheritance"
-              </p>
-              <span className={styles.diagHint}>
-                <strong>Common Misconception:</strong> 54% of learners picked distractor (B) confusing incomplete dominance with codominance.
-              </span>
-            </div>
+          {distinctQuizTitles.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {distinctQuizTitles.length > INITIAL_ASSESSMENTS_VISIBLE && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border-subtle, #e2e8f0)", background: "var(--bg-subtle, #f8fafc)" }}>
+                  <Search size={14} style={{ opacity: 0.6 }} />
+                  <input
+                    type="text"
+                    value={quizSearch}
+                    onChange={(e) => setQuizSearch(e.target.value)}
+                    placeholder={`Search ${distinctQuizTitles.length} assessments...`}
+                    style={{ border: "none", outline: "none", background: "transparent", width: "100%", fontSize: 13 }}
+                  />
+                </div>
+              )}
 
-            <div className={styles.diagItem}>
-              <div className={styles.diagBadgeSuccess}>Easiest Item (94% accuracy)</div>
-              <p className={styles.diagTitle}>
-                "Identifying the powerhouse organelle of eukaryotic cell"
-              </p>
-              <span className={styles.diagHint}>
-                High mastery observed across all sections.
-              </span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {filteredQuizTitles.slice(0, visibleQuizCount).map((title) => {
+                  const isActive = title === activeQuizTitle;
+                  return (
+                    <button
+                      key={title}
+                      type="button"
+                      onClick={() => setSelectedQuizTitle(title)}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: isActive ? 700 : 500,
+                        border: isActive ? "1px solid #FF6B00" : "1px solid var(--border-subtle, #e2e8f0)",
+                        background: isActive ? "#FFF7ED" : "transparent",
+                        color: isActive ? "#C2410C" : "inherit",
+                        cursor: "pointer",
+                        maxWidth: 240,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={title}
+                    >
+                      {title}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filteredQuizTitles.length > INITIAL_ASSESSMENTS_VISIBLE && (
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  {visibleQuizCount < filteredQuizTitles.length ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setVisibleQuizCount((v) => v + 5)}
+                        style={{ fontSize: 12, fontWeight: 600, color: "#EA580C", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                      >
+                        Show 5 More
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVisibleQuizCount(filteredQuizTitles.length)}
+                        style={{ fontSize: 12, fontWeight: 600, color: "#64748B", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                      >
+                        View All ({filteredQuizTitles.length})
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setVisibleQuizCount(INITIAL_ASSESSMENTS_VISIBLE)}
+                      style={{ fontSize: 12, fontWeight: 600, color: "#64748B", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                    >
+                      Show Less (Top 5)
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {!itemAnalysis ? (
+            <div className={styles.itemDiagList}>
+              <div className={styles.diagItem}>
+                <p className={styles.diagTitle}>No graded assessments recorded yet for {activeClassTitle}.</p>
+                <span className={styles.diagHint}>
+                  Grade answer sheets in the TSEKI mobile app to unlock real per-item difficulty index (p-value) and distractor diagnostics.
+                </span>
+              </div>
+            </div>
+          ) : itemAnalysis.questionBreakdown.length === 0 ? (
+            <div className={styles.itemDiagList}>
+              <div className={styles.diagItem}>
+                <div className={styles.diagBadgeSuccess}>
+                  Class Average: {itemAnalysis.classAverageScore}% ({itemAnalysis.totalStudentsGraded} graded)
+                </div>
+                <p className={styles.diagTitle}>{itemAnalysis.quizTitle}</p>
+                <span className={styles.diagHint}>{itemAnalysis.overallRecommendation}</span>
+              </div>
+            </div>
+          ) : (
+            <div className={styles.itemDiagList}>
+              {(() => {
+                const hardest = itemAnalysis.hardestQuestions[0];
+                const easiest = itemAnalysis.easiestQuestions[0];
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ padding: "3px 8px", borderRadius: 6, background: "#ECFDF5", color: "#047857", fontWeight: 600 }}>
+                        Easy: {itemAnalysis.difficultyBreakdown.easyCount}
+                      </span>
+                      <span style={{ padding: "3px 8px", borderRadius: 6, background: "#FEF3C7", color: "#B45309", fontWeight: 600 }}>
+                        Moderate: {itemAnalysis.difficultyBreakdown.moderateCount}
+                      </span>
+                      <span style={{ padding: "3px 8px", borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontWeight: 600 }}>
+                        Difficult: {itemAnalysis.difficultyBreakdown.difficultCount}
+                      </span>
+                    </div>
+
+                    {hardest && (
+                      <div className={styles.diagItem}>
+                        <div className={styles.diagBadgeDanger}>
+                          Hardest Item · Q{hardest.questionNumber} ({hardest.accuracyRate}% accuracy · p={hardest.difficultyIndex.toFixed(2)})
+                        </div>
+                        <p className={styles.diagTitle}>
+                          {hardest.questionText
+                            ? `"${hardest.questionText}"`
+                            : `Question #${hardest.questionNumber} (Key: ${hardest.correctAnswer || "—"})`}
+                        </p>
+                        <span className={styles.diagHint}>
+                          <strong>Diagnostic:</strong> {hardest.pedagogicalInsight}
+                        </span>
+                      </div>
+                    )}
+
+                    {easiest && easiest.questionNumber !== hardest?.questionNumber && (
+                      <div className={styles.diagItem}>
+                        <div className={styles.diagBadgeSuccess}>
+                          Easiest Item · Q{easiest.questionNumber} ({easiest.accuracyRate}% accuracy · p={easiest.difficultyIndex.toFixed(2)})
+                        </div>
+                        <p className={styles.diagTitle}>
+                          {easiest.questionText
+                            ? `"${easiest.questionText}"`
+                            : `Question #${easiest.questionNumber} (Key: ${easiest.correctAnswer || "—"})`}
+                        </p>
+                        <span className={styles.diagHint}>
+                          {easiest.pedagogicalInsight}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
 

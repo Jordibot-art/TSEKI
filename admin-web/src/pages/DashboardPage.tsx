@@ -93,7 +93,8 @@ export default function DashboardPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   const [modalError, setModalError] = useState('');
-  const [previewTab, setPreviewTab] = useState<'card' | 'school_id' | 'face'>('card');
+  const [previewTab, setPreviewTab] = useState<'compare' | 'school_id' | 'school_id_back' | 'face' | 'card'>('card');
+  const [zoomPhoto, setZoomPhoto] = useState<{ src: string; label: string } | null>(null);
 
   // Pending Approve / Reject verification modal
   const [pendingEditVerify, setPendingEditVerify] = useState<PendingEditVerify | null>(null);
@@ -355,7 +356,16 @@ export default function DashboardPage() {
     setShowRejectPrompt(false);
     setRejectReason('');
     setModalError('');
-    setPreviewTab('card');
+    setZoomPhoto(null);
+    if (teacher.school_id_url && teacher.facial_verification_url) {
+      setPreviewTab('compare');
+    } else if (teacher.school_id_url) {
+      setPreviewTab('school_id');
+    } else if (teacher.facial_verification_url) {
+      setPreviewTab('face');
+    } else {
+      setPreviewTab('card');
+    }
   }
 
   function startVerifyApproveOrReject(edit: PendingEditVerify) {
@@ -1320,33 +1330,65 @@ export default function DashboardPage() {
                     </a>
                   </div>
 
+                  <div className="modal-field-block">
+                    <span className="modal-field-label">SCHOOL</span>
+                    <span className="modal-field-text bold">
+                      {selectedTeacher.school_name || 'Basak Community School'}
+                    </span>
+                  </div>
+
                   <div className="modal-field-row">
                     <div className="modal-field-block flex-1">
                       <span className="modal-field-label">TEACHER ID</span>
                       <div className="teacher-id-badge">
-                        {selectedTeacher.teacher_id || '102262'}
+                        {selectedTeacher.teacher_id || 'Not provided'}
                       </div>
-                    </div>
-                    <div className="modal-field-block flex-1">
-                      <span className="modal-field-label">GRADE LEVEL</span>
-                      <span className="modal-field-text">
-                        {selectedTeacher.grade_level?.replace(' Teacher', '') || 'Senior High'}
-                      </span>
                     </div>
                   </div>
 
                   <div className="modal-field-block">
-                    <span className="modal-field-label">STRAND / SUBJECT</span>
-                    <span className="modal-field-text bold">
-                      {selectedTeacher.strand || selectedTeacher.subject || 'HUMSS'}
-                    </span>
+                    <span className="modal-field-label">GRADE LEVELS HANDLED</span>
+                    {selectedTeacher.grade_levels && selectedTeacher.grade_levels.length > 0 ? (
+                      <div className="modal-badge-list">
+                        {selectedTeacher.grade_levels.map((lvl) => (
+                          <span key={lvl} className="modal-grade-pill">
+                            {lvl}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="modal-field-text">
+                        {selectedTeacher.grade_level?.replace(' Teacher', '') || 'Not specified'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="modal-field-block">
+                    <span className="modal-field-label">SUBJECTS / STRANDS</span>
+                    {selectedTeacher.subjects && selectedTeacher.subjects.length > 0 ? (
+                      <div className="modal-badge-list">
+                        {selectedTeacher.subjects.map((subj) => (
+                          <span key={subj} className="modal-subject-pill">
+                            {subj}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="modal-field-text bold">
+                        {selectedTeacher.strand || selectedTeacher.subject || 'Not specified'}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 <div className="modal-col-right">
                   <div className="tseki-id-card-frame">
                     <div className="id-card-top-row">
-                      <span className="id-card-tagline">TSEKI ID CARD</span>
+                      <span className="id-card-tagline">
+                        {selectedTeacher.school_id_url || selectedTeacher.facial_verification_url
+                          ? 'IDENTITY VERIFICATION'
+                          : 'TSEKI ID CARD'}
+                      </span>
                       <img
                         src={mascotImg}
                         alt="Tseki Mascot"
@@ -1354,15 +1396,22 @@ export default function DashboardPage() {
                       />
                     </div>
 
-                    {(selectedTeacher.school_id_url || selectedTeacher.facial_verification_url) && (
+                    {(selectedTeacher.school_id_url ||
+                      selectedTeacher.school_id_back_url ||
+                      selectedTeacher.facial_verification_url) && (
                       <div className="id-card-preview-tabs">
-                        <button
-                          type="button"
-                          className={`preview-tab-btn ${previewTab === 'card' ? 'active' : ''}`}
-                          onClick={() => setPreviewTab('card')}
-                        >
-                          ID Card
-                        </button>
+                        {selectedTeacher.school_id_url &&
+                          selectedTeacher.facial_verification_url && (
+                            <button
+                              type="button"
+                              className={`preview-tab-btn ${
+                                previewTab === 'compare' ? 'active' : ''
+                              }`}
+                              onClick={() => setPreviewTab('compare')}
+                            >
+                              Compare
+                            </button>
+                          )}
                         {selectedTeacher.school_id_url && (
                           <button
                             type="button"
@@ -1371,7 +1420,18 @@ export default function DashboardPage() {
                             }`}
                             onClick={() => setPreviewTab('school_id')}
                           >
-                            School ID
+                            ID Front
+                          </button>
+                        )}
+                        {selectedTeacher.school_id_back_url && (
+                          <button
+                            type="button"
+                            className={`preview-tab-btn ${
+                              previewTab === 'school_id_back' ? 'active' : ''
+                            }`}
+                            onClick={() => setPreviewTab('school_id_back')}
+                          >
+                            ID Back
                           </button>
                         )}
                         {selectedTeacher.facial_verification_url && (
@@ -1380,23 +1440,91 @@ export default function DashboardPage() {
                             className={`preview-tab-btn ${previewTab === 'face' ? 'active' : ''}`}
                             onClick={() => setPreviewTab('face')}
                           >
-                            Face Photo
+                            Face Selfie
                           </button>
                         )}
                       </div>
                     )}
 
-                    {previewTab === 'school_id' && selectedTeacher.school_id_url ? (
+                    {previewTab === 'compare' &&
+                    selectedTeacher.school_id_url &&
+                    selectedTeacher.facial_verification_url ? (
+                      <div className="id-compare-grid">
+                        <button
+                          type="button"
+                          className="id-compare-tile"
+                          onClick={() =>
+                            setZoomPhoto({
+                              src: selectedTeacher.school_id_url!,
+                              label: `${selectedTeacher.full_name} — Physical Teacher ID (Front)`,
+                            })
+                          }
+                          title="Click to enlarge ID Front"
+                        >
+                          <img
+                            src={selectedTeacher.school_id_url}
+                            alt={`${selectedTeacher.full_name} ID Front`}
+                            className="id-compare-img"
+                          />
+                          <span className="id-compare-caption">ID Front</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="id-compare-tile"
+                          onClick={() =>
+                            setZoomPhoto({
+                              src: selectedTeacher.facial_verification_url!,
+                              label: `${selectedTeacher.full_name} — Face Selfie`,
+                            })
+                          }
+                          title="Click to enlarge Face Selfie"
+                        >
+                          <img
+                            src={selectedTeacher.facial_verification_url}
+                            alt={`${selectedTeacher.full_name} Face Selfie`}
+                            className="id-compare-img"
+                          />
+                          <span className="id-compare-caption">Face Selfie</span>
+                        </button>
+                      </div>
+                    ) : previewTab === 'school_id' && selectedTeacher.school_id_url ? (
                       <img
                         src={selectedTeacher.school_id_url}
-                        alt={`${selectedTeacher.full_name} school ID`}
-                        className="id-card-uploaded-img"
+                        alt={`${selectedTeacher.full_name} Physical Teacher ID Front`}
+                        className="id-card-uploaded-img clickable"
+                        onClick={() =>
+                          setZoomPhoto({
+                            src: selectedTeacher.school_id_url!,
+                            label: `${selectedTeacher.full_name} — Physical Teacher ID (Front)`,
+                          })
+                        }
+                        title="Click to zoom"
+                      />
+                    ) : previewTab === 'school_id_back' && selectedTeacher.school_id_back_url ? (
+                      <img
+                        src={selectedTeacher.school_id_back_url}
+                        alt={`${selectedTeacher.full_name} Physical Teacher ID Back`}
+                        className="id-card-uploaded-img clickable"
+                        onClick={() =>
+                          setZoomPhoto({
+                            src: selectedTeacher.school_id_back_url!,
+                            label: `${selectedTeacher.full_name} — Physical Teacher ID (Back)`,
+                          })
+                        }
+                        title="Click to zoom"
                       />
                     ) : previewTab === 'face' && selectedTeacher.facial_verification_url ? (
                       <img
                         src={selectedTeacher.facial_verification_url}
-                        alt={`${selectedTeacher.full_name} facial verification`}
-                        className="id-card-uploaded-img"
+                        alt={`${selectedTeacher.full_name} Face Selfie`}
+                        className="id-card-uploaded-img clickable"
+                        onClick={() =>
+                          setZoomPhoto({
+                            src: selectedTeacher.facial_verification_url!,
+                            label: `${selectedTeacher.full_name} — Face Selfie`,
+                          })
+                        }
+                        title="Click to zoom"
                       />
                     ) : (
                       <div className="id-card-center-row">
@@ -1408,18 +1536,45 @@ export default function DashboardPage() {
                             {selectedTeacher.full_name}
                           </span>
                           <span className="id-card-faculty">Faculty Member</span>
-                          <span className="id-card-verified-code">VERIFIED-TC-2026</span>
+                          <span className="id-card-verified-code">NO PHOTO UPLOADED</span>
                         </div>
                       </div>
                     )}
 
                     <div className="id-card-bottom-link">
                       <Paperclip size={13} aria-hidden="true" />
-                      <span>Photo Attached (Verified)</span>
+                      <span>
+                        {selectedTeacher.school_id_url || selectedTeacher.facial_verification_url
+                          ? 'Click photo to enlarge · Private Storage'
+                          : 'No verification photos attached'}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
+              {zoomPhoto && (
+                <div
+                  className="photo-zoom-overlay"
+                  onClick={() => setZoomPhoto(null)}
+                  role="dialog"
+                  aria-label={zoomPhoto.label}
+                >
+                  <div className="photo-zoom-box" onClick={(e) => e.stopPropagation()}>
+                    <div className="photo-zoom-header">
+                      <span>{zoomPhoto.label}</span>
+                      <button
+                        type="button"
+                        className="modal-close-icon-btn"
+                        onClick={() => setZoomPhoto(null)}
+                        aria-label="Close zoom preview"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <img src={zoomPhoto.src} alt={zoomPhoto.label} className="photo-zoom-img" />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="modal-card-footer">

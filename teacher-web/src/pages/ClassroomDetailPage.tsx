@@ -23,6 +23,7 @@ import {
   UploadCloud,
   CheckCircle2,
   AlertCircle,
+  Pencil,
 } from "lucide-react";
 import styles from "./ClassroomDetailPage.module.css";
 import { showAlert, showConfirm } from "../components/CustomAlertModal";
@@ -60,6 +61,8 @@ type StudentQuizResultRow = {
   quiz_title: string;
   total_score: number;
   max_score: number;
+  score_percentage?: number;
+  graded_at?: string;
 };
 
 type BulkImportCandidate = {
@@ -99,6 +102,13 @@ export default function ClassroomDetailPage() {
   const [newMiddleName, setNewMiddleName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [quizSearchQuery, setQuizSearchQuery] = useState("");
+  const [visibleQuizzesCount, setVisibleQuizzesCount] = useState(5);
+  const [visibleStudentGradesCount, setVisibleStudentGradesCount] = useState(5);
+  const [editingGrade, setEditingGrade] = useState<StudentQuizResultRow | null>(null);
+  const [editScoreInput, setEditScoreInput] = useState("");
+  const [editMaxScoreInput, setEditMaxScoreInput] = useState("");
+  const [savingGrade, setSavingGrade] = useState(false);
 
   // Excel import/export state
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -160,8 +170,9 @@ export default function ClassroomDetailPage() {
       // Load individual student quiz results if available
       const { data: qResults } = await supabase
         .from("student_quiz_results")
-        .select("student_id, quiz_id, quiz_title, total_score, max_score")
-        .eq("classroom_id", id);
+        .select("student_id, quiz_id, quiz_title, total_score, max_score, score_percentage, graded_at")
+        .eq("classroom_id", id)
+        .order("graded_at", { ascending: false });
 
       setQuizResults((qResults as StudentQuizResultRow[]) || []);
     } catch (err) {
@@ -261,6 +272,71 @@ export default function ClassroomDetailPage() {
       showAlert({ title: "Error", message: "Failed to delete classroom.", type: "error" });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveEditedGrade(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedStudent || !editingGrade || !id) return;
+
+    const parsedMax = Math.max(1, Math.round(Number(editMaxScoreInput) * 100) / 100 || 1);
+    const parsedScore = Math.max(0, Math.min(parsedMax, Math.round(Number(editScoreInput) * 100) / 100 || 0));
+    const newPct = Math.round((parsedScore / parsedMax) * 100);
+
+    setSavingGrade(true);
+    try {
+      const { error } = await supabase
+        .from("student_quiz_results")
+        .update({
+          total_score: parsedScore,
+          max_score: parsedMax,
+          score_percentage: newPct,
+        })
+        .eq("student_id", selectedStudent.id)
+        .eq("classroom_id", id)
+        .eq("quiz_title", editingGrade.quiz_title);
+
+      if (error) throw error;
+
+      // Update local quizResults and recalculate student average
+      const updatedResults = quizResults.map((r) =>
+        r.student_id === selectedStudent.id && r.quiz_title === editingGrade.quiz_title
+          ? { ...r, total_score: parsedScore, max_score: parsedMax, score_percentage: newPct }
+          : r
+      );
+      setQuizResults(updatedResults);
+
+      const studentRows = updatedResults.filter((r) => r.student_id === selectedStudent.id);
+      const recalculatedAvg =
+        studentRows.length > 0
+          ? Math.round(
+              studentRows.reduce((sum, r) => {
+                const pct =
+                  typeof r.score_percentage === "number"
+                    ? r.score_percentage
+                    : r.max_score > 0
+                    ? (r.total_score / r.max_score) * 100
+                    : 0;
+                return sum + pct;
+              }, 0) / studentRows.length
+            )
+          : 0;
+
+      await supabase.from("students").update({ average: recalculatedAvg }).eq("id", selectedStudent.id);
+
+      setStudents((prev) =>
+        prev.map((s) => (s.id === selectedStudent.id ? { ...s, average: recalculatedAvg } : s))
+      );
+      setSelectedStudent((prev) => (prev ? { ...prev, average: recalculatedAvg } : null));
+      setEditingGrade(null);
+    } catch (err: any) {
+      showAlert({
+        title: "Failed to Update Grade",
+        message: err?.message || "Could not update this assessment score.",
+        type: "error",
+      });
+    } finally {
+      setSavingGrade(false);
     }
   }
 
@@ -811,49 +887,114 @@ export default function ClassroomDetailPage() {
       )}
 
       {/* Quizzes Tab */}
-      {activeTab === "quizzes" && (
-        <div className={styles.section}>
-          {quizzes.length === 0 ? (
-            <div className={styles.emptyState}>
-              <FileText size={44} strokeWidth={1.2} />
-              <h3>No assessments yet</h3>
-              <p>Generate assessments from the TSEKI mobile app</p>
-            </div>
-          ) : (
-            <div className={styles.quizGrid}>
-              {quizzes.map((quiz, idx) => (
-                <div
-                  key={quiz.id}
-                  className={styles.quizCard}
-                  style={{ animationDelay: `${idx * 50}ms` }}
-                >
-                  <div className={styles.quizCardHeader}>
-                    <FileText size={20} className={styles.quizCardIcon} />
-                    <span
-                      className={`${styles.quizBadge} ${
-                        quiz.status === "PUBLISHED" || quiz.status === "ARCHIVE"
-                          ? styles.quizPublished
-                          : styles.quizDraft
-                      }`}
-                    >
-                      {quiz.status === "ARCHIVE" ? "PUBLISHED" : quiz.status}
-                    </span>
-                  </div>
-                  <h4 className={styles.quizCardTitle}>{quiz.quiz_title}</h4>
-                  <p className={styles.quizCardMeta}>
-                    {quiz.subject || "General"} ·{" "}
-                    {quiz.questions?.length || 0} questions
-                  </p>
-                  <p className={styles.quizCardDate}>
-                    <Clock size={12} />
-                    {new Date(quiz.created_at).toLocaleDateString()}
-                  </p>
+      {activeTab === "quizzes" && (() => {
+        const filteredQuizzes = quizSearchQuery.trim()
+          ? quizzes.filter((q) =>
+              `${q.quiz_title} ${q.subject || ""}`
+                .toLowerCase()
+                .includes(quizSearchQuery.trim().toLowerCase())
+            )
+          : quizzes;
+        const visibleQuizzes = filteredQuizzes.slice(0, visibleQuizzesCount);
+
+        return (
+          <div className={styles.section}>
+            {quizzes.length > 5 && (
+              <div className={styles.sectionHeader} style={{ marginBottom: 14 }}>
+                <div className={styles.searchBar}>
+                  <Search size={16} className={styles.searchIcon} />
+                  <input
+                    type="text"
+                    placeholder={`Search ${quizzes.length} assessments...`}
+                    value={quizSearchQuery}
+                    onChange={(e) => {
+                      setQuizSearchQuery(e.target.value);
+                      setVisibleQuizzesCount(5);
+                    }}
+                    className={styles.searchInput}
+                  />
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>
+                  Showing {visibleQuizzes.length} of {filteredQuizzes.length}
+                </span>
+              </div>
+            )}
+
+            {filteredQuizzes.length === 0 ? (
+              <div className={styles.emptyState}>
+                <FileText size={44} strokeWidth={1.2} />
+                <h3>{quizSearchQuery ? "No assessments match" : "No assessments yet"}</h3>
+                <p>Generate assessments from Assessments or the TSEKI mobile app</p>
+              </div>
+            ) : (
+              <>
+                <div className={styles.quizGrid}>
+                  {visibleQuizzes.map((quiz, idx) => (
+                    <div
+                      key={quiz.id}
+                      className={styles.quizCard}
+                      style={{ animationDelay: `${idx * 50}ms` }}
+                    >
+                      <div className={styles.quizCardHeader}>
+                        <FileText size={20} className={styles.quizCardIcon} />
+                        <span
+                          className={`${styles.quizBadge} ${
+                            quiz.status === "PUBLISHED" || quiz.status === "ARCHIVE"
+                              ? styles.quizPublished
+                              : styles.quizDraft
+                          }`}
+                        >
+                          {quiz.status === "ARCHIVE" ? "PUBLISHED" : quiz.status}
+                        </span>
+                      </div>
+                      <h4 className={styles.quizCardTitle}>{quiz.quiz_title}</h4>
+                      <p className={styles.quizCardMeta}>
+                        {quiz.subject || "General"} ·{" "}
+                        {quiz.questions?.length || 0} questions
+                      </p>
+                      <p className={styles.quizCardDate}>
+                        <Clock size={12} />
+                        {new Date(quiz.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {filteredQuizzes.length > 5 && (
+                  <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 16 }}>
+                    {visibleQuizzesCount < filteredQuizzes.length ? (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.cancelBtn}
+                          onClick={() => setVisibleQuizzesCount((c) => c + 5)}
+                        >
+                          Show 5 More
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.saveBtn}
+                          onClick={() => setVisibleQuizzesCount(filteredQuizzes.length)}
+                        >
+                          View All ({filteredQuizzes.length})
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.cancelBtn}
+                        onClick={() => setVisibleQuizzesCount(5)}
+                      >
+                        Show Less (Top 5)
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Add Student Modal */}
       {showAddModal && createPortal(
@@ -946,11 +1087,25 @@ export default function ClassroomDetailPage() {
 
       {/* Student Detail Modal */}
       {selectedStudent && createPortal(
-        <div className={styles.modalOverlay} onClick={() => setSelectedStudent(null)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            setSelectedStudent(null);
+            setEditingGrade(null);
+            setVisibleStudentGradesCount(5);
+          }}
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
             <div className={styles.modalHeader}>
               <h2>Student Profile</h2>
-              <button className={styles.modalClose} onClick={() => setSelectedStudent(null)}>
+              <button
+                className={styles.modalClose}
+                onClick={() => {
+                  setSelectedStudent(null);
+                  setEditingGrade(null);
+                  setVisibleStudentGradesCount(5);
+                }}
+              >
                 <X size={20} />
               </button>
             </div>
@@ -991,6 +1146,152 @@ export default function ClassroomDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Quiz Grade Sheet (capped at 5 by default + inline Edit Score) */}
+              {(() => {
+                const studentGrades = quizResults.filter(
+                  (r) => r.student_id === selectedStudent.id
+                );
+                const visibleGrades = studentGrades.slice(0, visibleStudentGradesCount);
+
+                return (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <strong style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.6, color: "#64748B" }}>
+                        Quiz Grade Sheet ({studentGrades.length})
+                      </strong>
+                      {studentGrades.length > 5 && (
+                        <span style={{ fontSize: 11, color: "#64748B" }}>
+                          Showing {visibleGrades.length} of {studentGrades.length}
+                        </span>
+                      )}
+                    </div>
+
+                    {studentGrades.length === 0 ? (
+                      <p style={{ fontSize: 13, color: "#64748B", margin: "6px 0" }}>
+                        No individual quiz scores recorded for this student yet.
+                      </p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {visibleGrades.map((grade) => {
+                          const isEditingThis = editingGrade?.quiz_title === grade.quiz_title;
+                          const pct =
+                            typeof grade.score_percentage === "number"
+                              ? grade.score_percentage
+                              : grade.max_score > 0
+                              ? Math.round((grade.total_score / grade.max_score) * 100)
+                              : 0;
+
+                          return (
+                            <div
+                              key={`${grade.student_id}-${grade.quiz_title}`}
+                              style={{
+                                padding: "10px 12px",
+                                borderRadius: 10,
+                                border: "1px solid var(--border-subtle, #e2e8f0)",
+                                background: "var(--bg-subtle, #f8fafc)",
+                              }}
+                            >
+                              {isEditingThis ? (
+                                <form onSubmit={handleSaveEditedGrade} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 700 }}>{grade.quiz_title}</div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      min={0}
+                                      value={editScoreInput}
+                                      onChange={(e) => setEditScoreInput(e.target.value)}
+                                      className={styles.input}
+                                      style={{ width: 90, padding: "6px 8px" }}
+                                      aria-label="Score"
+                                    />
+                                    <span style={{ fontWeight: 700 }}>/</span>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      min={1}
+                                      value={editMaxScoreInput}
+                                      onChange={(e) => setEditMaxScoreInput(e.target.value)}
+                                      className={styles.input}
+                                      style={{ width: 90, padding: "6px 8px" }}
+                                      aria-label="Max score"
+                                    />
+                                    <button type="submit" className={styles.saveBtn} disabled={savingGrade} style={{ padding: "6px 12px", fontSize: 12 }}>
+                                      {savingGrade ? "Saving..." : "Save"}
+                                    </button>
+                                    <button type="button" className={styles.cancelBtn} onClick={() => setEditingGrade(null)} style={{ padding: "6px 10px", fontSize: 12 }}>
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {grade.quiz_title}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#64748B" }}>
+                                      {grade.total_score} / {grade.max_score} ({pct}%)
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className={styles.cancelBtn}
+                                    style={{ padding: "4px 10px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
+                                    onClick={() => {
+                                      setEditingGrade(grade);
+                                      setEditScoreInput(String(grade.total_score));
+                                      setEditMaxScoreInput(String(grade.max_score));
+                                    }}
+                                  >
+                                    <Pencil size={12} />
+                                    Edit
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {studentGrades.length > 5 && (
+                          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                            {visibleStudentGradesCount < studentGrades.length ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={styles.cancelBtn}
+                                  style={{ padding: "5px 10px", fontSize: 12 }}
+                                  onClick={() => setVisibleStudentGradesCount((c) => c + 5)}
+                                >
+                                  Show 5 More
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.cancelBtn}
+                                  style={{ padding: "5px 10px", fontSize: 12 }}
+                                  onClick={() => setVisibleStudentGradesCount(studentGrades.length)}
+                                >
+                                  View All ({studentGrades.length})
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className={styles.cancelBtn}
+                                style={{ padding: "5px 10px", fontSize: 12 }}
+                                onClick={() => setVisibleStudentGradesCount(5)}
+                              >
+                                Show Less (Top 5)
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <div className={styles.modalFooter}>
               <button
@@ -1002,7 +1303,11 @@ export default function ClassroomDetailPage() {
               </button>
               <button
                 className={styles.cancelBtn}
-                onClick={() => setSelectedStudent(null)}
+                onClick={() => {
+                  setSelectedStudent(null);
+                  setEditingGrade(null);
+                  setVisibleStudentGradesCount(5);
+                }}
               >
                 Close
               </button>

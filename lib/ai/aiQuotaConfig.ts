@@ -9,9 +9,9 @@ export const AI_QUOTA_CONFIG = {
     /**
      * Daily cap of successful full-quiz generations per user (teacher_id).
      * Resets automatically at 12:00 AM (midnight) Asia/Manila time (UTC+8).
-     * Set to 50 in development (__DEV__) and 25 for production to avoid exhausting quota during testing.
+     * Aligned with Teacher Web and Supabase `check_ai_quota` RPC (10/day).
      */
-    DAILY_LIMIT: typeof __DEV__ !== "undefined" && __DEV__ ? 50 : 25,
+    DAILY_LIMIT: 10,
 
     /**
      * Timezone for daily quota resets (midnight Asia/Manila, Philippines).
@@ -56,6 +56,17 @@ export function getManilaDateString(date: Date = new Date()): string {
     const month = String(manilaDate.getUTCMonth() + 1).padStart(2, "0");
     const day = String(manilaDate.getUTCDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+}
+
+/**
+ * Returns true when running in a production build/runtime where test-only
+ * shortcuts (like resetting daily AI quota) must be strictly disabled.
+ */
+export function isProductionBuild(): boolean {
+    if (typeof __DEV__ !== "undefined") {
+        return !__DEV__;
+    }
+    return process.env.NODE_ENV === "production";
 }
 
 /**

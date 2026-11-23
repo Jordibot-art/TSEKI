@@ -1,0 +1,579 @@
+.stepTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.backBtn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  color: #181920;
+}
+
+.stepPill {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #c2410c;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.verifiedPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.progressTrack {
+  height: 5px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.progressFill {
+  height: 100%;
+  background: #ff6b00;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.heading {
+  font-size: 24px;
+  font-weight: 800;
+  color: #181920;
+  margin: 0 0 4px;
+}
+
+.subtext {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.fieldSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #475569;
+  text-transform: uppercase;
+}
+
+.req {
+  color: #ef4444;
+}
+
+.helper {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+}
+
+.selectedCount {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ff6b00;
+}
+
+.gridTwo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.input {
+  width: 100%;
+  height: 42px;
+  border: 1.2px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  color: #0f172a;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.input:focus {
+  border-color: #ff6b00;
+  background: #ffffff;
+}
+
+.passwordWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.eyeBtn {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  display: inline-flex;
+  padding: 4px;
+}
+
+.gradeGroupCard {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.gradeGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.gradeGroupTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.selectAllBtn {
+  background: transparent;
+  border: none;
+  color: #ff6b00;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.chipGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.checkChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+
+.checkChipActive {
+  border-color: #ff6b00;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.customSubjectRow {
+  display: flex;
+  gap: 8px;
+}
+
+.addBtn {
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: none;
+  background: #ff6b00;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.addBtn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.subjectTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+}
+
+.subjectTagActive {
+  background: #ff6b00;
+  border-color: #ff6b00;
+  color: #ffffff;
+}
+
+.infoBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.primaryBtn {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  border: none;
+  background: #ff6b00;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.primaryBtn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.secondaryLinkBtn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 0 0;
+}
+
+.summaryCard {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.summaryTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.summaryName {
+  font-weight: 800;
+  font-size: 14.5px;
+  color: #0f172a;
+}
+
+.idChip {
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.summaryMeta {
+  font-size: 12px;
+  color: #475569;
+  margin-top: 3px;
+}
+
+.summarySubjects {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ff6b00;
+  margin-top: 3px;
+}
+
+.photoCard {
+  border: 1.2px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.photoCardDone {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.photoHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.stepNum {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stepNumDone {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.photoTitle {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.photoDesc {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 2px 0 0;
+}
+
+.uploadRow {
+  display: flex;
+  gap: 8px;
+}
+
+.uploadBtn {
+  flex: 1;
+  height: 38px;
+  border-radius: 9px;
+  border: 1.2px solid #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.webcamBtn {
+  flex: 1.2;
+  height: 38px;
+  border-radius: 9px;
+  border: none;
+  background: #ff6b00;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.previewImg {
+  width: 100%;
+  max-height: 150px;
+  object-fit: cover;
+  border-radius: 9px;
+  margin-bottom: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.selfieImg {
+  width: 118px;
+  height: 118px;
+  border-radius: 999px;
+  object-fit: cover;
+  display: block;
+  margin: 0 auto 8px;
+  border: 3px solid #16a34a;
+}
+
+.webcamBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.webcamVideo {
+  width: 100%;
+  max-height: 200px;
+  border-radius: 10px;
+  background: #0f172a;
+  transform: scaleX(-1);
+}
+
+.pendingBox {
+  text-align: center;
+  padding: 12px 4px;
+}
+
+.pendingIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #ff6b00;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.scanOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+}
+
+.scanModalCard {
+  width: 100%;
+  max-width: 340px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.22);
+}
+
+.scanStageBox {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.scanLaserBeam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #ea580c;
+  box-shadow: 0 0 10px #ea580c;
+  animation: laserSweep 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes laserSweep {
+  from {
+    top: 12px;
+  }
+  to {
+    top: calc(100% - 14px);
+  }
+}
+
+.scanRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 6px;
+}
+
+.scanTitle {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+
+.scanSubtitle {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0 0 12px;
+}
+

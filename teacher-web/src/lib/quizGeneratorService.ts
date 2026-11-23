@@ -207,12 +207,60 @@ You MUST return ONLY a strict, valid JSON object without markdown formatting or 
 }
 `;
 
+  // Optional Server-Side AI Proxy (keeps all provider API keys strictly server-side)
+  const proxyUrl =
+    (import.meta as any).env?.VITE_AI_PROXY_URL ||
+    (import.meta as any).env?.EXPO_PUBLIC_AI_PROXY_URL ||
+    "";
+
+  if (proxyUrl) {
+    try {
+      params.onStatusUpdate?.("Connecting to TSEKI AI Server...", false);
+      const { supabase } = await import("./supabase");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (accessToken) {
+        const res = await fetch(proxyUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            provider: "gemini",
+            prompt: promptText,
+            jsonMode: true,
+            temperature: 0.2,
+            actionType: "full_quiz",
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const parsed = parseGeneratedAssessmentJson(String(data?.text || ""));
+          if (parsed) {
+            parsed.generatedBy = `TSEKI Server Proxy (${data?.provider || "ai"})`;
+            params.onProviderUsed?.(String(data?.provider || "proxy"), "server-proxy");
+            params.onStatusUpdate?.("Assessment generated successfully!", false);
+            return parsed;
+          }
+        }
+      }
+    } catch (proxyErr) {
+      console.warn("[TSEKI AI] Server proxy unavailable, falling back to configured provider:", proxyErr);
+    }
+  }
+
+  const failures: string[] = [];
+
   if (apiKey) {
     const candidateModels = [
       "gemini-3.5-flash-lite",
       "gemini-3.6-flash",
       "gemini-3.8-flash",
       "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
       "gemini-1.5-flash",
     ];
 
@@ -255,18 +303,8 @@ You MUST return ONLY a strict, valid JSON object without markdown formatting or 
           const result = await model.generateContent(parts);
           if (result) {
             try {
-              const rawText = result.response.text().trim();
-              const cleanJson = rawText
-                .replace(/^```(?:json)?\s*/i, "")
-                .replace(/\s*```$/i, "")
-                .trim();
-
-              const parsed: GeneratedAssessment = JSON.parse(cleanJson);
-              if (
-                parsed.quizTitle &&
-                Array.isArray(parsed.questions) &&
-                Array.isArray(parsed.answerKey)
-              ) {
+              const parsed = parseGeneratedAssessmentJson(result.response.text());
+              if (parsed) {
                 parsed.generatedBy = `Google Gemini (${modelName})`;
                 params.onProviderUsed?.("gemini", modelName);
                 params.onStatusUpdate?.("Assessment generated successfully!", false);
@@ -277,6 +315,7 @@ You MUST return ONLY a strict, valid JSON object without markdown formatting or 
                 `[TSEKI AI] JSON parse error from ${modelName}, trying next candidate...`,
                 parseErr
               );
+              failures.push(`Gemini ${modelName}: invalid JSON`);
               break;
             }
           }
@@ -322,6 +361,7 @@ You MUST return ONLY a strict, valid JSON object without markdown formatting or 
             continue;
           }
 
+          failures.push(`Gemini ${modelName}: ${apiErr?.message || "request failed"}`);
           console.warn(
             `[TSEKI AI] Gemini ${modelName} failed: ${apiErr?.message}. Trying next candidate...`
           );
@@ -329,113 +369,160 @@ You MUST return ONLY a strict, valid JSON object without markdown formatting or 
         }
       }
     }
+  } else {
+    failures.push("Gemini API key is not configured");
   }
 
-  // Fallback: If online Gemini is unavailable, generate an assessment derived from the document's content
-  params.onStatusUpdate?.("Generating structured assessment from reference document...", false);
-  return generateDocumentDerivedAssessment(params);
-}
+  // Backup AI Failover 1: Groq (parity with Mobile backupRunner.ts)
+  const groqKey =
+    (typeof localStorage !== "undefined" ? localStorage.getItem("tseki_groq_api_key") : null) ||
+    (import.meta as any).env?.VITE_GROQ_API_KEY ||
+    (import.meta as any).env?.EXPO_PUBLIC_GROQ_API_KEY ||
+    "";
 
-/**
- * High-quality fallback generator that parses keywords, definitions, and sentences
- * from attached documents and lesson notes to construct realistic questions.
- */
-function generateDocumentDerivedAssessment(
-  params: AssessmentGenerationParams
-): GeneratedAssessment {
-  const count = params.questionCount || 10;
-  const title =
-    params.topic.trim() ||
-    (params.attachedFileName
-      ? `Assessment on ${params.attachedFileName.replace(/\.[^/.]+$/, "")}`
-      : "Curriculum Assessment");
-  const textContent =
-    params.attachedFileText || params.lessonNotes || params.topic || "Core Curriculum Concepts";
+  if (groqKey) {
+    const groqModels = [
+      (import.meta as any).env?.VITE_GROQ_MODEL ||
+        (import.meta as any).env?.EXPO_PUBLIC_GROQ_MODEL ||
+        "openai/gpt-oss-120b",
+      "openai/gpt-oss-20b",
+      "llama-3.3-70b-versatile",
+    ];
+    const uniqueGroqModels = Array.from(new Set(groqModels.filter(Boolean)));
 
-  // Split text into meaningful lines/sentences
-  const rawSentences = textContent
-    .split(/(?<=[.?!])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 25 && !s.startsWith("---"));
+    for (const modelName of uniqueGroqModels) {
+      try {
+        params.onStatusUpdate?.(`Primary AI busy — failing over to Backup AI (Groq ${modelName})...`, true);
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert educational assessment author. Return ONLY valid JSON matching the requested schema.",
+              },
+              { role: "user", content: promptText },
+            ],
+          }),
+        });
 
-  const sentences =
-    rawSentences.length >= 5
-      ? rawSentences
-      : [
-          `${title} represents a core foundation within the modern curriculum.`,
-          `Effective mastery requires understanding theoretical principles and empirical evidence.`,
-          `Key methodologies enable systematic verification and evaluation of concepts.`,
-          `Systemic application allows students to analyze and resolve contextual problems.`,
-          `Formative assessment ensures Bloom's taxonomy objectives are comprehensively satisfied.`,
-        ];
+        if (!res.ok) {
+          failures.push(`Groq ${modelName}: HTTP ${res.status}`);
+          continue;
+        }
 
-  const questions: ScannableQuestion[] = [];
-  const answerKey: AnswerKeyItem[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const qNum = i + 1;
-    const sentence = sentences[i % sentences.length];
-    const words = sentence.split(/\s+/).filter((w) => w.length > 3);
-    const targetWord = words[Math.floor(Math.random() * words.length)] || "Concept";
-    const cleanWord = targetWord.replace(/[^a-zA-Z0-9]/g, "");
-
-    // Rotate question types
-    const mod = i % 3;
-    if (mod === 0) {
-      // Multiple Choice
-      const options = [
-        `A) ${cleanWord}`,
-        `B) Secondary Variable`,
-        `C) Control Method`,
-        `D) Inactive State`,
-      ];
-      questions.push({
-        questionNumber: qNum,
-        type: "multiple_choice",
-        questionText: `Which of the following is most centrally associated with: "${sentence.slice(0, 80)}..."?`,
-        options,
-        answerBoxesRequired: 1,
-      });
-      answerKey.push({
-        questionNumber: qNum,
-        correctAnswer: "A",
-        points: 1,
-      });
-    } else if (mod === 1) {
-      // True / False
-      questions.push({
-        questionNumber: qNum,
-        type: "true_false",
-        questionText: `True or False: ${sentence}`,
-        options: ["A) True", "B) False"],
-        answerBoxesRequired: 1,
-      });
-      answerKey.push({
-        questionNumber: qNum,
-        correctAnswer: "T",
-        points: 1,
-      });
-    } else {
-      // Identification (1-3 words)
-      questions.push({
-        questionNumber: qNum,
-        type: "identification",
-        questionText: `Identify the term referenced in this statement: "${sentence.replace(targetWord, "______")}"`,
-        options: [],
-        answerBoxesRequired: 1,
-      });
-      answerKey.push({
-        questionNumber: qNum,
-        correctAnswer: cleanWord.slice(0, 25),
-        points: 1,
-      });
+        const data = await res.json();
+        const rawText = data?.choices?.[0]?.message?.content || "";
+        const parsed = parseGeneratedAssessmentJson(rawText);
+        if (parsed) {
+          parsed.generatedBy = `Backup AI · Groq (${modelName})`;
+          params.onProviderUsed?.("groq", modelName);
+          params.onStatusUpdate?.("Assessment generated via Backup AI!", false);
+          return parsed;
+        }
+      } catch (groqErr: any) {
+        failures.push(`Groq ${modelName}: ${groqErr?.message || "failed"}`);
+      }
     }
   }
 
-  return {
-    quizTitle: title,
-    questions,
-    answerKey,
-    generatedBy: "TSEKI Document Parser Engine",
-  };
+  // Backup AI Failover 2: OpenRouter (parity with Mobile backupRunner.ts)
+  const openRouterKey =
+    (typeof localStorage !== "undefined" ? localStorage.getItem("tseki_openrouter_api_key") : null) ||
+    (import.meta as any).env?.VITE_OPENROUTER_API_KEY ||
+    (import.meta as any).env?.EXPO_PUBLIC_OPENROUTER_API_KEY ||
+    "";
+
+  if (openRouterKey) {
+    const orModels = [
+      (import.meta as any).env?.VITE_OPENROUTER_MODEL ||
+        (import.meta as any).env?.EXPO_PUBLIC_OPENROUTER_MODEL ||
+        "cohere/north-mini-code:free",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "openrouter/free",
+    ];
+    const uniqueOrModels = Array.from(new Set(orModels.filter(Boolean)));
+
+    for (const modelName of uniqueOrModels) {
+      try {
+        params.onStatusUpdate?.("Failing over to Backup AI (OpenRouter)...", true);
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openRouterKey}`,
+            "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "https://tseki.edu",
+            "X-Title": "TSEKI Teacher Web",
+          },
+          body: JSON.stringify({
+            model: modelName,
+            temperature: 0.2,
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert educational assessment author. Return ONLY valid JSON matching the requested schema.",
+              },
+              { role: "user", content: promptText },
+            ],
+          }),
+        });
+
+        if (!res.ok) {
+          failures.push(`OpenRouter ${modelName}: HTTP ${res.status}`);
+          continue;
+        }
+
+        const data = await res.json();
+        const rawText = data?.choices?.[0]?.message?.content || "";
+        const parsed = parseGeneratedAssessmentJson(rawText);
+        if (parsed) {
+          parsed.generatedBy = `Backup AI · OpenRouter (${modelName})`;
+          params.onProviderUsed?.("openrouter", modelName);
+          params.onStatusUpdate?.("Assessment generated via Backup AI!", false);
+          return parsed;
+        }
+      } catch (orErr: any) {
+        failures.push(`OpenRouter ${modelName}: ${orErr?.message || "failed"}`);
+      }
+    }
+  }
+
+  // Never silently generate low-quality placeholder questions or deduct daily quota on failure
+  const summary = failures.slice(0, 3).join("; ") || "No AI provider keys configured";
+  throw new Error(
+    `AI generation failed across all available providers (your daily AI credit was NOT deducted). Details: ${summary}`
+  );
+}
+
+function parseGeneratedAssessmentJson(rawText: string): GeneratedAssessment | null {
+  const cleanJson = rawText
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  if (!cleanJson) return null;
+
+  const start = cleanJson.indexOf("{");
+  const end = cleanJson.lastIndexOf("}");
+  const jsonSlice = start >= 0 && end > start ? cleanJson.slice(start, end + 1) : cleanJson;
+  const parsed = JSON.parse(jsonSlice) as GeneratedAssessment;
+
+  if (
+    parsed &&
+    typeof parsed.quizTitle === "string" &&
+    Array.isArray(parsed.questions) &&
+    parsed.questions.length > 0 &&
+    Array.isArray(parsed.answerKey)
+  ) {
+    return parsed;
+  }
+  return null;
 }

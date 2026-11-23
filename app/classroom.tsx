@@ -27,6 +27,7 @@ import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
 import { NotificationsModal } from "../components/NotificationsModal";
 import TrackerTab from "../components/TrackerTab";
+import { StudentFormModal } from "../components/classroom/StudentFormModal";
 import { useTheme } from "../context/ThemeContext";
 import {
   AlertPreferences,
@@ -1286,52 +1287,7 @@ export default function ClassroomScreen() {
     return { quizzes: chronologicalQuizzes, results };
   }
 
-  // ── Export Classlist (Excel / CSV) Handlers ──────────────────────────────────
-  async function handleExportExcel(forceNewFolder = false) {
-    if (students.length === 0) {
-      Alert.alert("No Data", "There are no students in this classroom to export.");
-      return;
-    }
-
-    const runId = ++exportRunIdRef.current;
-    try {
-      setIsExporting(true);
-      const { quizzes, results } = await getClassroomExportQuizData();
-      if (exportRunIdRef.current !== runId) return;
-
-      const base64 = generateExcelClasslistBase64({
-        classroomTitle: title || "Classroom",
-        subject: classroomSubject,
-        section: classroomSection,
-        room: classroomRoom,
-        schedule: classroomSchedule,
-        students,
-        quizzes,
-        results,
-      });
-
-      const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_classlist.xlsx`;
-      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-      if (exportRunIdRef.current !== runId) return;
-      await saveDirectlyToPhone({
-        fileName,
-        mimeType,
-        base64Data: base64,
-        forceNewFolder,
-      });
-    } catch (err: any) {
-      if (exportRunIdRef.current !== runId) return;
-      console.error("Excel export error:", err);
-      Alert.alert("Export Failed", err.message || "Could not export Excel file.");
-    } finally {
-      if (exportRunIdRef.current === runId) {
-        setIsExporting(false);
-      }
-    }
-  }
-
+  // ── Export Classlist Template Handler ────────────────────────────────────────
   async function handleDownloadTemplate(forceNewFolder = false) {
     const runId = ++exportRunIdRef.current;
     try {
@@ -1359,132 +1315,6 @@ export default function ClassroomScreen() {
       if (exportRunIdRef.current !== runId) return;
       console.error("Template download error:", err);
       Alert.alert("Download Failed", err.message || "Could not generate template.");
-    } finally {
-      if (exportRunIdRef.current === runId) {
-        setIsExporting(false);
-      }
-    }
-  }
-
-  async function handleExportCSV(forceNewFolder = false) {
-    if (students.length === 0) {
-      Alert.alert("No Data", "There are no students to export.");
-      return;
-    }
-
-    const runId = ++exportRunIdRef.current;
-    try {
-      setIsExporting(true);
-      const { quizzes, results } = await getClassroomExportQuizData();
-      if (exportRunIdRef.current !== runId) return;
-
-      const quizHeaders = quizzes.map((q, idx) => {
-        const label = /^quiz\s*\d+/i.test(q.quizTitle.trim())
-          ? q.quizTitle.trim()
-          : `Quiz ${idx + 1}: ${q.quizTitle.trim()}`;
-        return `"${label.replace(/"/g, '""')}${q.maxScore ? ` (${q.maxScore} pts)` : ""}"`;
-      });
-
-      const header = ["Item", "Last Name", "First Name", "Middle Name", "Email", ...quizHeaders].join(",") + "\n";
-      const rows = students
-        .map((s, idx) => {
-          const norm = normalizeStudentRecord(s);
-          const quizCells = quizzes.map((q) => {
-            const match = results.find(
-              (r) =>
-                (r.studentId === s.id ||
-                  r.studentName.toLowerCase().trim() === norm.full_name.toLowerCase().trim()) &&
-                r.quizTitle.toLowerCase().trim() === q.quizTitle.toLowerCase().trim()
-            );
-            return match !== undefined ? String(match.totalScore) : "";
-          });
-          return [
-            idx + 1,
-            `"${(norm.last_name || "").replace(/"/g, '""')}"`,
-            `"${(norm.first_name || "").replace(/"/g, '""')}"`,
-            `"${(norm.middle_name || "").replace(/"/g, '""')}"`,
-            `"${(s.email || "N/A").replace(/"/g, '""')}"`,
-            ...quizCells,
-          ].join(",");
-        })
-        .join("\n");
-
-      const csvContent = header + rows;
-      const cleanTitle = (title || "classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_roster.csv`;
-      const mimeType = "text/csv";
-
-      const tempUri = `${FileSystem.cacheDirectory}${fileName}`;
-      await FileSystem.writeAsStringAsync(tempUri, csvContent, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-      if (exportRunIdRef.current !== runId) return;
-      const base64 = await FileSystem.readAsStringAsync(tempUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      if (exportRunIdRef.current !== runId) return;
-
-      await saveDirectlyToPhone({
-        fileName,
-        mimeType,
-        base64Data: base64,
-        forceNewFolder,
-      });
-    } catch (err: any) {
-      if (exportRunIdRef.current !== runId) return;
-      console.error("CSV export error:", err);
-      Alert.alert("Export Failed", err.message || "Could not export CSV file.");
-    } finally {
-      if (exportRunIdRef.current === runId) {
-        setIsExporting(false);
-      }
-    }
-  }
-
-  async function handleShareFile() {
-    if (students.length === 0) {
-      Alert.alert("No Data", "There are no students to export.");
-      return;
-    }
-
-    const runId = ++exportRunIdRef.current;
-    try {
-      setIsExporting(true);
-      const cleanTitle = (title || "Classroom").replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `${cleanTitle}_classlist.xlsx`;
-      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-      const { quizzes, results } = await getClassroomExportQuizData();
-      if (exportRunIdRef.current !== runId) return;
-
-      const base64 = generateExcelClasslistBase64({
-        classroomTitle: title || "Classroom",
-        subject: classroomSubject,
-        section: classroomSection,
-        room: classroomRoom,
-        schedule: classroomSchedule,
-        students,
-        quizzes,
-        results,
-      });
-
-      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-      await FileSystem.writeAsStringAsync(fileUri, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      if (exportRunIdRef.current !== runId) return;
-
-      if (await Sharing.isAvailableAsync()) {
-        if (exportRunIdRef.current !== runId) return;
-        await Sharing.shareAsync(fileUri, {
-          mimeType,
-          dialogTitle: `Share ${fileName}`,
-        });
-      }
-    } catch (err: any) {
-      if (exportRunIdRef.current !== runId) return;
-      console.error("Share error:", err);
-      Alert.alert("Share Failed", err.message || "Could not share file.");
     } finally {
       if (exportRunIdRef.current === runId) {
         setIsExporting(false);
@@ -2069,247 +1899,52 @@ export default function ClassroomScreen() {
       </ScrollView>
 
       {/* ── Add New Student Modal ── */}
-      <Modal
+      <StudentFormModal
         visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={handleCancel}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <TouchableWithoutFeedback onPress={handleCancel}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback>
-                <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
-                  {/* Top Drag Handle */}
-                  <View style={styles.sheetDragHandle} />
-
-                  {/* Header */}
-                  <View style={styles.modalHeader}>
-                    <Text style={[styles.modalTitle, { color: textMain }]}>Add New Student</Text>
-                    <TouchableOpacity
-                      onPress={handleCancel}
-                      style={[styles.sheetCloseBtn, { backgroundColor: btnSecondaryBg }]}
-                    >
-                      <Ionicons name="close" size={18} color={textSub} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Last Name */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    Last name <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Dela Cruz"
-                    placeholderTextColor={textSub}
-                    value={lastName}
-                    onChangeText={setLastName}
-                  />
-
-                  {/* First Name */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    First name <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Juan"
-                    placeholderTextColor={textSub}
-                    value={firstName}
-                    onChangeText={setFirstName}
-                  />
-
-                  {/* Middle Name (Optional) */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    Middle name <Text style={{ fontSize: 12, fontWeight: "400", color: textSub }}>(optional)</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Santos"
-                    placeholderTextColor={textSub}
-                    value={middleName}
-                    onChangeText={setMiddleName}
-                  />
-
-                  {/* Email */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>Email address</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. juan.delacruz@school.edu.ph"
-                    placeholderTextColor={textSub}
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-
-                  {/* Buttons */}
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity
-                      style={[styles.cancelBtn, { borderColor: border, backgroundColor: btnSecondaryBg }]}
-                      onPress={handleCancel}
-                    >
-                      <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.addBtn,
-                        (!lastName.trim() || !firstName.trim() || saving)
-                          ? [styles.addBtnDisabled, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9", borderColor: border }]
-                          : { backgroundColor: ORANGE },
-                      ]}
-                      onPress={handleAddStudent}
-                      disabled={!lastName.trim() || !firstName.trim() || saving}
-                    >
-                      {saving ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text
-                          style={[
-                            styles.addBtnText,
-                            (!lastName.trim() || !firstName.trim()) && { color: "#94A3B8" },
-                          ]}
-                        >
-                          Add Student
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
+        mode="add"
+        lastName={lastName}
+        firstName={firstName}
+        middleName={middleName}
+        email={email}
+        onChangeLastName={setLastName}
+        onChangeFirstName={setFirstName}
+        onChangeMiddleName={setMiddleName}
+        onChangeEmail={setEmail}
+        saving={saving}
+        onSubmit={handleAddStudent}
+        onCancel={handleCancel}
+        darkMode={darkMode}
+        cardBg={cardBg}
+        inputBg={inputBg}
+        border={border}
+        textMain={textMain}
+        textSub={textSub}
+        btnSecondaryBg={btnSecondaryBg}
+      />
 
       {/* ── Edit Student Details Modal ── */}
-      <Modal
+      <StudentFormModal
         visible={editModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={handleCancelEdit}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <TouchableWithoutFeedback onPress={handleCancelEdit}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback>
-                <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
-                  {/* Top Drag Handle */}
-                  <View style={styles.sheetDragHandle} />
-
-                  {/* Header */}
-                  <View style={styles.modalHeader}>
-                    <View style={{ flex: 1, paddingRight: 8 }}>
-                      <Text style={[styles.modalTitle, { color: textMain }]}>Edit Student Details</Text>
-                      <Text style={{ fontSize: 12, color: textSub, marginTop: 2 }}>
-                        Update student name and email address
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={handleCancelEdit}
-                      style={[styles.sheetCloseBtn, { backgroundColor: btnSecondaryBg }]}
-                    >
-                      <Ionicons name="close" size={18} color={textSub} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Last Name */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    Last name <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Dela Cruz"
-                    placeholderTextColor={textSub}
-                    value={editLastName}
-                    onChangeText={setEditLastName}
-                  />
-
-                  {/* First Name */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    First name <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Juan"
-                    placeholderTextColor={textSub}
-                    value={editFirstName}
-                    onChangeText={setEditFirstName}
-                  />
-
-                  {/* Middle Name (Optional) */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    Middle name <Text style={{ fontSize: 12, fontWeight: "400", color: textSub }}>(optional)</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. Santos"
-                    placeholderTextColor={textSub}
-                    value={editMiddleName}
-                    onChangeText={setEditMiddleName}
-                  />
-
-                  {/* Email */}
-                  <Text style={[styles.fieldLabel, { color: textSub }]}>
-                    Email address{" "}
-                    {!editEmail.trim() ? (
-                      <Text style={{ color: ORANGE, fontSize: 11, fontWeight: "600" }}>(No email set)</Text>
-                    ) : null}
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
-                    placeholder="e.g. juan.delacruz@school.edu.ph"
-                    placeholderTextColor={textSub}
-                    value={editEmail}
-                    onChangeText={setEditEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-
-                  {/* Buttons */}
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity
-                      style={[styles.cancelBtn, { borderColor: border, backgroundColor: btnSecondaryBg }]}
-                      onPress={handleCancelEdit}
-                      disabled={savingEdit}
-                    >
-                      <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.addBtn,
-                        (!editLastName.trim() || !editFirstName.trim() || savingEdit)
-                          ? [styles.addBtnDisabled, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9", borderColor: border }]
-                          : { backgroundColor: ORANGE },
-                      ]}
-                      onPress={handleSaveEditStudent}
-                      disabled={!editLastName.trim() || !editFirstName.trim() || savingEdit}
-                    >
-                      {savingEdit ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text
-                          style={[
-                            styles.addBtnText,
-                            (!editLastName.trim() || !editFirstName.trim()) && { color: "#94A3B8" },
-                          ]}
-                        >
-                          Save Changes
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
+        mode="edit"
+        lastName={editLastName}
+        firstName={editFirstName}
+        middleName={editMiddleName}
+        email={editEmail}
+        onChangeLastName={setEditLastName}
+        onChangeFirstName={setEditFirstName}
+        onChangeMiddleName={setEditMiddleName}
+        onChangeEmail={setEditEmail}
+        saving={savingEdit}
+        onSubmit={handleSaveEditStudent}
+        onCancel={handleCancelEdit}
+        darkMode={darkMode}
+        cardBg={cardBg}
+        inputBg={inputBg}
+        border={border}
+        textMain={textMain}
+        textSub={textSub}
+        btnSecondaryBg={btnSecondaryBg}
+      />
 
       {/* ── Student Profile Modal (Bottom Sheet) ── */}
       <Modal

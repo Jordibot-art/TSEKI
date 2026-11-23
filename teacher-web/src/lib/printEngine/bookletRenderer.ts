@@ -43,7 +43,12 @@ export async function renderBookletPDF(
     const { signal } = options;
     throwIfExportAborted(signal);
     const doc = await PDFDocument.create();
-    const { regular: font, bold: fontBold } = await embedPrintFonts(doc);
+    const textSample = [
+        assessment.quizTitle,
+        options.classTitle,
+        ...assessment.questions.map((q) => `${q.questionText || ''} ${(q.options || []).join(' ')}`),
+    ].filter(Boolean).join('\n');
+    const { regular: font, bold: fontBold } = await embedPrintFonts(doc, textSample);
     throwIfExportAborted(signal);
 
     const paperSize = options.paperSize || 'short';

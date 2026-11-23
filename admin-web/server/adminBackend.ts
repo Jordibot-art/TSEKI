@@ -41,11 +41,18 @@ export interface TeacherRecord {
   username: string;
   email: string;
   full_name: string;
+  first_name?: string;
+  middle_name?: string | null;
+  last_name?: string;
+  school_name?: string;
   teacher_id?: string;
   grade_level?: string;
+  grade_levels?: string[];
   subject?: string;
   strand?: string;
+  subjects?: string[];
   school_id_url?: string;
+  school_id_back_url?: string;
   facial_verification_url?: string;
   status: TeacherStatus;
   rejection_reason?: string | null;
@@ -108,6 +115,12 @@ const MAX_OTP_ATTEMPTS = 5;
 
 const nonceTracker = new Map<string, NonceState>();
 let memoryStore: LocalStoreData | null = null;
+let ephemeralDevSecret: string | null = null;
+let warnedMissingDevAdminPassword = false;
+
+export function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
 
 function getEnv(name: string, fallback = ''): string {
   return (process.env[name] || fallback).trim();
@@ -126,17 +139,56 @@ function getConfiguredAdminEmail(): string {
   return getEnv('ADMIN_EMAIL') || 'tseki.cecsystem@gmail.com';
 }
 
-function getConfiguredAdminPassword(): string {
-  return getEnv('ADMIN_PASSWORD') || 'tsekicecsystem!@#123';
+export function getConfiguredAdminPassword(): string {
+  const configured = getEnv('ADMIN_PASSWORD');
+  if (configured) return configured;
+
+  if (isProductionRuntime()) {
+    throw new Error(
+      'ADMIN_PASSWORD is not configured on the server. Set ADMIN_PASSWORD in your production environment variables.'
+    );
+  }
+
+  const devFallback = getEnv('DEV_ADMIN_PASSWORD');
+  if (devFallback) return devFallback;
+
+  if (!warnedMissingDevAdminPassword) {
+    warnedMissingDevAdminPassword = true;
+    console.warn(
+      '[AdminBackend] ADMIN_PASSWORD is not set; using local development fallback. Set ADMIN_PASSWORD in .env before deploying.'
+    );
+  }
+  return 'tsekicecsystem!@#123';
 }
 
-function getSecret(): string {
+export function getSecret(): string {
   const configured = getEnv('ADMIN_OTP_SECRET');
-  if (configured) return configured;
-  return crypto
-    .createHash('sha256')
-    .update(`${getConfiguredAdminEmail()}:${getConfiguredAdminPassword()}:tseki-admin-secret`)
-    .digest('hex');
+  if (configured) {
+    if (isProductionRuntime() && configured.length < 16) {
+      throw new Error(
+        'ADMIN_OTP_SECRET must be at least 16 characters long in production.'
+      );
+    }
+    return configured;
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error(
+      'ADMIN_OTP_SECRET is not configured on the server. Set a strong random ADMIN_OTP_SECRET in your production environment variables.'
+    );
+  }
+
+  if (!ephemeralDevSecret) {
+    // Deterministic only for local dev HMR if DEV_ADMIN_OTP_SECRET is set; otherwise random per process
+    ephemeralDevSecret = getEnv('DEV_ADMIN_OTP_SECRET') || crypto.randomBytes(32).toString('hex');
+  }
+  return ephemeralDevSecret;
+}
+
+export function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = crypto.createHash('sha256').update(a).digest();
+  const bufB = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 function getGmailConfig(): { user: string; pass: string } | null {
@@ -162,7 +214,9 @@ function getServiceRoleKey(): string {
 
 function hasSupabaseConfig(): boolean {
   const url = getSupabaseUrl();
-  const key = getServiceRoleKey() || getEnv('VITE_SUPABASE_ANON_KEY') || getEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const key = isProductionRuntime()
+    ? getServiceRoleKey()
+    : getServiceRoleKey() || getEnv('VITE_SUPABASE_ANON_KEY') || getEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY');
   return Boolean(url && key && !url.includes('your-project.supabase.co'));
 }
 
@@ -173,10 +227,11 @@ function hasServiceRoleKey(): boolean {
 
 function getSupabaseAdminClient(): SupabaseClient | null {
   const url = getSupabaseUrl();
-  const key =
-    getServiceRoleKey() ||
-    getEnv('VITE_SUPABASE_ANON_KEY') ||
-    getEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const serviceKey = getServiceRoleKey();
+  // Never silently downgrade to anon key in production
+  const key = isProductionRuntime()
+    ? serviceKey
+    : serviceKey || getEnv('VITE_SUPABASE_ANON_KEY') || getEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY');
   if (!url || !key || url.includes('your-project.supabase.co')) {
     return null;
   }
@@ -411,6 +466,13 @@ function mergeAccountsFromSupabase(params: {
       status = 'suspended';
     } else if (matched && asNonEmptyStr(matched.status)) {
       status = String(matched.status) as TeacherStatus;
+    } else if (
+      meta.registration_status === 'pending' ||
+      meta.needs_identity_verification === false ||
+      meta.needs_identity_verification === true ||
+      Boolean(asNonEmptyStr(meta.school_id_url))
+    ) {
+      status = 'pending';
     } else {
       // Existing Tseki accounts without a pending-approval row count toward
       // total/active accounts without creating premature pending approvals.
@@ -430,6 +492,19 @@ function mergeAccountsFromSupabase(params: {
     const createdAt =
       asNonEmptyStr(matched?.created_at) || user.created_at || new Date().toISOString();
 
+    const toStringArray = (val: unknown): string[] | undefined => {
+      if (Array.isArray(val)) {
+        const cleaned = val.map((item) => String(item || '').trim()).filter(Boolean);
+        return cleaned.length > 0 ? cleaned : undefined;
+      }
+      return undefined;
+    };
+
+    const gradeLevels =
+      toStringArray(matched?.grade_levels) || toStringArray(meta.grade_levels);
+    const subjects =
+      toStringArray(matched?.subjects) || toStringArray(meta.subjects);
+
     merged.push({
       id: matchedId || user.id,
       user_id: user.id,
@@ -439,19 +514,43 @@ function mergeAccountsFromSupabase(params: {
         (email ? email.split('@')[0] : 'teacher'),
       email,
       full_name: fullName,
+      first_name: asNonEmptyStr(matched?.first_name) || asNonEmptyStr(meta.first_name),
+      middle_name: asNonEmptyStr(matched?.middle_name) ?? asNonEmptyStr(meta.middle_name) ?? null,
+      last_name: asNonEmptyStr(matched?.last_name) || asNonEmptyStr(meta.last_name),
+      school_name: asNonEmptyStr(matched?.school_name) || asNonEmptyStr(meta.school_name),
       teacher_id: asNonEmptyStr(matched?.teacher_id) || asNonEmptyStr(meta.teacher_id),
       grade_level:
         asNonEmptyStr(matched?.grade_level) ||
         asNonEmptyStr(meta.grade_level) ||
+        (gradeLevels ? gradeLevels.join(', ') : undefined) ||
         gradeByTeacher.get(user.id) ||
         inferredRole,
+      grade_levels: gradeLevels,
       subject:
         asNonEmptyStr(matched?.subject) ||
         asNonEmptyStr(meta.subject) ||
+        (subjects ? subjects.join(', ') : undefined) ||
         subjectByTeacher.get(user.id),
       strand: asNonEmptyStr(matched?.strand) || asNonEmptyStr(meta.strand),
-      school_id_url: asNonEmptyStr(matched?.school_id_url),
-      facial_verification_url: asNonEmptyStr(matched?.facial_verification_url),
+      subjects,
+      school_id_url:
+        (matched && asNonEmptyStr(matched.user_id) === user.id
+          ? asNonEmptyStr(matched.school_id_url)
+          : undefined) ||
+        asNonEmptyStr(meta.school_id_url) ||
+        asNonEmptyStr(matched?.school_id_url),
+      school_id_back_url:
+        (matched && asNonEmptyStr(matched.user_id) === user.id
+          ? asNonEmptyStr(matched.school_id_back_url)
+          : undefined) ||
+        asNonEmptyStr(meta.school_id_back_url) ||
+        asNonEmptyStr(matched?.school_id_back_url),
+      facial_verification_url:
+        (matched && asNonEmptyStr(matched.user_id) === user.id
+          ? asNonEmptyStr(matched.facial_verification_url)
+          : undefined) ||
+        asNonEmptyStr(meta.facial_verification_url) ||
+        asNonEmptyStr(matched?.facial_verification_url),
       status,
       rejection_reason: asNonEmptyStr(matched?.rejection_reason) ?? null,
       created_at: createdAt,
@@ -465,17 +564,30 @@ function mergeAccountsFromSupabase(params: {
   for (const row of params.teacherRows) {
     const rowId = asNonEmptyStr(row.id);
     if (!rowId || consumedTeacherRowIds.has(rowId)) continue;
+    const rowGrades = Array.isArray(row.grade_levels)
+      ? row.grade_levels.map((v) => String(v || '').trim()).filter(Boolean)
+      : undefined;
+    const rowSubjects = Array.isArray(row.subjects)
+      ? row.subjects.map((v) => String(v || '').trim()).filter(Boolean)
+      : undefined;
     merged.push({
       id: rowId,
       user_id: asNonEmptyStr(row.user_id) ?? null,
       username: asNonEmptyStr(row.username) || 'teacher',
       email: asNonEmptyStr(row.email) || '',
       full_name: asNonEmptyStr(row.full_name) || 'Teacher',
+      first_name: asNonEmptyStr(row.first_name),
+      middle_name: asNonEmptyStr(row.middle_name) ?? null,
+      last_name: asNonEmptyStr(row.last_name),
+      school_name: asNonEmptyStr(row.school_name),
       teacher_id: asNonEmptyStr(row.teacher_id),
-      grade_level: asNonEmptyStr(row.grade_level) || 'Teacher',
-      subject: asNonEmptyStr(row.subject),
+      grade_level: asNonEmptyStr(row.grade_level) || (rowGrades?.join(', ') || 'Teacher'),
+      grade_levels: rowGrades && rowGrades.length > 0 ? rowGrades : undefined,
+      subject: asNonEmptyStr(row.subject) || rowSubjects?.join(', '),
       strand: asNonEmptyStr(row.strand),
+      subjects: rowSubjects && rowSubjects.length > 0 ? rowSubjects : undefined,
       school_id_url: asNonEmptyStr(row.school_id_url),
+      school_id_back_url: asNonEmptyStr(row.school_id_back_url),
       facial_verification_url: asNonEmptyStr(row.facial_verification_url),
       status: (asNonEmptyStr(row.status) as TeacherStatus) || 'pending',
       rejection_reason: asNonEmptyStr(row.rejection_reason) ?? null,
@@ -703,6 +815,71 @@ function buildCombinedActivityLogs(params: {
   });
 }
 
+const VERIFICATION_BUCKET = 'teacher-verification-docs';
+
+function extractStoragePath(raw?: string): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:')) {
+    return null;
+  }
+  const prefix = `${VERIFICATION_BUCKET}/`;
+  return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed;
+}
+
+/**
+ * Resolves private Supabase Storage paths on TeacherRecords into short-lived
+ * 1-hour signed HTTPS URLs using the service-role client in one batched call.
+ */
+async function attachSignedVerificationUrls(
+  sbService: SupabaseClient,
+  teachers: TeacherRecord[]
+): Promise<TeacherRecord[]> {
+  const uniquePaths = new Set<string>();
+  for (const t of teachers) {
+    const p1 = extractStoragePath(t.school_id_url);
+    const p2 = extractStoragePath(t.school_id_back_url);
+    const p3 = extractStoragePath(t.facial_verification_url);
+    if (p1) uniquePaths.add(p1);
+    if (p2) uniquePaths.add(p2);
+    if (p3) uniquePaths.add(p3);
+  }
+
+  if (uniquePaths.size === 0) return teachers;
+
+  const pathList = Array.from(uniquePaths);
+  const signedMap = new Map<string, string>();
+  try {
+    const { data, error } = await sbService.storage
+      .from(VERIFICATION_BUCKET)
+      .createSignedUrls(pathList, 3600);
+    if (!error && Array.isArray(data)) {
+      for (const item of data) {
+        if (item.path && item.signedUrl) {
+          signedMap.set(item.path, item.signedUrl);
+        }
+      }
+    }
+  } catch {
+    // Non-fatal if storage bucket has not been created yet
+    return teachers;
+  }
+
+  const resolveField = (raw?: string): string | undefined => {
+    if (!raw) return undefined;
+    const p = extractStoragePath(raw);
+    if (!p) return raw;
+    return signedMap.get(p) || raw;
+  };
+
+  return teachers.map((t) => ({
+    ...t,
+    school_id_url: resolveField(t.school_id_url),
+    school_id_back_url: resolveField(t.school_id_back_url),
+    facial_verification_url: resolveField(t.facial_verification_url),
+  }));
+}
+
 async function fetchTeachersAndLogs(): Promise<{
   teachers: TeacherRecord[];
   activityLogs: ActivityLogRecord[];
@@ -732,12 +909,68 @@ async function fetchTeachersAndLogs(): Promise<{
         safeSelectRows(sbService, 'student_quiz_results', 'created_at', 200),
       ]);
 
-      const { teachers, teachersTableIds } = mergeAccountsFromSupabase({
+      const { teachers: mergedTeachers, teachersTableIds } = mergeAccountsFromSupabase({
         authUsers,
         teacherRows,
         classroomRows,
         assessmentRows,
       });
+
+      // Auto-heal orphaned public.teachers rows (e.g. user_id became NULL after an Auth user
+      // was deleted and re-registered with the same email) so user_id and photo paths stay in sync.
+      const rowByEmail = new Map<string, Record<string, unknown>>();
+      for (const r of teacherRows) {
+        const em = asNonEmptyStr(r.email)?.toLowerCase();
+        if (em) rowByEmail.set(em, r);
+      }
+      for (const t of mergedTeachers) {
+        if (!t.user_id || !t.email) continue;
+        const existingRow = rowByEmail.get(t.email.toLowerCase());
+        const needsRebind =
+          existingRow && asNonEmptyStr(existingRow.user_id) !== t.user_id;
+        const needsPendingInsert =
+          !existingRow && t.status === 'pending' && Boolean(t.school_id_url);
+        if (needsRebind || needsPendingInsert) {
+          try {
+            const { data: healed } = await sbService
+              .from('teachers')
+              .upsert(
+                {
+                  user_id: t.user_id,
+                  username: t.username,
+                  email: t.email.toLowerCase(),
+                  full_name: t.full_name,
+                  first_name: t.first_name || null,
+                  middle_name: t.middle_name ?? null,
+                  last_name: t.last_name || null,
+                  school_name: t.school_name || null,
+                  teacher_id: t.teacher_id || null,
+                  grade_level: t.grade_level || null,
+                  grade_levels: t.grade_levels || [],
+                  subject: t.subject || null,
+                  strand: t.strand || null,
+                  subjects: t.subjects || [],
+                  school_id_url: t.school_id_url || null,
+                  school_id_back_url: t.school_id_back_url || null,
+                  facial_verification_url: t.facial_verification_url || null,
+                  status: t.status,
+                  rejection_reason: t.rejection_reason ?? null,
+                },
+                { onConflict: 'email' }
+              )
+              .select('id')
+              .maybeSingle();
+            if (healed?.id) {
+              t.id = String(healed.id);
+              teachersTableIds.add(t.id);
+            }
+          } catch {
+            // Non-fatal background sync
+          }
+        }
+      }
+
+      const teachers = await attachSignedVerificationUrls(sbService, mergedTeachers);
 
       const activityLogs = buildCombinedActivityLogs({
         teachers,
@@ -1035,8 +1268,29 @@ async function issueOtpChallenge(params: {
 
   nonceTracker.set(nonce, { used: false, attempts: 0, exp });
 
-  const sb = getSupabaseAdminClient();
+  const sb = getSupabaseServiceClient() || getSupabaseAdminClient();
   if (sb) {
+    try {
+      // Persist nonce for cross-instance serverless OTP replay protection
+      await sb.from('admin_otp_nonces').upsert(
+        {
+          nonce,
+          purpose: params.purpose,
+          attempts: 0,
+          used_at: null,
+          expires_at: new Date(exp).toISOString(),
+        },
+        { onConflict: 'nonce' }
+      );
+      // Opportunistically clean up expired nonce rows
+      await sb
+        .from('admin_otp_nonces')
+        .delete()
+        .lt('expires_at', new Date(Date.now() - 60_000).toISOString());
+    } catch {
+      // Non-fatal if migration harden_admin_security.sql is not yet applied
+    }
+
     try {
       const { error } = await sb.from('admin_otp_codes').insert({
         email: systemEmail,
@@ -1089,12 +1343,12 @@ async function issueOtpChallenge(params: {
   };
 }
 
-function verifyOtpChallenge(params: {
+async function verifyOtpChallenge(params: {
   challengeToken: string;
   code: string;
   expectedPurpose: OtpPurpose | OtpPurpose[];
   expectedTargetId?: string;
-}): { ok: true; payload: OtpChallengePayload } | { ok: false; error: string; status: number } {
+}): Promise<{ ok: true; payload: OtpChallengePayload } | { ok: false; error: string; status: number }> {
   const cleanCode = params.code.trim();
   if (!/^\d{6}$/.test(cleanCode)) {
     return { ok: false, error: 'Verification code must be exactly 6 digits.', status: 400 };
@@ -1124,6 +1378,37 @@ function verifyOtpChallenge(params: {
     return { ok: false, error: 'Verification code has expired. Please request a new OTP.', status: 400 };
   }
 
+  // Check persistent DB nonce store first (prevents cross-instance serverless replays)
+  const sb = getSupabaseServiceClient();
+  let dbNonceAvailable = false;
+  let dbNonceRow: { attempts?: number; used_at?: string | null } | null = null;
+  if (sb) {
+    try {
+      const { data, error } = await sb
+        .from('admin_otp_nonces')
+        .select('attempts, used_at')
+        .eq('nonce', payload.nonce)
+        .maybeSingle();
+
+      if (!error) {
+        dbNonceAvailable = true;
+        dbNonceRow = data as { attempts?: number; used_at?: string | null } | null;
+        if (dbNonceRow?.used_at) {
+          return { ok: false, error: 'This verification code has already been used.', status: 400 };
+        }
+        if ((dbNonceRow?.attempts ?? 0) >= MAX_OTP_ATTEMPTS) {
+          return {
+            ok: false,
+            error: 'Too many failed attempts. Please request a new verification code.',
+            status: 429,
+          };
+        }
+      }
+    } catch {
+      dbNonceAvailable = false;
+    }
+  }
+
   const state = nonceTracker.get(payload.nonce);
   if (state) {
     if (state.used) {
@@ -1143,7 +1428,52 @@ function verifyOtpChallenge(params: {
   const a = Buffer.from(candidateHash);
   const b = Buffer.from(payload.codeHash);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    if (sb && dbNonceAvailable) {
+      try {
+        await sb
+          .from('admin_otp_nonces')
+          .update({ attempts: (dbNonceRow?.attempts ?? 0) + 1 })
+          .eq('nonce', payload.nonce);
+      } catch {
+        // non-fatal
+      }
+    }
     return { ok: false, error: 'Invalid verification code. Please check your email and try again.', status: 401 };
+  }
+
+  // Atomically mark nonce used in Postgres so parallel replay requests fail
+  if (sb && dbNonceAvailable) {
+    try {
+      if (dbNonceRow) {
+        const { data: claimed, error: claimErr } = await sb
+          .from('admin_otp_nonces')
+          .update({
+            used_at: new Date().toISOString(),
+            attempts: (dbNonceRow.attempts ?? 0) + 1,
+          })
+          .eq('nonce', payload.nonce)
+          .is('used_at', null)
+          .select('nonce');
+
+        if (!claimErr && (!claimed || claimed.length === 0)) {
+          return { ok: false, error: 'This verification code has already been used.', status: 400 };
+        }
+      } else {
+        // Nonce wasn't persisted on issue (e.g., created right before migration): insert as used
+        const { error: insertErr } = await sb.from('admin_otp_nonces').insert({
+          nonce: payload.nonce,
+          purpose: payload.purpose,
+          attempts: 1,
+          used_at: new Date().toISOString(),
+          expires_at: new Date(payload.exp).toISOString(),
+        });
+        if (insertErr && insertErr.code === '23505') {
+          return { ok: false, error: 'This verification code has already been used.', status: 400 };
+        }
+      }
+    } catch {
+      // non-fatal fallback to in-memory lock below
+    }
   }
 
   if (state) {
@@ -1176,7 +1506,7 @@ async function verifyAdminCredentials(emailInput: string, password: string): Pro
 
   const matchesLocal =
     (cleanEmail === configuredEmail || cleanEmail === 'admin@tseki.edu') &&
-    password === configuredPassword;
+    timingSafeStringEqual(password, configuredPassword);
 
   if (matchesLocal) return true;
 
@@ -1268,7 +1598,7 @@ async function verifyAdminReauth(params: {
       ? ['verify_action', 'delete_teacher']
       : ['verify_action'];
 
-    const otpRes = verifyOtpChallenge({
+    const otpRes = await verifyOtpChallenge({
       challengeToken,
       code,
       expectedPurpose: allowedPurposes,
@@ -1441,7 +1771,7 @@ export async function handleAdminApiRequest(params: {
     const challengeToken = String(body.challengeToken || '');
     const code = String(body.code || '');
 
-    const verification = verifyOtpChallenge({
+    const verification = await verifyOtpChallenge({
       challengeToken,
       code,
       expectedPurpose: 'login',

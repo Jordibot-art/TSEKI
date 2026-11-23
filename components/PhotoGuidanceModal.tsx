@@ -123,7 +123,7 @@ export function PhotoGuidanceModal({
                                 <View style={styles.tipRow}>
                                     <Ionicons name="close-circle" size={16} color="#EF4444" />
                                     <Text style={[styles.tipText, { color: textMain }]}>
-                                        Wait for "Focus OK" on the top bar before pressing the capture button.
+                                        Wait for &quot;Focus OK&quot; on the top bar before pressing the capture button.
                                     </Text>
                                 </View>
                             </View>
@@ -174,7 +174,7 @@ export function PhotoGuidanceModal({
                             activeOpacity={0.8}
                         >
                             <Ionicons name="checkmark-outline" size={18} color="#FFFFFF" />
-                            <Text style={styles.gotItBtnText}>Got It, Let's Scan!</Text>
+                            <Text style={styles.gotItBtnText}>Got It, Let&apos;s Scan!</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
