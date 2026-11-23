@@ -461,6 +461,24 @@ function mergeAccountsFromSupabase(params: {
         user.last_sign_in_at
     );
 
+    const hasSubmittedDocs = Boolean(
+      asNonEmptyStr(matched?.school_id_url) ||
+        asNonEmptyStr(meta.school_id_url) ||
+        asNonEmptyStr(matched?.facial_verification_url) ||
+        asNonEmptyStr(meta.facial_verification_url)
+    );
+    const isIncompleteRegistration =
+      !isBanned &&
+      meta.needs_identity_verification === true &&
+      !hasSubmittedDocs &&
+      (!matched || String(matched.status || '').trim().toLowerCase() === 'pending');
+
+    if (isIncompleteRegistration) {
+      // Teacher has not completed Step 2 (ID & selfie upload) yet.
+      // Exclude incomplete Step 1 drafts from Admin Portal Pending Approvals and totals.
+      continue;
+    }
+
     let status: TeacherStatus;
     if (isBanned) {
       status = 'suspended';
@@ -469,7 +487,6 @@ function mergeAccountsFromSupabase(params: {
     } else if (
       meta.registration_status === 'pending' ||
       meta.needs_identity_verification === false ||
-      meta.needs_identity_verification === true ||
       Boolean(asNonEmptyStr(meta.school_id_url))
     ) {
       status = 'pending';

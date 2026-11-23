@@ -28,13 +28,10 @@ import {
   getAuthTheme,
 } from "../components/auth/AuthInput";
 import { TeacherRegistrationStep1 } from "../components/auth/TeacherRegistrationStep1";
-import {
-  TeacherVerificationAnimation,
-  type VerificationAnimationMode,
-} from "../components/auth/TeacherVerificationAnimation";
 import { TeacherVerificationStep2 } from "../components/auth/TeacherVerificationStep2";
 import { useTheme } from "../context/ThemeContext";
 import {
+  cancelIncompleteTeacherRegistration,
   submitTeacherVerification,
   type VerificationPhotoSet,
 } from "../lib/teacherVerificationUpload";
@@ -82,7 +79,6 @@ export default function AuthScreen() {
 
   // Common State
   const [loading, setLoading] = useState(false);
-  const [animMode, setAnimMode] = useState<VerificationAnimationMode>("login");
 
   // Login Form
   const [loginEmail, setLoginEmail] = useState("");
@@ -97,6 +93,7 @@ export default function AuthScreen() {
     useState<TeacherRegistrationProfile | null>(null);
   const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null);
   const [submittingDocs, setSubmittingDocs] = useState(false);
+  const [cancellingReg, setCancellingReg] = useState(false);
   const [uploadProgressText, setUploadProgressText] = useState("");
 
   // OTP Form (Single unified 6-digit master token)
@@ -226,7 +223,6 @@ export default function AuthScreen() {
       );
       return;
     }
-    setAnimMode("login");
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -292,32 +288,80 @@ export default function AuthScreen() {
     }
 
     const profile = validated.profile;
-    setAnimMode("signup");
     setLoading(true);
     try {
       const username =
         profile.email.split("@")[0] || profile.firstName.toLowerCase();
+      const step1Metadata = {
+        full_name: profile.fullName,
+        first_name: profile.firstName,
+        middle_name: profile.middleName || null,
+        last_name: profile.lastName,
+        username,
+        school_name: profile.schoolName,
+        teacher_id: profile.teacherId,
+        grade_level: profile.gradeLevelSummary,
+        grade_levels: profile.gradeLevels,
+        subject: profile.subjectsSummary,
+        strand: profile.subjectsSummary,
+        subjects: profile.subjects,
+        needs_identity_verification: true,
+      };
       const { data, error } = await supabase.auth.signUp({
         email: profile.email,
         password: regForm.password,
         options: {
-          data: {
-            full_name: profile.fullName,
-            first_name: profile.firstName,
-            middle_name: profile.middleName || null,
-            last_name: profile.lastName,
-            username,
-            school_name: profile.schoolName,
-            teacher_id: profile.teacherId,
-            grade_level: profile.gradeLevelSummary,
-            grade_levels: profile.gradeLevels,
-            subject: profile.subjectsSummary,
-            strand: profile.subjectsSummary,
-            subjects: profile.subjects,
-            needs_identity_verification: true,
-          },
+          data: step1Metadata,
         },
       });
+
+      const isAlreadyRegistered =
+        Boolean(
+          error &&
+            error.message.toLowerCase().includes("already registered")
+        ) ||
+        Boolean(
+          !error &&
+            data.user &&
+            Array.isArray(data.user.identities) &&
+            data.user.identities.length === 0
+        );
+
+      if (isAlreadyRegistered) {
+        // If an abandoned incomplete Step 1 account exists with the same password,
+        // update its details and resume directly into Step 2 instead of dead-ending.
+        const { data: signInData } = await supabase.auth.signInWithPassword({
+          email: profile.email,
+          password: regForm.password,
+        });
+        if (signInData?.session?.user?.id) {
+          const existingMeta = (signInData.session.user.user_metadata ||
+            {}) as Record<string, unknown>;
+          const approval = await checkTeacherAccountApproval(
+            supabase,
+            signInData.session.user.id,
+            existingMeta
+          );
+          if (approval.needsIdentityVerification) {
+            await supabase.auth.updateUser({ data: step1Metadata });
+            setVerifiedProfile(profile);
+            setVerifiedUserId(signInData.session.user.id);
+            setCurrentView("verify_identity");
+            return;
+          }
+          await supabase.auth.signOut();
+          Alert.alert(
+            "Email Already Registered",
+            "An account with this email already exists. Please sign in instead."
+          );
+          return;
+        }
+        Alert.alert(
+          "Email Already Registered",
+          "An account with this email already exists. If you did not finish Step 2, sign in with your previous password to continue or cancel registration."
+        );
+        return;
+      }
 
       if (error) {
         Alert.alert("Registration Failed", error.message);
@@ -354,7 +398,6 @@ export default function AuthScreen() {
       return;
     }
 
-    setAnimMode("otp");
     setLoading(true);
     try {
       let { data, error } = await supabase.auth.verifyOtp({
@@ -437,7 +480,6 @@ export default function AuthScreen() {
       return;
     }
 
-    setAnimMode("upload_docs");
     setSubmittingDocs(true);
     setUploadProgressText("Uploading Teacher ID (Front)...");
     try {
@@ -473,7 +515,6 @@ export default function AuthScreen() {
       return;
     }
 
-    setAnimMode("otp");
     setLoading(true);
     try {
       const { error } = await supabase.auth.resend({
@@ -555,14 +596,6 @@ export default function AuthScreen() {
       </SafeAreaView>
     );
   }
-
-  const fullTeacherName =
-    verifiedProfile?.fullName ||
-    ([regForm.firstName, regForm.middleName, regForm.lastName]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(" ") ||
-      "Teacher");
 
   const summaryRows = verifiedProfile
     ? [
@@ -722,166 +755,181 @@ export default function AuthScreen() {
             <ScrollView
               style={styles.flex1}
               contentContainerStyle={[
-                styles.authScrollContent,
-                { paddingBottom: Math.max(insets.bottom + 24, 32) },
+                styles.loginScrollContent,
+                { paddingBottom: Math.max(insets.bottom + 18, 24) },
               ]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.formColumn}>
-                <Text
-                  style={[styles.screenTitle, { color: theme.textPrimary }]}
-                >
-                  Welcome back
-                </Text>
-                <Text
-                  style={[styles.screenSubtitle, { color: theme.textMuted }]}
-                >
-                  Sign in to your TSEKI teacher account.
-                </Text>
-
-                {/* Unified Inputs */}
-                <View style={styles.inputsStack}>
-                  <AuthInput
-                    label="Email address"
-                    placeholder="teacher@school.edu.ph"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    value={loginEmail}
-                    onChangeText={setLoginEmail}
-                    editable={!loading}
-                    darkMode={darkMode}
-                  />
-
-                  <AuthInput
-                    label="Password"
-                    placeholder="Enter your password"
-                    secureTextEntry={!showLoginPassword}
-                    value={loginPassword}
-                    onChangeText={setLoginPassword}
-                    editable={!loading}
-                    darkMode={darkMode}
-                    rightElement={
-                      <Pressable
-                        style={styles.eyeToggleBtn}
-                        onPress={() =>
-                          setShowLoginPassword(!showLoginPassword)
-                        }
-                        hitSlop={10}
-                      >
-                        <Ionicons
-                          name={
-                            showLoginPassword
-                              ? "eye-off-outline"
-                              : "eye-outline"
-                          }
-                          size={20}
-                          color={theme.textMuted}
-                        />
-                      </Pressable>
-                    }
-                  />
-                </View>
-
-                {/* Remember Me & Forgot Password */}
-                <View style={styles.rememberForgotRow}>
-                  <Pressable
-                    style={styles.rememberMeContainer}
-                    onPress={() => setRememberMe((prev) => !prev)}
-                    hitSlop={8}
-                    accessible={true}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: rememberMe }}
-                  >
-                    <View
-                      style={[
-                        styles.checkbox,
-                        {
-                          backgroundColor: rememberMe
-                            ? theme.accent
-                            : theme.bgSurface,
-                          borderColor: rememberMe
-                            ? theme.accent
-                            : theme.borderInput,
-                        },
-                      ]}
-                    >
-                      {rememberMe && (
-                        <Ionicons
-                          name="checkmark"
-                          size={12}
-                          color="#FFFFFF"
-                        />
-                      )}
-                    </View>
-                    <Text
-                      style={[
-                        styles.rememberMeText,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      Remember me
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => {
-                      setForgotEmail(loginEmail);
-                      setForgotModalVisible(true);
-                    }}
-                    hitSlop={8}
-                  >
-                    <Text
-                      style={[styles.forgotPassText, { color: theme.accent }]}
-                    >
-                      Forgot password?
-                    </Text>
-                  </Pressable>
-                </View>
-
-                {/* Primary CTA */}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.primaryBtn,
-                    { backgroundColor: theme.accent },
-                    pressed && styles.btnPressed,
-                    loading && styles.btnDisabled,
-                  ]}
-                  onPress={handleLogin}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Sign In</Text>
-                  )}
-                </Pressable>
-
-                {/* Footer Switch to Sign Up */}
-                <View style={styles.footerSwitchRow}>
+              <View style={styles.loginCenterStage}>
+                <View style={styles.formColumn}>
                   <Text
-                    style={[
-                      styles.footerSwitchText,
-                      { color: theme.textMuted },
-                    ]}
+                    style={[styles.screenTitle, { color: theme.textPrimary }]}
                   >
-                    Don&apos;t have an account?{" "}
+                    Welcome back
                   </Text>
-                  <Pressable
-                    onPress={() => setCurrentView("register")}
-                    hitSlop={8}
+                  <Text
+                    style={[styles.screenSubtitle, { color: theme.textMuted }]}
                   >
+                    Sign in to your TSEKI teacher account.
+                  </Text>
+
+                  {/* Unified Inputs */}
+                  <View style={styles.inputsStack}>
+                    <AuthInput
+                      label="Email address"
+                      placeholder="teacher@school.edu.ph"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={loginEmail}
+                      onChangeText={setLoginEmail}
+                      editable={!loading}
+                      darkMode={darkMode}
+                    />
+
+                    <AuthInput
+                      label="Password"
+                      placeholder="Enter your password"
+                      secureTextEntry={!showLoginPassword}
+                      value={loginPassword}
+                      onChangeText={setLoginPassword}
+                      editable={!loading}
+                      darkMode={darkMode}
+                      rightElement={
+                        <Pressable
+                          style={styles.eyeToggleBtn}
+                          onPress={() =>
+                            setShowLoginPassword(!showLoginPassword)
+                          }
+                          hitSlop={10}
+                        >
+                          <Ionicons
+                            name={
+                              showLoginPassword
+                                ? "eye-off-outline"
+                                : "eye-outline"
+                            }
+                            size={20}
+                            color={theme.textMuted}
+                          />
+                        </Pressable>
+                      }
+                    />
+                  </View>
+
+                  {/* Remember Me & Forgot Password */}
+                  <View style={styles.rememberForgotRow}>
+                    <Pressable
+                      style={styles.rememberMeContainer}
+                      onPress={() => setRememberMe((prev) => !prev)}
+                      hitSlop={8}
+                      accessible={true}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: rememberMe }}
+                    >
+                      <View
+                        style={[
+                          styles.checkbox,
+                          {
+                            backgroundColor: rememberMe
+                              ? theme.accent
+                              : theme.bgSurface,
+                            borderColor: rememberMe
+                              ? theme.accent
+                              : theme.borderInput,
+                          },
+                        ]}
+                      >
+                        {rememberMe && (
+                          <Ionicons
+                            name="checkmark"
+                            size={12}
+                            color="#FFFFFF"
+                          />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.rememberMeText,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Remember me
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        setForgotEmail(loginEmail);
+                        setForgotModalVisible(true);
+                      }}
+                      hitSlop={8}
+                    >
+                      <Text
+                        style={[styles.forgotPassText, { color: theme.accent }]}
+                      >
+                        Forgot password?
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {/* Primary CTA */}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      { backgroundColor: theme.accent },
+                      pressed && styles.btnPressed,
+                      loading && styles.btnDisabled,
+                    ]}
+                    onPress={handleLogin}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Sign In</Text>
+                    )}
+                  </Pressable>
+
+                  {/* Footer Switch to Sign Up */}
+                  <View style={styles.footerSwitchRow}>
                     <Text
                       style={[
-                        styles.footerSwitchLink,
-                        { color: theme.accent },
+                        styles.footerSwitchText,
+                        { color: theme.textMuted },
                       ]}
                     >
-                      Create account
+                      Don&apos;t have an account?{" "}
                     </Text>
-                  </Pressable>
+                    <Pressable
+                      onPress={() => setCurrentView("register")}
+                      hitSlop={8}
+                    >
+                      <Text
+                        style={[
+                          styles.footerSwitchLink,
+                          { color: theme.accent },
+                        ]}
+                      >
+                        Create account
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
+              </View>
+
+              {/* Animated Mascot Brand Mark at Bottom */}
+              <View style={styles.loginBottomLogo}>
+                <AnimatedTsekiLogo size={56} />
+                <Text
+                  style={[
+                    styles.loginBottomBrandText,
+                    { color: theme.placeholder },
+                  ]}
+                >
+                  TSEKI
+                </Text>
               </View>
             </ScrollView>
           </View>
@@ -1141,11 +1189,27 @@ export default function AuthScreen() {
           <TeacherVerificationStep2
             profile={verifiedProfile}
             submitting={submittingDocs}
+            cancelling={cancellingReg}
             progressStatus={uploadProgressText}
             onSubmitPhotos={handleSubmitIdentityPhotos}
             onSignOut={async () => {
-              await supabase.auth.signOut();
-              setCurrentView("login");
+              if (cancellingReg || submittingDocs) return;
+              setCancellingReg(true);
+              try {
+                await cancelIncompleteTeacherRegistration(verifiedUserId);
+                setVerifiedUserId(null);
+                setVerifiedProfile(null);
+                setRegForm(INITIAL_STEP1_FORM);
+                setCurrentView("login");
+              } catch (err: any) {
+                Alert.alert(
+                  "Could Not Cancel Registration",
+                  err?.message ||
+                    "Could not discard your incomplete registration. Please try again."
+                );
+              } finally {
+                setCancellingReg(false);
+              }
             }}
           />
         )}
@@ -1349,23 +1413,6 @@ export default function AuthScreen() {
           </View>
         </View>
       </Modal>
-
-      {/* ══════════════════════════════════════════════════════
-          SIGNATURE TSEKI MULTI-STAGE VERIFICATION ANIMATION
-         ══════════════════════════════════════════════════════ */}
-      <TeacherVerificationAnimation
-        visible={loading || submittingDocs}
-        mode={submittingDocs ? "upload_docs" : animMode}
-        teacherName={fullTeacherName}
-        schoolName={
-          verifiedProfile?.schoolName ||
-          regForm.schoolName ||
-          DEFAULT_SCHOOL_NAME
-        }
-        progressStatus={submittingDocs ? uploadProgressText : undefined}
-        accentColor={ORANGE}
-        darkMode={darkMode}
-      />
     </SafeAreaView>
   );
 }
@@ -1542,6 +1589,26 @@ const styles = StyleSheet.create({
   /* ══════════════════════════════════════════════════════════════
      SCREEN 2 & 4: LOGIN & OTP
      ══════════════════════════════════════════════════════════════ */
+  loginScrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+  },
+  loginCenterStage: {
+    flex: 1,
+    justifyContent: "center",
+    paddingVertical: 24,
+  },
+  loginBottomLogo: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 8,
+  },
+  loginBottomBrandText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 2.5,
+    marginTop: 6,
+  },
   authScrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,

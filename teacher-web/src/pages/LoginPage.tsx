@@ -10,6 +10,7 @@ import {
   type TeacherRegistrationStep1Data,
 } from "../lib/teacherRegistration";
 import {
+  cancelWebIncompleteTeacherRegistration,
   submitWebTeacherVerification,
   type WebVerificationPhotoFiles,
 } from "../lib/teacherRegistrationUpload";
@@ -72,6 +73,7 @@ export default function LoginPage() {
   const [verifiedProfile, setVerifiedProfile] = useState<TeacherRegistrationProfile | null>(null);
   const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null);
   const [submittingDocs, setSubmittingDocs] = useState(false);
+  const [cancellingReg, setCancellingReg] = useState(false);
   const [uploadProgressText, setUploadProgressText] = useState("");
 
   // OTP Form (Single unified 6-digit master token with 6 visual cells)
@@ -226,31 +228,72 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const username = profile.email.split("@")[0] || profile.firstName.toLowerCase();
+      const step1Metadata = {
+        full_name: profile.fullName,
+        first_name: profile.firstName,
+        middle_name: profile.middleName || null,
+        last_name: profile.lastName,
+        username,
+        school_name: profile.schoolName,
+        teacher_id: profile.teacherId,
+        grade_level: profile.gradeLevelSummary,
+        grade_levels: profile.gradeLevels,
+        subject: profile.subjectsSummary,
+        strand: profile.subjectsSummary,
+        subjects: profile.subjects,
+        needs_identity_verification: true,
+      };
       const { data, error: err } = await supabase.auth.signUp({
         email: profile.email,
         password: regForm.password,
         options: {
-          data: {
-            full_name: profile.fullName,
-            first_name: profile.firstName,
-            middle_name: profile.middleName || null,
-            last_name: profile.lastName,
-            username,
-            school_name: profile.schoolName,
-            teacher_id: profile.teacherId,
-            grade_level: profile.gradeLevelSummary,
-            grade_levels: profile.gradeLevels,
-            subject: profile.subjectsSummary,
-            strand: profile.subjectsSummary,
-            subjects: profile.subjects,
-            needs_identity_verification: true,
-          },
+          data: step1Metadata,
         },
       });
 
+      const isAlreadyRegistered =
+        Boolean(err && err.message.toLowerCase().includes("already registered")) ||
+        Boolean(
+          !err &&
+            data.user &&
+            Array.isArray(data.user.identities) &&
+            data.user.identities.length === 0
+        );
+
+      if (isAlreadyRegistered) {
+        const { data: signInData } = await supabase.auth.signInWithPassword({
+          email: profile.email,
+          password: regForm.password,
+        });
+        if (signInData?.session?.user?.id) {
+          const existingMeta = (signInData.session.user.user_metadata || {}) as Record<
+            string,
+            unknown
+          >;
+          const approval = await checkTeacherAccountApproval(
+            supabase,
+            signInData.session.user.id,
+            existingMeta
+          );
+          if (approval.needsIdentityVerification) {
+            await supabase.auth.updateUser({ data: step1Metadata });
+            setVerifiedProfile(profile);
+            setVerifiedUserId(signInData.session.user.id);
+            setCurrentView("verify_identity");
+            return;
+          }
+          await supabase.auth.signOut();
+          setError("An account with this email already exists. Please sign in instead.");
+          return;
+        }
+        setError(
+          "An account with this email already exists. If you did not finish Step 2, sign in with your previous password to continue or cancel registration."
+        );
+        return;
+      }
+
       if (err) {
         setError(err.message);
-        setLoading(false);
         return;
       }
 
@@ -733,11 +776,27 @@ export default function LoginPage() {
               <TeacherVerificationStep2Web
                 profile={verifiedProfile}
                 submitting={submittingDocs}
+                cancelling={cancellingReg}
                 progressText={uploadProgressText}
                 onSubmitPhotos={handleSubmitIdentityPhotos}
                 onSignOut={async () => {
-                  await supabase.auth.signOut();
-                  setCurrentView("login");
+                  if (cancellingReg || submittingDocs) return;
+                  setError(null);
+                  setCancellingReg(true);
+                  try {
+                    await cancelWebIncompleteTeacherRegistration(verifiedUserId);
+                    setVerifiedUserId(null);
+                    setVerifiedProfile(null);
+                    setRegForm(INITIAL_STEP1_WEB);
+                    setCurrentView("login");
+                  } catch (err: any) {
+                    setError(
+                      err?.message ||
+                        "Could not discard your incomplete registration. Please try again."
+                    );
+                  } finally {
+                    setCancellingReg(false);
+                  }
                 }}
               />
             </div>

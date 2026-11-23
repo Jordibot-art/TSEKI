@@ -40,9 +40,9 @@ export interface CustomAlertModalProps {
     onDismiss?: () => void;
 }
 
+const BRAND_ORANGE = "#EA580C";
 const RED_DESTRUCTIVE = "#DC2626";
 const AMBER_WARNING = "#D97706";
-const SLATE_PRIMARY = "#0F172A";
 
 function resolveVariant(
     title: string,
@@ -114,14 +114,14 @@ export default function CustomAlertModal({
 }: CustomAlertModalProps) {
     const { darkMode } = useTheme();
 
-    const cardBg = darkMode ? "#1E293B" : "#FFFFFF";
-    const textMain = darkMode ? "#F8FAFC" : "#0F172A";
-    const textSub = darkMode ? "#94A3B8" : "#475569";
-    const border = darkMode ? "#334155" : "#E2E8F0";
-    const cancelBorder = darkMode ? "#4B5563" : "#CBD5E1";
-    const cancelBg = darkMode ? "#1E293B" : "#FFFFFF";
-    const cancelText = darkMode ? "#F1F5F9" : "#334155";
-    const calloutBg = darkMode ? "#0F172A" : "#F8FAFC";
+    const cardBg = darkMode ? "#18181B" : "#FFFFFF";
+    const textMain = darkMode ? "#FAFAFA" : "#18181B";
+    const textSub = darkMode ? "#A1A1AA" : "#71717A";
+    const border = darkMode ? "#27272A" : "#E4E4E7";
+    const cancelBorder = darkMode ? "#3F3F46" : "#D4D4D8";
+    const cancelBg = darkMode ? "#27272A" : "#FFFFFF";
+    const cancelText = darkMode ? "#FAFAFA" : "#18181B";
+    const calloutBg = darkMode ? "#09090B" : "#FAFAFA";
 
     const effectiveButtons: AlertButton[] =
         buttons && buttons.length > 0
@@ -210,7 +210,7 @@ export default function CustomAlertModal({
         if (accentColor && accentColor !== "#2563EB") {
             return accentColor;
         }
-        return SLATE_PRIMARY;
+        return BRAND_ORANGE;
     }
 
     return (
@@ -441,7 +441,7 @@ export function GlobalAlertHost() {
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: "rgba(15, 23, 42, 0.45)",
+        backgroundColor: "rgba(9, 9, 11, 0.45)",
         justifyContent: "center",
         alignItems: "center",
         paddingHorizontal: 20,
@@ -449,21 +449,21 @@ const styles = StyleSheet.create({
     card: {
         width: "88%",
         maxWidth: 360,
-        borderRadius: 16,
-        padding: 20,
+        borderRadius: 18,
+        padding: 22,
         borderWidth: 1,
-        shadowColor: "#0F172A",
-        shadowOffset: { width: 0, height: 10 },
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.12,
-        shadowRadius: 25,
-        elevation: 12,
+        shadowRadius: 20,
+        elevation: 8,
     },
     title: {
-        fontSize: 17,
-        fontWeight: "600",
+        fontSize: 18,
+        fontWeight: "700",
         textAlign: "left",
-        marginBottom: 6,
-        letterSpacing: -0.2,
+        marginBottom: 8,
+        letterSpacing: -0.3,
     },
     messageScroll: {
         maxHeight: 220,
@@ -473,28 +473,28 @@ const styles = StyleSheet.create({
         alignItems: "stretch",
     },
     body: {
-        fontSize: 14,
-        lineHeight: 20,
+        fontSize: 14.5,
+        lineHeight: 21,
         textAlign: "left",
     },
     infoCallout: {
         flexDirection: "row",
         alignItems: "flex-start",
-        borderRadius: 8,
+        borderRadius: 10,
         borderWidth: 1,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
+        paddingHorizontal: 11,
+        paddingVertical: 9,
         marginTop: 12,
     },
     infoCalloutText: {
-        fontSize: 12,
-        lineHeight: 17,
+        fontSize: 12.5,
+        lineHeight: 18,
         flex: 1,
         textAlign: "left",
     },
     buttonsContainer: {
         width: "100%",
-        marginTop: 18,
+        marginTop: 22,
     },
     buttonsRow: {
         flexDirection: "row",
@@ -505,17 +505,17 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     btnBase: {
-        height: 42,
-        borderRadius: 10,
+        height: 46,
+        borderRadius: 12,
         alignItems: "center",
         justifyContent: "center",
-        paddingHorizontal: 14,
+        paddingHorizontal: 16,
     },
     btnFlex: {
         flex: 1,
     },
     btnText: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: "600",
     },
 });

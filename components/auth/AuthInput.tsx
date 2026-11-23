@@ -108,6 +108,17 @@ const SUBJECT_ACRONYMS = new Set([
 ]);
 
 /**
+ * Live input formatter that automatically capitalizes the first letter of each
+ * word as the user types (without trimming spaces or altering inner capitals).
+ */
+export function capitalizeWordsInput(raw: string): string {
+  return raw.replace(
+    /(^|[\s\-./(])([a-z\u00e0-\u00f6\u00f8-\u00ff])/g,
+    (_, sep: string, ch: string) => `${sep}${ch.toUpperCase()}`
+  );
+}
+
+/**
  * Presentation-only formatter that converts canonical UPPERCASE subject tags
  * into clean Title Case while preserving well-known educational acronyms.
  */

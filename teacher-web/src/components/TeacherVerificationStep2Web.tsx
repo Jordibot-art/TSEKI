@@ -14,6 +14,7 @@ import styles from "./TeacherRegistrationWeb.module.css";
 export interface TeacherVerificationStep2WebProps {
   profile: TeacherRegistrationProfile;
   submitting: boolean;
+  cancelling?: boolean;
   progressText: string;
   onSubmitPhotos: (photos: WebVerificationPhotoFiles) => Promise<void>;
   onSignOut: () => void;
@@ -22,6 +23,7 @@ export interface TeacherVerificationStep2WebProps {
 export function TeacherVerificationStep2Web({
   profile,
   submitting,
+  cancelling = false,
   progressText,
   onSubmitPhotos,
   onSignOut,
@@ -352,10 +354,18 @@ export function TeacherVerificationStep2Web({
       <button
         type="button"
         className={styles.secondaryLinkBtn}
-        onClick={onSignOut}
-        disabled={submitting}
+        onClick={() => {
+          if (
+            window.confirm(
+              "Cancel registration? Your Step 1 details will be discarded and not saved, so you can register again with the same email."
+            )
+          ) {
+            onSignOut();
+          }
+        }}
+        disabled={submitting || cancelling}
       >
-        Finish Later (Sign Out)
+        {cancelling ? "Cancelling Registration..." : "Cancel Registration"}
       </button>
 
       {submitting && (

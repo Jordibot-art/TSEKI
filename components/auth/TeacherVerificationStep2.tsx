@@ -21,6 +21,7 @@ import { formatSubjectsSummaryDisplay, getAuthTheme } from "./AuthInput";
 export interface TeacherVerificationStep2Props {
   profile: TeacherRegistrationProfile;
   submitting: boolean;
+  cancelling?: boolean;
   progressStatus: string;
   onSubmitPhotos: (photos: VerificationPhotoSet) => Promise<void>;
   onSignOut: () => void;
@@ -31,6 +32,7 @@ type PhotoSlot = "idFront" | "idBack" | "selfie";
 export function TeacherVerificationStep2({
   profile,
   submitting,
+  cancelling = false,
   progressStatus,
   onSubmitPhotos,
   onSignOut,
@@ -288,7 +290,10 @@ export function TeacherVerificationStep2({
             <TouchableOpacity
               style={[
                 styles.cameraActionBtn,
-                { backgroundColor: theme.btnDarkBg },
+                {
+                  backgroundColor: theme.accentBg,
+                  borderColor: theme.accent,
+                },
               ]}
               onPress={() => captureWithCamera(slot)}
               activeOpacity={0.8}
@@ -297,10 +302,10 @@ export function TeacherVerificationStep2({
               <Ionicons
                 name="camera-outline"
                 size={17}
-                color={theme.btnDarkText}
+                color={theme.accent}
               />
               <Text
-                style={[styles.cameraActionText, { color: theme.btnDarkText }]}
+                style={[styles.cameraActionText, { color: theme.accentText }]}
                 numberOfLines={1}
               >
                 {primaryCameraLabel}
@@ -477,15 +482,28 @@ export function TeacherVerificationStep2({
             </Text>
           </View>
 
-          {/* Sign Out / Finish Later */}
+          {/* Cancel Registration */}
           <Pressable
             style={styles.laterBtn}
-            onPress={onSignOut}
-            disabled={submitting}
+            onPress={() => {
+              Alert.alert(
+                "Cancel Registration?",
+                "Your Step 1 registration details will be discarded and not saved, so you can register again with the same email.",
+                [
+                  { text: "Keep Verifying", style: "cancel" },
+                  {
+                    text: "Cancel Registration",
+                    style: "destructive",
+                    onPress: () => onSignOut(),
+                  },
+                ]
+              );
+            }}
+            disabled={submitting || cancelling}
             hitSlop={8}
           >
             <Text style={[styles.laterBtnText, { color: theme.textMuted }]}>
-              Finish later (Sign out)
+              {cancelling ? "Cancelling registration..." : "Cancel registration"}
             </Text>
           </Pressable>
         </View>
@@ -498,7 +516,7 @@ export function TeacherVerificationStep2({
           {
             backgroundColor: theme.bgSurface,
             borderTopColor: theme.border,
-            paddingBottom: Math.max(insets.bottom, 14),
+            paddingBottom: Math.max(insets.bottom, 12),
           },
         ]}
       >
@@ -520,7 +538,7 @@ export function TeacherVerificationStep2({
               pressed && readyToSubmit && styles.btnPressed,
             ]}
             onPress={handleSubmit}
-            disabled={!readyToSubmit}
+            disabled={!readyToSubmit || cancelling}
           >
             {submitting ? (
               <View style={styles.loadingRow}>
@@ -560,7 +578,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 460,
     alignSelf: "center",
-    height: 52,
+    height: 46,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -572,15 +590,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 999,
   },
   verifiedText: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: "600",
   },
   stepMetaText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: "500",
   },
   progressTrack: {
@@ -597,79 +615,80 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 24,
+    paddingTop: 12,
+    paddingBottom: 14,
   },
   contentColumn: {
     width: "100%",
     maxWidth: 460,
     alignSelf: "center",
-    gap: 14,
+    gap: 10,
   },
   pageHeading: {
-    marginBottom: 2,
+    marginBottom: 0,
   },
   title: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: "700",
     letterSpacing: -0.4,
   },
   subtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   /* ── Compact Teacher Summary Strip ── */
   teacherStrip: {
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 4,
+    borderRadius: 11,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    gap: 2,
   },
   teacherStripTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
   teacherName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
     flex: 1,
   },
   teacherId: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: "500",
     fontVariant: ["tabular-nums"],
   },
   teacherSummaryLine: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12.5,
+    lineHeight: 17,
   },
   /* ── Verification Cards ── */
   cardsStack: {
-    gap: 12,
+    gap: 8,
   },
   photoCard: {
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
   photoCardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 12,
+    gap: 10,
   },
   stepBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 1,
   },
   stepBadgeText: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: "600",
     fontVariant: ["tabular-nums"],
   },
@@ -683,7 +702,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   photoTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
     flex: 1,
   },
@@ -692,51 +711,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 2,
     borderRadius: 6,
   },
   uploadedBadgeText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "600",
   },
   photoDesc: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 1,
   },
   /* ── Card Dual Actions ── */
   uploadActionsRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 10,
   },
   cameraActionBtn: {
     flex: 1.25,
-    height: 42,
-    borderRadius: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-  },
-  cameraActionText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  galleryActionBtn: {
-    flex: 1,
-    height: 42,
-    borderRadius: 10,
+    height: 38,
+    borderRadius: 9,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
+  },
+  cameraActionText: {
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  galleryActionBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: 9,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
   },
   galleryActionText: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: "600",
   },
   /* ── Uploaded Preview State ── */
@@ -790,25 +810,25 @@ const styles = StyleSheet.create({
   privacyRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 8,
+    gap: 7,
     paddingHorizontal: 4,
-    paddingTop: 2,
+    paddingTop: 0,
   },
   privacyIcon: {
     marginTop: 1,
   },
   privacyText: {
     flex: 1,
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
   },
   laterBtn: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
+    paddingVertical: 6,
   },
   laterBtnText: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: "500",
   },
   /* ── Sticky Bottom Footer ── */
@@ -816,7 +836,7 @@ const styles = StyleSheet.create({
     width: "100%",
     borderTopWidth: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 10,
   },
   stickyFooterInner: {
     width: "100%",
@@ -826,12 +846,12 @@ const styles = StyleSheet.create({
   progressHint: {
     fontSize: 12,
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 6,
     fontVariant: ["tabular-nums"],
   },
   submitBtn: {
     width: "100%",
-    height: 52,
+    height: 48,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",

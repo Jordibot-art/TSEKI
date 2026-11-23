@@ -21,7 +21,12 @@ import {
   SUBJECT_PRESET_TAGS,
   type TeacherRegistrationStep1Data,
 } from "../../shared/teacherRegistration";
-import { AuthInput, formatSubjectLabel, getAuthTheme } from "./AuthInput";
+import {
+  AuthInput,
+  capitalizeWordsInput,
+  formatSubjectLabel,
+  getAuthTheme,
+} from "./AuthInput";
 
 export interface TeacherRegistrationStep1Props {
   values: TeacherRegistrationStep1Data;
@@ -180,7 +185,9 @@ export function TeacherRegistrationStep1({
                 placeholder="First name"
                 autoCapitalize="words"
                 value={values.firstName}
-                onChangeText={(t) => onChange({ firstName: t })}
+                onChangeText={(t) =>
+                  onChange({ firstName: capitalizeWordsInput(t) })
+                }
                 editable={!loading}
                 darkMode={darkMode}
               />
@@ -189,7 +196,9 @@ export function TeacherRegistrationStep1({
                 placeholder="Last name"
                 autoCapitalize="words"
                 value={values.lastName}
-                onChangeText={(t) => onChange({ lastName: t })}
+                onChangeText={(t) =>
+                  onChange({ lastName: capitalizeWordsInput(t) })
+                }
                 editable={!loading}
                 darkMode={darkMode}
               />
@@ -200,7 +209,9 @@ export function TeacherRegistrationStep1({
               placeholder="Middle name (optional)"
               autoCapitalize="words"
               value={values.middleName}
-              onChangeText={(t) => onChange({ middleName: t })}
+              onChangeText={(t) =>
+                onChange({ middleName: capitalizeWordsInput(t) })
+              }
               editable={!loading}
               darkMode={darkMode}
             />
@@ -444,10 +455,10 @@ export function TeacherRegistrationStep1({
               <AuthInput
                 containerStyle={styles.flex1}
                 placeholder="Add custom subject..."
-                autoCapitalize="characters"
+                autoCapitalize="words"
                 value={customSubjectInput}
                 onChangeText={(text) =>
-                  setCustomSubjectInput(text.toUpperCase())
+                  setCustomSubjectInput(capitalizeWordsInput(text))
                 }
                 onSubmitEditing={handleAddCustomSubject}
                 returnKeyType="done"
@@ -459,7 +470,7 @@ export function TeacherRegistrationStep1({
                   styles.addTagBtn,
                   {
                     backgroundColor: canAddCustom
-                      ? theme.btnDarkBg
+                      ? theme.accent
                       : theme.btnDisabledBg,
                   },
                 ]}
@@ -471,7 +482,7 @@ export function TeacherRegistrationStep1({
                   name="add"
                   size={17}
                   color={
-                    canAddCustom ? theme.btnDarkText : theme.btnDisabledText
+                    canAddCustom ? "#FFFFFF" : theme.btnDisabledText
                   }
                 />
                 <Text
@@ -479,7 +490,7 @@ export function TeacherRegistrationStep1({
                     styles.addTagBtnText,
                     {
                       color: canAddCustom
-                        ? theme.btnDarkText
+                        ? "#FFFFFF"
                         : theme.btnDisabledText,
                     },
                   ]}
@@ -498,8 +509,8 @@ export function TeacherRegistrationStep1({
                     style={[
                       styles.subjectChip,
                       {
-                        backgroundColor: theme.btnDarkBg,
-                        borderColor: theme.btnDarkBg,
+                        backgroundColor: theme.accentBg,
+                        borderColor: theme.accent,
                       },
                     ]}
                     onPress={() => toggleSubjectTag(tag)}
@@ -509,7 +520,7 @@ export function TeacherRegistrationStep1({
                     <Text
                       style={[
                         styles.subjectChipText,
-                        { color: theme.btnDarkText, fontWeight: "600" },
+                        { color: theme.accentText, fontWeight: "600" },
                       ]}
                     >
                       {formatSubjectLabel(tag)}
@@ -517,7 +528,7 @@ export function TeacherRegistrationStep1({
                     <Ionicons
                       name="close"
                       size={14}
-                      color={theme.btnDarkText}
+                      color={theme.accent}
                     />
                   </TouchableOpacity>
                 ))}
@@ -535,21 +546,28 @@ export function TeacherRegistrationStep1({
                       styles.subjectChip,
                       {
                         backgroundColor: active
-                          ? theme.btnDarkBg
+                          ? theme.accentBg
                           : theme.bgSurface,
-                        borderColor: active ? theme.btnDarkBg : theme.border,
+                        borderColor: active ? theme.accent : theme.border,
                       },
                     ]}
                     onPress={() => toggleSubjectTag(tag)}
                     activeOpacity={0.75}
                     disabled={loading}
                   >
+                    {active && (
+                      <Ionicons
+                        name="checkmark"
+                        size={14}
+                        color={theme.accent}
+                      />
+                    )}
                     <Text
                       style={[
                         styles.subjectChipText,
                         {
                           color: active
-                            ? theme.btnDarkText
+                            ? theme.accentText
                             : theme.textSecondary,
                           fontWeight: active ? "600" : "500",
                         },
@@ -557,13 +575,6 @@ export function TeacherRegistrationStep1({
                     >
                       {formatSubjectLabel(tag)}
                     </Text>
-                    {active && (
-                      <Ionicons
-                        name="checkmark"
-                        size={14}
-                        color={theme.btnDarkText}
-                      />
-                    )}
                   </TouchableOpacity>
                 );
               })}

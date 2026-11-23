@@ -270,3 +270,51 @@ export async function submitTeacherVerification(params: {
 
   return { idFrontPath, idBackPath, selfiePath };
 }
+
+/**
+ * Cancels an incomplete Step 2 teacher registration by removing any partial uploaded
+ * verification photos and calling the `cancel_incomplete_teacher_registration` RPC
+ * to delete the incomplete `auth.users` account and unsubmitted draft row, so the
+ * email can immediately be used to register again.
+ */
+export async function cancelIncompleteTeacherRegistration(
+  userId?: string | null
+): Promise<void> {
+  const uid =
+    userId || (await supabase.auth.getSession()).data?.session?.user?.id || null;
+
+  if (uid) {
+    try {
+      await supabase.storage
+        .from(TEACHER_VERIFICATION_BUCKET)
+        .remove([
+          `${uid}/id-front.jpg`,
+          `${uid}/id-back.jpg`,
+          `${uid}/selfie.jpg`,
+        ]);
+    } catch {
+      // Best-effort cleanup of any partial uploads
+    }
+  }
+
+  const { error } = await supabase.rpc("cancel_incomplete_teacher_registration");
+  if (error) {
+    const msg = String(error.message || "");
+    if (
+      error.code === "PGRST202" ||
+      msg.toLowerCase().includes("could not find the function") ||
+      msg.toLowerCase().includes("does not exist")
+    ) {
+      throw new Error(
+        "Database cleanup function is not installed yet. Please run migrations/cancel_incomplete_teacher_registration.sql in Supabase SQL Editor."
+      );
+    }
+    throw new Error(msg || "Could not cancel incomplete registration.");
+  }
+
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // Ignore local sign-out errors after server-side user deletion
+  }
+}

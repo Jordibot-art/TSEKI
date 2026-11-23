@@ -220,3 +220,49 @@ export async function submitWebTeacherVerification(params: {
 
   return { idFrontPath, idBackPath, selfiePath };
 }
+
+/**
+ * Cancels an incomplete Step 2 teacher registration so the unsubmitted Step 1 account
+ * is removed from Supabase and the email can immediately be used to register again.
+ */
+export async function cancelWebIncompleteTeacherRegistration(
+  userId?: string | null
+): Promise<void> {
+  const uid =
+    userId || (await supabase.auth.getSession()).data?.session?.user?.id || null;
+
+  if (uid) {
+    try {
+      await supabase.storage
+        .from(TEACHER_VERIFICATION_BUCKET)
+        .remove([
+          `${uid}/id-front.jpg`,
+          `${uid}/id-back.jpg`,
+          `${uid}/selfie.jpg`,
+        ]);
+    } catch {
+      // Best-effort cleanup of any partial uploads
+    }
+  }
+
+  const { error } = await supabase.rpc("cancel_incomplete_teacher_registration");
+  if (error) {
+    const msg = String(error.message || "");
+    if (
+      error.code === "PGRST202" ||
+      msg.toLowerCase().includes("could not find the function") ||
+      msg.toLowerCase().includes("does not exist")
+    ) {
+      throw new Error(
+        "Database cleanup function is not installed yet. Please run migrations/cancel_incomplete_teacher_registration.sql in Supabase SQL Editor."
+      );
+    }
+    throw new Error(msg || "Could not cancel incomplete registration.");
+  }
+
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // Ignore local sign-out errors after server-side user deletion
+  }
+}
