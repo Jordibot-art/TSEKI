@@ -8,12 +8,12 @@ import {
     ScrollView,
     Image,
     TextInput,
-    Pressable,
     ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
+import { SmoothBottomSheetModal } from "./SmoothModalTransition";
 import {
     GradingResultItem,
     GradingResponse,
@@ -262,7 +262,7 @@ export function LowConfidenceReviewModal({
         onClose();
     }
 
-    if (!visible || !gradingResult) return null;
+    if (!gradingResult) return null;
 
     // Theme tokens
     const bg = darkMode ? "#0F172A" : "#FFFFFF";
@@ -271,30 +271,130 @@ export function LowConfidenceReviewModal({
     const textMain = darkMode ? "#F8FAFC" : "#0F172A";
     const textSub = darkMode ? "#94A3B8" : "#64748B";
 
-    return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            transparent={true}
-            statusBarTranslucent={true}
-            onRequestClose={onClose}
-        >
-            <View style={styles.modalRoot}>
-                {/* Full-screen Dimmed Backdrop */}
-                <Pressable style={styles.modalBackdrop} onPress={onClose} />
+    const fullPreviewModal = scannedImageUri ? (() => {
+        const activeCropUri =
+            previewModalQNum !== null ? croppedUris[previewModalQNum] : undefined;
+        const showingCrop = previewMode === "crop" && Boolean(activeCropUri);
+        const previewItem =
+            previewModalQNum !== null
+                ? workingResults.find((r) => r.questionNumber === previewModalQNum)
+                : undefined;
 
-                {/* Bottom Sheet Container */}
-                <View
-                    style={[
-                        styles.sheetContainer,
-                        {
-                            backgroundColor: bg,
-                            paddingBottom: Math.max(insets.bottom, 12),
-                        },
-                    ]}
-                >
-                    {/* Centered Drag Pill */}
-                    <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
+        return (
+            <Modal
+                visible={imagePreviewOpen}
+                transparent
+                animationType="fade"
+                statusBarTranslucent={true}
+                onRequestClose={() => setImagePreviewOpen(false)}
+            >
+                <View style={styles.fullImageOverlay}>
+                    {/* Top Controls Bar */}
+                    <View
+                        style={[
+                            styles.previewTopBar,
+                            { paddingTop: Math.max(insets.top + 10, 44) },
+                        ]}
+                    >
+                        {previewModalQNum !== null && activeCropUri ? (
+                            <View style={styles.previewModeSegment}>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.previewModeBtn,
+                                        showingCrop && styles.previewModeBtnActive,
+                                    ]}
+                                    onPress={() => setPreviewMode("crop")}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.previewModeBtnText,
+                                            showingCrop && styles.previewModeBtnTextActive,
+                                        ]}
+                                    >
+                                        Q{previewModalQNum} Box Crop
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.previewModeBtn,
+                                        !showingCrop && styles.previewModeBtnActive,
+                                    ]}
+                                    onPress={() => setPreviewMode("full")}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.previewModeBtnText,
+                                            !showingCrop && styles.previewModeBtnTextActive,
+                                        ]}
+                                    >
+                                        Full Paper
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <Text style={styles.previewHeaderTitle}>Scanned Answer Sheet</Text>
+                        )}
+
+                        <TouchableOpacity
+                            style={styles.fullImageCloseBtn}
+                            onPress={() => setImagePreviewOpen(false)}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                            <Ionicons name="close" size={22} color="#FFFFFF" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Image Canvas */}
+                    <View style={styles.previewImageStage}>
+                        <Image
+                            source={{ uri: showingCrop ? activeCropUri! : scannedImageUri }}
+                            style={showingCrop ? styles.croppedPreviewImage : styles.fullImage}
+                            resizeMode="contain"
+                        />
+                    </View>
+
+                    {/* Bottom Caption for Specific Flagged Question */}
+                    {previewItem && (
+                        <View
+                            style={[
+                                styles.previewCaptionBar,
+                                { paddingBottom: Math.max(insets.bottom + 14, 24) },
+                            ]}
+                        >
+                            <Text style={styles.previewCaptionTitle}>
+                                Question {previewItem.questionNumber} · Official Key: {previewItem.correctAnswer}
+                            </Text>
+                            {(previewItem.flagDetails || previewItem.visualObservations) && (
+                                <Text style={styles.previewCaptionSub}>
+                                    {previewItem.flagDetails || previewItem.visualObservations}
+                                </Text>
+                            )}
+                        </View>
+                    )}
+                </View>
+            </Modal>
+        );
+    })() : null;
+
+    return (
+        <SmoothBottomSheetModal
+            visible={visible}
+            onClose={onClose}
+            onRequestClose={onClose}
+            backdropColor="rgba(15, 23, 42, 0.48)"
+            sheetStyle={[
+                styles.sheetContainer,
+                {
+                    backgroundColor: bg,
+                    paddingBottom: Math.max(insets.bottom, 12),
+                },
+            ]}
+            overlayChildren={fullPreviewModal}
+        >
+            {/* Centered Drag Pill */}
+            <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
 
                     {/* ── HEADER ─────────────────────────────────────────────────── */}
                     <View style={[styles.header, { borderBottomColor: border }]}>
@@ -947,117 +1047,7 @@ export function LowConfidenceReviewModal({
                             <Text style={styles.saveReviewBtnText}>Save Review</Text>
                         </TouchableOpacity>
                     </View>
-                </View>
-
-                {/* ── FULL / ZOOMED QUESTION IMAGE PREVIEW MODAL ────────────────── */}
-                {scannedImageUri && (() => {
-                    const activeCropUri =
-                        previewModalQNum !== null ? croppedUris[previewModalQNum] : undefined;
-                    const showingCrop = previewMode === "crop" && Boolean(activeCropUri);
-                    const previewItem =
-                        previewModalQNum !== null
-                            ? workingResults.find((r) => r.questionNumber === previewModalQNum)
-                            : undefined;
-
-                    return (
-                        <Modal
-                            visible={imagePreviewOpen}
-                            transparent
-                            animationType="fade"
-                            statusBarTranslucent={true}
-                            onRequestClose={() => setImagePreviewOpen(false)}
-                        >
-                            <View style={styles.fullImageOverlay}>
-                                {/* Top Controls Bar */}
-                                <View
-                                    style={[
-                                        styles.previewTopBar,
-                                        { paddingTop: Math.max(insets.top + 10, 44) },
-                                    ]}
-                                >
-                                    {previewModalQNum !== null && activeCropUri ? (
-                                        <View style={styles.previewModeSegment}>
-                                            <TouchableOpacity
-                                                style={[
-                                                    styles.previewModeBtn,
-                                                    showingCrop && styles.previewModeBtnActive,
-                                                ]}
-                                                onPress={() => setPreviewMode("crop")}
-                                                activeOpacity={0.8}
-                                            >
-                                                <Text
-                                                    style={[
-                                                        styles.previewModeBtnText,
-                                                        showingCrop && styles.previewModeBtnTextActive,
-                                                    ]}
-                                                >
-                                                    Q{previewModalQNum} Box Crop
-                                                </Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={[
-                                                    styles.previewModeBtn,
-                                                    !showingCrop && styles.previewModeBtnActive,
-                                                ]}
-                                                onPress={() => setPreviewMode("full")}
-                                                activeOpacity={0.8}
-                                            >
-                                                <Text
-                                                    style={[
-                                                        styles.previewModeBtnText,
-                                                        !showingCrop && styles.previewModeBtnTextActive,
-                                                    ]}
-                                                >
-                                                    Full Paper
-                                                </Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <Text style={styles.previewHeaderTitle}>Scanned Answer Sheet</Text>
-                                    )}
-
-                                    <TouchableOpacity
-                                        style={styles.fullImageCloseBtn}
-                                        onPress={() => setImagePreviewOpen(false)}
-                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                    >
-                                        <Ionicons name="close" size={22} color="#FFFFFF" />
-                                    </TouchableOpacity>
-                                </View>
-
-                                {/* Image Canvas */}
-                                <View style={styles.previewImageStage}>
-                                    <Image
-                                        source={{ uri: showingCrop ? activeCropUri! : scannedImageUri }}
-                                        style={showingCrop ? styles.croppedPreviewImage : styles.fullImage}
-                                        resizeMode="contain"
-                                    />
-                                </View>
-
-                                {/* Bottom Caption for Specific Flagged Question */}
-                                {previewItem && (
-                                    <View
-                                        style={[
-                                            styles.previewCaptionBar,
-                                            { paddingBottom: Math.max(insets.bottom + 14, 24) },
-                                        ]}
-                                    >
-                                        <Text style={styles.previewCaptionTitle}>
-                                            Question {previewItem.questionNumber} · Official Key: {previewItem.correctAnswer}
-                                        </Text>
-                                        {(previewItem.flagDetails || previewItem.visualObservations) && (
-                                            <Text style={styles.previewCaptionSub}>
-                                                {previewItem.flagDetails || previewItem.visualObservations}
-                                            </Text>
-                                        )}
-                                    </View>
-                                )}
-                            </View>
-                        </Modal>
-                    );
-                })()}
-            </View>
-        </Modal>
+        </SmoothBottomSheetModal>
     );
 }
 

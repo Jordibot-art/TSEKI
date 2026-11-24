@@ -1,9 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +10,7 @@ import {
 } from "react-native";
 import { getDocBadgeInfo, SupportedDocType } from "../../lib/documentParserService";
 import { QuotaState } from "../../lib/ai/aiQuotaService";
+import { SmoothBottomSheetModal } from "../SmoothModalTransition";
 
 export interface PreGenClassroomOption {
   id: string;
@@ -142,34 +140,22 @@ export function PreGenReviewModal({
   quotaState,
 }: PreGenReviewModalProps) {
   return (
-    <Modal
+    <SmoothBottomSheetModal
       visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      navigationBarTranslucent
+      onClose={onClose}
       onRequestClose={onClose}
+      avoidKeyboard
+      backdropColor="rgba(15, 23, 42, 0.52)"
+      sheetStyle={[
+        styles.preGenSheet,
+        {
+          backgroundColor: cardBg,
+          borderColor: darkMode ? border : "#E2E8F0",
+          paddingBottom: Math.max(16, bottomInset + 10),
+        },
+      ]}
     >
-      <KeyboardAvoidingView
-        style={styles.preGenBackdrop}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-        <View
-          style={[
-            styles.preGenSheet,
-            {
-              backgroundColor: cardBg,
-              borderColor: darkMode ? border : "#E2E8F0",
-              paddingBottom: Math.max(16, bottomInset + 10),
-            },
-          ]}
-        >
-          <View style={styles.sheetDragHandle} />
+      <View style={styles.sheetDragHandle} />
 
           {/* Header */}
           <View style={styles.preGenHeader}>
@@ -1005,9 +991,7 @@ export function PreGenReviewModal({
               <Text style={styles.preGenConfirmBtnText}>Confirm &amp; Generate</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    </SmoothBottomSheetModal>
   );
 }
 

@@ -341,13 +341,13 @@ export default function AnalyticsPage() {
 
       {/* Main Grid: Pedagogical Advice & Grade Distribution */}
       <div className={styles.analyticsGrid}>
-        {/* TSEKI Pedagogical Advisor Card */}
+        {/* TSEKI Teaching Guide Card */}
         <div className={styles.advisorCard}>
           <div className={styles.cardHeader}>
             <div className={styles.cardTitleArea}>
               <BrainCircuit size={20} className={styles.advisorIcon} />
               <div>
-                <h3>TSEKI Pedagogical Advisor</h3>
+                <h3>TSEKI Teaching Guide</h3>
                 <span>AI-Assisted Diagnostic Guidance for {activeClassTitle}</span>
               </div>
             </div>

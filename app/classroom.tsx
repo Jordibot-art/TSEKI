@@ -26,6 +26,12 @@ import {
 import AIBuilderTab from "../components/AIBuilderTab";
 import GraderTab from "../components/GraderTab";
 import { NotificationsModal } from "../components/NotificationsModal";
+import {
+  SmoothBottomSheetModal,
+  SmoothStageTransition,
+  TRANSITION_HANDOFF_DELAY_MS,
+  waitForTransition,
+} from "../components/SmoothModalTransition";
 import TrackerTab from "../components/TrackerTab";
 import { StudentFormModal } from "../components/classroom/StudentFormModal";
 import { useTheme } from "../context/ThemeContext";
@@ -1559,6 +1565,7 @@ export default function ClassroomScreen() {
         </View>
 
         {/* ── Tab Content ── */}
+        <SmoothStageTransition transitionKey={activeTab} duration={180} offsetY={6}>
         {activeTab === "Record" && (
           <>
             {/* ── Action Toolbar ── */}
@@ -1896,6 +1903,7 @@ export default function ClassroomScreen() {
             )}
           </>
         )}
+        </SmoothStageTransition>
       </ScrollView>
 
       {/* ── Add New Student Modal ── */}
@@ -2365,11 +2373,11 @@ export default function ClassroomScreen() {
                     )}
                   </View>
 
-                  {/* Tseki Pedagogical Advice */}
+                  {/* Tseki Teaching Guide */}
                   <View style={[styles.pedagogicalCard, { backgroundColor: darkMode ? "#292524" : "#FFFBEB", borderColor: darkMode ? "#44403C" : "#FED7AA" }]}>
                     <View style={styles.pedagogicalHeader}>
                       <Ionicons name="sparkles" size={15} color={darkMode ? "#34D399" : "#059669"} />
-                      <Text style={[styles.pedagogicalTitle, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>TSEKI PEDAGOGICAL ADVICE</Text>
+                      <Text style={[styles.pedagogicalTitle, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>TSEKI Teaching Guide</Text>
                     </View>
                     <Text style={[styles.pedagogicalText, { color: darkMode ? "#D6D3D1" : "#475569" }]}>
                       {generateStudentAdvice({
@@ -2798,21 +2806,11 @@ export default function ClassroomScreen() {
         onVerifiedDelete={handleConfirmDeleteClassroom}
       />
       {/* ── Export Classroom Records Modal ── */}
-      <Modal
+      <SmoothBottomSheetModal
         visible={exportModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setExportModalVisible(false)}
+        onClose={() => setExportModalVisible(false)}
+        sheetStyle={[styles.exportModalSheet, { backgroundColor: cardBg }]}
       >
-        <TouchableOpacity
-          style={styles.exportModalBackdrop}
-          activeOpacity={1}
-          onPress={() => setExportModalVisible(false)}
-        >
-          <Pressable
-            style={[styles.exportModalSheet, { backgroundColor: cardBg }]}
-            onPress={(e) => e.stopPropagation?.()}
-          >
             <View style={styles.sheetDragHandle} />
 
             <View style={styles.exportModalHeader}>
@@ -2837,9 +2835,10 @@ export default function ClassroomScreen() {
                 styles.exportOptionCard,
                 { backgroundColor: darkMode ? "#1E293B" : "#FFFFFF", borderColor: darkMode ? "#334155" : "#E2E8F0" },
               ]}
-              onPress={() => {
+              onPress={async () => {
                 setExportModalVisible(false);
-                handleExportQuizScores(false);
+                await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
+                void handleExportQuizScores(false);
               }}
               activeOpacity={0.7}
             >
@@ -2866,9 +2865,10 @@ export default function ClassroomScreen() {
                 styles.exportOptionCard,
                 { backgroundColor: darkMode ? "#1E293B" : "#FFFFFF", borderColor: darkMode ? "#334155" : "#E2E8F0" },
               ]}
-              onPress={() => {
+              onPress={async () => {
                 setExportModalVisible(false);
-                handleDownloadTemplate(false);
+                await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
+                void handleDownloadTemplate(false);
               }}
               activeOpacity={0.7}
             >
@@ -2888,9 +2888,7 @@ export default function ClassroomScreen() {
               </View>
               <Ionicons name="download-outline" size={20} color={textSub} />
             </TouchableOpacity>
-          </Pressable>
-        </TouchableOpacity>
-      </Modal>
+      </SmoothBottomSheetModal>
 
       {/* ── Import Classlist Preview Modal ── */}
       <Modal
@@ -3330,7 +3328,7 @@ export default function ClassroomScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.exportOptionCardTitle, { color: textMain }]}>View Student Profile</Text>
                     <Text style={[styles.exportOptionCardSub, { color: textSub }]}>
-                      Inspect quiz breakdown and pedagogical advice
+                      Inspect quiz breakdown and teaching guide
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={textSub} />

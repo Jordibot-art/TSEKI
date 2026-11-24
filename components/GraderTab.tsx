@@ -38,6 +38,14 @@ import { BatchScannerModal } from "./BatchScannerModal";
 import { BatchReviewDashboard } from "./BatchReviewDashboard";
 import { BatchGradingQueue, BatchSheetItem, matchStudentToRoster } from "../lib/batchGradingQueue";
 import { PaperScanningAnimation } from "./PaperScanningAnimation";
+import {
+    SmoothBottomSheetModal,
+    SmoothCenterModal,
+    SmoothStageTransition,
+    TRANSITION_EXIT_WAIT_MS,
+    TRANSITION_HANDOFF_DELAY_MS,
+    waitForTransition,
+} from "./SmoothModalTransition";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
@@ -497,13 +505,18 @@ export default function GraderTab({
 
     // ── Open Camera (Single Paper with Photo Guidance) ─────────────────────────
     async function handleOpenCamera() {
+        const wasPickerOpen = sourceModalOpen;
         setSourceModalOpen(false);
         if (publishedQuizzes.length === 0) {
+            if (wasPickerOpen) await waitForTransition(TRANSITION_EXIT_WAIT_MS);
             Alert.alert(
                 "No Quizzes Available",
                 "You haven't created any quizzes for this classroom yet. Please create and publish a quiz in the AI Builder tab first so Tseki knows the answer key!"
             );
             return;
+        }
+        if (wasPickerOpen) {
+            await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
         }
         setScannerMode("single");
         setBatchScannerOpen(true);
@@ -513,9 +526,12 @@ export default function GraderTab({
     async function handleCaptureSingleSheet(uri: string, qrData?: string | null) {
         try {
             setScannedImageUri(uri);
-            const optimized = await prepareImageForGrading({ uri });
+            const [optimized] = await Promise.all([
+                prepareImageForGrading({ uri }),
+                waitForTransition(TRANSITION_HANDOFF_DELAY_MS),
+            ]);
             if (optimized.base64) {
-                processGrading(optimized.base64, optimized.mimeType, qrData);
+                void processGrading(optimized.base64, optimized.mimeType, qrData);
             } else {
                 Alert.alert("Image Error", "Could not read camera capture data.");
             }
@@ -526,8 +542,12 @@ export default function GraderTab({
 
     // ── Choose from Library ────────────────────────────────────────────────────
     async function handlePickImage() {
+        const wasPickerOpen = sourceModalOpen;
         setSourceModalOpen(false);
         try {
+            if (wasPickerOpen) {
+                await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
+            }
             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (status !== "granted") {
                 Alert.alert("Permission Required", "Photo library permission is required to select test papers.");
@@ -546,7 +566,7 @@ export default function GraderTab({
                 setScannedImageUri(asset.uri);
                 const optimized = await prepareImageForGrading(asset);
                 if (optimized.base64) {
-                    processGrading(optimized.base64, optimized.mimeType);
+                    void processGrading(optimized.base64, optimized.mimeType);
                 } else {
                     Alert.alert("Image Error", "Could not read photo data.");
                 }
@@ -672,11 +692,13 @@ export default function GraderTab({
                 setMatchedStudentId(null);
                 setGradingResult(result);
             }
+            setGradingLoading(false);
 
             // Proactively alert the teacher if any answers were crossed out, scribbled, overwritten, or have low confidence
             const flaggedAnswers = (result.results || []).filter(isItemUnresolvedFlag);
 
             if (flaggedAnswers.length > 0) {
+                await waitForTransition(TRANSITION_EXIT_WAIT_MS);
                 const qListText = flaggedAnswers.map((f) => `Q#${f.questionNumber}`).join(", ");
                 const firstFlaggedQ = flaggedAnswers[0].questionNumber;
                 Alert.alert(
@@ -698,6 +720,7 @@ export default function GraderTab({
                     ]
                 );
             } else if (result.photoQuality?.hasWarnings && result.photoQuality.warnings.length > 0) {
+                await waitForTransition(TRANSITION_EXIT_WAIT_MS);
                 // Alert teacher if any of the photo quality conditions failed on this paper
                 Alert.alert(
                     "⚠️ Photo Scan Quality Alert",
@@ -717,6 +740,8 @@ export default function GraderTab({
             }
         } catch (error: any) {
             console.error("Grading failed:", error);
+            setGradingLoading(false);
+            await waitForTransition(TRANSITION_EXIT_WAIT_MS);
             Alert.alert(
                 "Grading Failed",
                 error.message || "Could not analyze the paper. Please ensure the answers and student name are legible."
@@ -1048,14 +1073,19 @@ export default function GraderTab({
         q.enqueueImages(uris);
     };
 
-    const handleFinishAndReview = () => {
+    const handleFinishAndReview = async () => {
+        const wasScannerOpen = batchScannerOpen;
         setBatchScannerOpen(false);
+        if (wasScannerOpen) {
+            await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
+        }
         setBatchReviewOpen(true);
 
         const itemsWithWarnings = batchItems.filter(
             (i) => i.photoQuality?.hasWarnings && i.photoQuality.warnings.length > 0
         );
         if (itemsWithWarnings.length > 0) {
+            await waitForTransition(220);
             const summaryLines = itemsWithWarnings.slice(0, 4).map((item, idx) => {
                 const name = item.matchedStudentName || item.studentNameExtracted || `Sheet #${idx + 1}`;
                 return `• ${name}: ${item.photoQuality!.warnings.join(" ")}`;
@@ -1073,8 +1103,9 @@ export default function GraderTab({
         }
     };
 
-    const handleScanMoreInBatch = () => {
+    const handleScanMoreInBatch = async () => {
         setBatchReviewOpen(false);
+        await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
         setScannerMode("batch");
         setBatchScannerOpen(true);
     };
@@ -1266,6 +1297,8 @@ export default function GraderTab({
             batchQueueRef.current?.clear();
             setBatchItems([]);
 
+            await waitForTransition(TRANSITION_EXIT_WAIT_MS);
+
             Alert.alert(
                 "Batch Grading Recorded!",
                 `Successfully recorded grades for ${approvedItems.length} student(s) to ${classTitle || "the classroom"}.`,
@@ -1285,6 +1318,7 @@ export default function GraderTab({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
         >
+            <SmoothStageTransition transitionKey={gradingResult ? "graded" : "launcher"}>
             {/* ───────────────────────────────────────────────────────────────────
                 CASE 1: SCANNED RESULTS VIEW (Inline, exactly matches user's images)
             ────────────────────────────────────────────────────────────────────── */}
@@ -1878,91 +1912,82 @@ export default function GraderTab({
 
                 </View>
             )}
+            </SmoothStageTransition>
 
             {/* ── Source Picker Modal ── */}
-            <Modal
+            <SmoothBottomSheetModal
                 visible={sourceModalOpen}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setSourceModalOpen(false)}
+                onClose={() => setSourceModalOpen(false)}
+                sheetStyle={[styles.actionSheet, { backgroundColor: cardBg }]}
             >
-                <TouchableOpacity
-                    style={styles.modalBackdrop}
-                    activeOpacity={1}
-                    onPress={() => setSourceModalOpen(false)}
-                >
-                    <View style={[styles.actionSheet, { backgroundColor: cardBg }]}>
-                        <View style={styles.sheetDragHandle} />
+                <View style={styles.sheetDragHandle} />
 
-                        <View style={styles.actionSheetHeader}>
-                            <View style={{ flex: 1, paddingRight: 10 }}>
-                                <Text style={[styles.actionSheetTitle, { color: textMain }]}>Scan Student Test Sheet</Text>
-                                <Text style={[styles.actionSheetSub, { color: textSub }]}>Choose how to provide the handwritten test paper</Text>
-                            </View>
-                            <TouchableOpacity
-                                onPress={() => setSourceModalOpen(false)}
-                                style={[styles.sheetCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                                <Ionicons name="close" size={16} color={textSub} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <TouchableOpacity
-                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
-                            onPress={handleOpenCamera}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
-                                <Ionicons name="camera-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Take Photo with Camera</Text>
-                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>{"Snap a photo of the student's test sheet"}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
-                            onPress={handlePickImage}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
-                                <Ionicons name="image-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Choose from Photo Library</Text>
-                                <Text style={[styles.sheetBtnSub, { color: textSub }]}>Upload an existing photo from device</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-                        </TouchableOpacity>
+                <View style={styles.actionSheetHeader}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                        <Text style={[styles.actionSheetTitle, { color: textMain }]}>Scan Student Test Sheet</Text>
+                        <Text style={[styles.actionSheetSub, { color: textSub }]}>Choose how to provide the handwritten test paper</Text>
                     </View>
+                    <TouchableOpacity
+                        onPress={() => setSourceModalOpen(false)}
+                        style={[styles.sheetCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                        <Ionicons name="close" size={16} color={textSub} />
+                    </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                    style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
+                    onPress={handleOpenCamera}
+                    activeOpacity={0.7}
+                >
+                    <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
+                        <Ionicons name="camera-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Take Photo with Camera</Text>
+                        <Text style={[styles.sheetBtnSub, { color: textSub }]}>{"Snap a photo of the student's test sheet"}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
                 </TouchableOpacity>
-            </Modal>
+
+                <TouchableOpacity
+                    style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
+                    onPress={handlePickImage}
+                    activeOpacity={0.7}
+                >
+                    <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
+                        <Ionicons name="image-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Choose from Photo Library</Text>
+                        <Text style={[styles.sheetBtnSub, { color: textSub }]}>Upload an existing photo from device</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </TouchableOpacity>
+            </SmoothBottomSheetModal>
 
             {/* ── Full-Screen Grading Loading Overlay ── */}
-            <Modal
+            <SmoothCenterModal
                 visible={gradingLoading}
-                transparent
-                animationType="fade"
-                statusBarTranslucent
-                onRequestClose={() => { }}
+                cardStyle={[
+                    styles.loadingCard,
+                    {
+                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                        borderColor: darkMode ? border : "#E2E8F0",
+                    },
+                ]}
             >
-                <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-                        <PaperScanningAnimation
-                            quizTitle={
-                                isAutoDetectQuiz
-                                    ? "Auto-Detecting Assessment..."
-                                    : (activePublishedQuiz?.quizTitle || currentQuizValue)
-                            }
-                            accentColor={accentColor || "#EA580C"}
-                            darkMode={darkMode}
-                        />
-                    </View>
-                </View>
-            </Modal>
+                <PaperScanningAnimation
+                    quizTitle={
+                        isAutoDetectQuiz
+                            ? "Auto-Detecting Assessment..."
+                            : (activePublishedQuiz?.quizTitle || currentQuizValue)
+                    }
+                    accentColor={accentColor || "#EA580C"}
+                    darkMode={darkMode}
+                />
+            </SmoothCenterModal>
 
             {/* ── Low Confidence / Double-Shaded Review Modal ── */}
             <LowConfidenceReviewModal

@@ -21,6 +21,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
 import { AssessmentInspectorModal } from "../components/AssessmentInspectorModal";
 import { PdfExportingAnimation } from "../components/PdfExportingAnimation";
+import { PublishingQuizAnimation } from "../components/PublishingQuizAnimation";
+import {
+  SmoothBottomSheetModal,
+  SmoothCenterModal,
+  SmoothInlineOverlay,
+  TRANSITION_EXIT_WAIT_MS,
+  TRANSITION_HANDOFF_DELAY_MS,
+  waitForTransition,
+} from "../components/SmoothModalTransition";
 import { BondPaperSize } from "../lib/paperSheetExporter";
 import {
   abortableDelay,
@@ -110,6 +119,8 @@ export default function SettingsScreen() {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [cancellingExport, setCancellingExport] = useState(false);
+  const [publishingDraft, setPublishingDraft] = useState(false);
+  const [publishingQuizTitle, setPublishingQuizTitle] = useState<string>("");
   const [exportToastMessage, setExportToastMessage] = useState<string | null>(null);
   const [selectedExportQuiz, setSelectedExportQuiz] = useState<StoredQuiz | null>(null);
   const [exportVersion, setExportVersion] = useState<"A" | "B" | "C">("A");
@@ -287,7 +298,11 @@ export default function SettingsScreen() {
         {
           text: "Publish Now",
           onPress: async () => {
+            const startedAt = Date.now();
+            setPublishingQuizTitle(draft.quizTitle || "Assessment");
+            setPublishingDraft(true);
             try {
+              await waitForTransition(160);
               let draftToPublish = draft;
               if (!draft.layoutJson) {
                 try {
@@ -311,19 +326,29 @@ export default function SettingsScreen() {
                 }
               }
               const published = await publishDraftQuiz(draftToPublish.classroomId, draftToPublish.id);
+              const elapsed = Date.now() - startedAt;
+              if (elapsed < 850) {
+                await waitForTransition(850 - elapsed);
+              }
+              setPublishingDraft(false);
+              await waitForTransition(TRANSITION_EXIT_WAIT_MS);
               if (published) {
-                Alert.alert(
-                  "Published!",
-                  `"${draft.quizTitle}" has been published to ${draft.classTitle || "Classroom"} and is now in Archive.`
-                );
                 await loadAssessments();
                 setAssessmentTab("ARCHIVE");
                 if (inspectedQuiz?.id === draft.id) {
                   setInspectedQuiz(published);
                 }
+                Alert.alert(
+                  "Published!",
+                  `"${draft.quizTitle}" has been published to ${draft.classTitle || "Classroom"} and is now in Archive.`
+                );
               }
             } catch (err: any) {
+              setPublishingDraft(false);
+              await waitForTransition(TRANSITION_EXIT_WAIT_MS);
               Alert.alert("Error", err.message || "Failed to publish draft.");
+            } finally {
+              setPublishingDraft(false);
             }
           },
         },
@@ -443,28 +468,34 @@ export default function SettingsScreen() {
       ? `${quiz.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
       : `${quiz.quizTitle} — Student Paper (Set ${activeVersion})`;
 
-    // Dismiss export options sheet immediately
+    // Dismiss export options sheet smoothly before mounting export progress overlay
+    const wasSheetOpen = exportModalVisible;
     setExportModalVisible(false);
     setExportingStage(
       includeKey
         ? `Preparing Teacher Answer Key for Set ${activeVersion}...`
         : `Formatting Set ${activeVersion} (${paperSize === "long" ? "Long Bond" : "Short Bond"})...`
     );
-    setExportingPdf(true);
 
     try {
+      if (wasSheetOpen) {
+        await abortableDelay(TRANSITION_HANDOFF_DELAY_MS, controller.signal);
+        if (isCancelled()) return;
+      }
+      setExportingPdf(true);
+
       // 1. Instant check in cache
       const cachedUri = await getCachedPdfUri(cacheKey);
       if (isCancelled()) return;
 
       if (cachedUri) {
         setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
-        await abortableDelay(600, controller.signal);
+        await abortableDelay(680, controller.signal);
         if (isCancelled()) return;
         setExportModalVisible(false);
         setExportingPdf(false);
         setExportingTarget(null);
-        await abortableDelay(120, controller.signal);
+        await abortableDelay(TRANSITION_EXIT_WAIT_MS, controller.signal);
         if (isCancelled()) return;
         await shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch(console.warn);
         return;
@@ -472,7 +503,7 @@ export default function SettingsScreen() {
 
       // 2. Uncached build fallback
       setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
-      await abortableDelay(200, controller.signal); // Yield to let React Native mount modal & run native animation
+      await abortableDelay(240, controller.signal);
       if (isCancelled()) return;
 
       const printPkg = await generatePrintPackage(quiz, {
@@ -502,13 +533,13 @@ export default function SettingsScreen() {
       const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
       if (isCancelled()) return;
 
-      await abortableDelay(250, controller.signal);
+      await abortableDelay(280, controller.signal);
       if (isCancelled()) return;
       setExportModalVisible(false);
       setExportingPdf(false);
       setExportingTarget(null);
 
-      await abortableDelay(120, controller.signal);
+      await abortableDelay(TRANSITION_EXIT_WAIT_MS, controller.signal);
       if (isCancelled()) return;
       await shareCachedPdfUri(
         shareUri || fileUri,
@@ -522,6 +553,7 @@ export default function SettingsScreen() {
       if (exportRunIdRef.current === runId) {
         setExportingPdf(false);
         setExportingTarget(null);
+        await waitForTransition(TRANSITION_EXIT_WAIT_MS);
         Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
       }
     } finally {
@@ -1411,21 +1443,43 @@ export default function SettingsScreen() {
             )}
           </ScrollView>
 
-          {/* In-Repository Export Loading Overlay (guaranteed visible on top of archive cards) */}
-          {exportingPdf && !exportModalVisible && (
-            <View style={styles.loadingOverlay}>
-              <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-                <PdfExportingAnimation
-                  exportVersion={exportVersion}
-                  quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
-                  accentColor={themeColor || "#EA580C"}
-                  darkMode={darkMode}
-                  onCancel={handleCancelExport}
-                  isCancelling={cancellingExport}
-                />
-              </View>
-            </View>
-          )}
+          {/* In-Repository Publishing & Export Loading Overlays */}
+          <SmoothInlineOverlay
+            visible={Boolean(publishingDraft && !inspectModalVisible)}
+            cardStyle={[
+              styles.loadingCard,
+              {
+                backgroundColor: darkMode ? card : "#FFFFFF",
+                borderColor: darkMode ? border : "#E2E8F0",
+              },
+            ]}
+          >
+            <PublishingQuizAnimation
+              quizTitle={publishingQuizTitle || "Assessment"}
+              accentColor={themeColor || "#EA580C"}
+              darkMode={darkMode}
+            />
+          </SmoothInlineOverlay>
+
+          <SmoothInlineOverlay
+            visible={Boolean(exportingPdf && !exportModalVisible && !inspectModalVisible)}
+            cardStyle={[
+              styles.loadingCard,
+              {
+                backgroundColor: darkMode ? card : "#FFFFFF",
+                borderColor: darkMode ? border : "#E2E8F0",
+              },
+            ]}
+          >
+            <PdfExportingAnimation
+              exportVersion={exportVersion}
+              quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
+              accentColor={themeColor || "#EA580C"}
+              darkMode={darkMode}
+              onCancel={handleCancelExport}
+              isCancelling={cancellingExport}
+            />
+          </SmoothInlineOverlay>
 
           {/* Floating Export Status Toast inside Assessments Repository */}
           {exportToastMessage && (
@@ -1448,6 +1502,8 @@ export default function SettingsScreen() {
         exportModalVisible={exportModalVisible}
         exportVersion={exportVersion}
         selectedExportQuizTitle={selectedExportQuiz?.quizTitle}
+        publishingDraft={publishingDraft}
+        publishingQuizTitle={publishingQuizTitle}
         onClose={() => setInspectModalVisible(false)}
         onPublishDraft={(draft) => handlePublishDraft(draft)}
         onExportPdf={(quiz) => {
@@ -1460,29 +1516,14 @@ export default function SettingsScreen() {
       />
 
       {/* ── Export Paper Sheet Modal ── */}
-      <Modal
+      <SmoothBottomSheetModal
         visible={exportModalVisible}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        navigationBarTranslucent
-        onRequestClose={() => {
+        onClose={() => {
           if (!exportingPdf) setExportModalVisible(false);
         }}
+        dismissOnBackdropPress={!exportingPdf}
+        sheetStyle={[styles.exportSheet, { backgroundColor: card }]}
       >
-        <TouchableOpacity
-          style={styles.exportBackdrop}
-          activeOpacity={1}
-          onPress={() => {
-            if (!exportingPdf) setExportModalVisible(false);
-          }}
-        >
-          <Pressable
-            style={[styles.exportSheet, { backgroundColor: card }]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-            }}
-          >
             <View style={styles.dragPill} />
             <View style={styles.exportSheetHeaderRow}>
               <View style={{ flex: 1, paddingRight: 8 }}>
@@ -1638,32 +1679,29 @@ export default function SettingsScreen() {
               </View>
               <Ionicons name="download-outline" size={18} color="#94A3B8" />
             </TouchableOpacity>
-          </Pressable>
-        </TouchableOpacity>
-      </Modal>
+      </SmoothBottomSheetModal>
 
-      {/* ── PDF Exporting Progress Overlay (shown during PDF generation) ── */}
-      <Modal
-        visible={exportingPdf}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        navigationBarTranslucent
+      {/* ── PDF Exporting Progress Overlay (shown when neither Repository nor Inspector modal is open) ── */}
+      <SmoothCenterModal
+        visible={Boolean(exportingPdf && !assessmentModalVisible && !inspectModalVisible)}
         onRequestClose={handleCancelExport}
+        cardStyle={[
+          styles.loadingCard,
+          {
+            backgroundColor: darkMode ? card : "#FFFFFF",
+            borderColor: darkMode ? border : "#E2E8F0",
+          },
+        ]}
       >
-        <View style={styles.loadingOverlay}>
-          <View style={[styles.loadingCard, { backgroundColor: darkMode ? card : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-            <PdfExportingAnimation
-              exportVersion={exportVersion}
-              quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
-              accentColor={themeColor || "#EA580C"}
-              darkMode={darkMode}
-              onCancel={handleCancelExport}
-              isCancelling={cancellingExport}
-            />
-          </View>
-        </View>
-      </Modal>
+        <PdfExportingAnimation
+          exportVersion={exportVersion}
+          quizTitle={selectedExportQuiz?.quizTitle || "Assessment"}
+          accentColor={themeColor || "#EA580C"}
+          darkMode={darkMode}
+          onCancel={handleCancelExport}
+          isCancelling={cancellingExport}
+        />
+      </SmoothCenterModal>
 
       {exportToastMessage && !assessmentModalVisible && (
         <View pointerEvents="none" style={styles.exportToastBanner}>

@@ -25,6 +25,8 @@ import {
 } from "../lib/quizGeneratorService";
 import { getDraftTimeRemaining, StoredQuiz } from "../lib/quizStore";
 import { PdfExportingAnimation } from "./PdfExportingAnimation";
+import { PublishingQuizAnimation } from "./PublishingQuizAnimation";
+import { SmoothInlineOverlay } from "./SmoothModalTransition";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function isChoiceAnswer(choice: string, answer: string, choiceIndex: number): boolean {
@@ -103,6 +105,8 @@ type Props = {
   onCancelExportPdf?: () => void;
   onSaveDraft?: (quiz: StoredQuiz) => Promise<void> | void;
   onQuizUpdated?: (quiz: StoredQuiz) => Promise<void> | void;
+  publishingDraft?: boolean;
+  publishingQuizTitle?: string;
 };
 
 export function AssessmentInspectorModal({
@@ -121,6 +125,8 @@ export function AssessmentInspectorModal({
   onCancelExportPdf,
   onSaveDraft,
   onQuizUpdated,
+  publishingDraft = false,
+  publishingQuizTitle,
 }: Props) {
   const insets = useSafeAreaInsets();
   const isDraft = quiz?.status === "DRAFT";
@@ -2128,36 +2134,51 @@ export function AssessmentInspectorModal({
           </Animated.View>
         )}
 
+        {/* ── Inspector Draft Publishing Loading Overlay ── */}
+        <SmoothInlineOverlay
+          visible={Boolean(publishingDraft)}
+          cardStyle={[
+            styles.loadingCard,
+            {
+              backgroundColor: darkMode ? cardBg : "#FFFFFF",
+              borderColor: darkMode ? border : "#E2E8F0",
+            },
+          ]}
+        >
+          <PublishingQuizAnimation
+            quizTitle={publishingQuizTitle || quiz?.quizTitle || "Assessment"}
+            accentColor={accentColor}
+            darkMode={darkMode}
+          />
+        </SmoothInlineOverlay>
+
         {/* ── Inspector Export Loading Overlay ── */}
-        {exportingPdf && !exportModalVisible && (
-          <View style={styles.loadingOverlay}>
-            <View
-              style={[
-                styles.loadingCard,
-                {
-                  backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                  borderColor: darkMode ? border : "#E2E8F0",
-                },
-              ]}
-            >
-              <PdfExportingAnimation
-                exportVersion={exportVersion}
-                quizTitle={selectedExportQuizTitle || quiz?.quizTitle || "Assessment"}
-                accentColor={accentColor}
-                darkMode={darkMode}
-                isCancelling={cancellingExport}
-                onCancel={
-                  onCancelExportPdf
-                    ? () => {
-                        onCancelExportPdf();
-                        showToast("PDF export cancelled");
-                      }
-                    : undefined
-                }
-              />
-            </View>
-          </View>
-        )}
+        <SmoothInlineOverlay
+          visible={Boolean(exportingPdf && !exportModalVisible)}
+          cardStyle={[
+            styles.loadingCard,
+            {
+              backgroundColor: darkMode ? cardBg : "#FFFFFF",
+              borderColor: darkMode ? border : "#E2E8F0",
+            },
+          ]}
+        >
+          <PdfExportingAnimation
+            exportVersion={exportVersion}
+            quizTitle={selectedExportQuizTitle || quiz?.quizTitle || "Assessment"}
+            accentColor={accentColor}
+            darkMode={darkMode}
+            isCancelling={cancellingExport}
+            onCancel={
+              onCancelExportPdf
+                ? () => {
+                    onCancelExportPdf();
+                    showToast("PDF export cancelled");
+                  }
+                : undefined
+            }
+          />
+        </SmoothInlineOverlay>
       </View>
     </Modal>
   );

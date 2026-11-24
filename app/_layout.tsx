@@ -37,7 +37,13 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: "fade_from_bottom",
+              animationDuration: 220,
+            }}
+          >
             <Stack.Screen name="index" />
             <Stack.Screen name="homepage" />
             <Stack.Screen name="classroom" />

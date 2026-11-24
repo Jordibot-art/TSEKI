@@ -4,8 +4,6 @@ import {
     Alert,
     AlertButton,
     AlertOptions,
-    Modal,
-    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -13,6 +11,7 @@ import {
     View,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
+import { SmoothCenterModal, TRANSITION_HANDOFF_DELAY_MS } from "./SmoothModalTransition";
 
 export type AlertType =
     | "busy"
@@ -145,7 +144,7 @@ export default function CustomAlertModal({
             } else if (onDismiss) {
                 onDismiss();
             }
-        }, 40);
+        }, TRANSITION_HANDOFF_DELAY_MS);
     };
 
     const handleBackdropPress = () => {
@@ -158,7 +157,7 @@ export default function CustomAlertModal({
         if (btn.onPress) {
             setTimeout(() => {
                 btn.onPress?.();
-            }, 40);
+            }, TRANSITION_HANDOFF_DELAY_MS);
         }
     };
 
@@ -214,24 +213,20 @@ export default function CustomAlertModal({
     }
 
     return (
-        <Modal
+        <SmoothCenterModal
             visible={visible}
-            transparent
-            animationType="fade"
             onRequestClose={handleClose}
-            statusBarTranslucent
+            onBackdropPress={cancelable ? handleBackdropPress : undefined}
+            backdropColor="rgba(9, 9, 11, 0.48)"
+            overlayStyle={styles.overlay}
+            cardStyle={[
+                styles.card,
+                {
+                    backgroundColor: cardBg,
+                    borderColor: border,
+                },
+            ]}
         >
-            <Pressable style={styles.overlay} onPress={handleBackdropPress}>
-                <Pressable
-                    style={[
-                        styles.card,
-                        {
-                            backgroundColor: cardBg,
-                            borderColor: border,
-                        },
-                    ]}
-                    onPress={(e) => e.stopPropagation()}
-                >
                     {/* Title — Left-aligned, 17px semibold */}
                     <Text style={[styles.title, { color: textMain }]}>{title}</Text>
 
@@ -316,9 +311,7 @@ export default function CustomAlertModal({
                             );
                         })}
                     </View>
-                </Pressable>
-            </Pressable>
-        </Modal>
+        </SmoothCenterModal>
     );
 }
 
@@ -405,14 +398,19 @@ installGlobalAlertInterceptor();
 
 export function GlobalAlertHost() {
     const [current, setCurrent] = useState<QueuedAlert | null>(activeAlert);
+    const [lastRendered, setLastRendered] = useState<QueuedAlert | null>(activeAlert);
 
     useEffect(() => {
         installGlobalAlertInterceptor();
         alertListener = (next) => {
             setCurrent(next);
+            if (next) {
+                setLastRendered(next);
+            }
         };
         if (activeAlert) {
             setCurrent(activeAlert);
+            setLastRendered(activeAlert);
         }
         return () => {
             if (alertListener) {
@@ -421,16 +419,17 @@ export function GlobalAlertHost() {
         };
     }, []);
 
-    if (!current) return null;
+    const target = current || lastRendered;
+    if (!target) return null;
 
     return (
         <CustomAlertModal
-            visible={true}
-            title={current.title}
-            message={current.message}
-            buttons={current.buttons}
-            cancelable={current.options?.cancelable ?? true}
-            onDismiss={current.options?.onDismiss}
+            visible={Boolean(current)}
+            title={target.title}
+            message={target.message}
+            buttons={target.buttons}
+            cancelable={target.options?.cancelable ?? true}
+            onDismiss={target.options?.onDismiss}
             onClose={() => {
                 showNextInQueue();
             }}

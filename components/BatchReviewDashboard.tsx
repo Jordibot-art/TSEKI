@@ -9,13 +9,13 @@ import {
     Image,
     ActivityIndicator,
     Alert,
-    Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { BatchSheetItem, StudentRosterItem } from "../lib/batchGradingQueue";
 import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
+import { SmoothBottomSheetModal } from "./SmoothModalTransition";
 import { GradingResultItem, isItemUnresolvedFlag } from "../lib/gradingService";
 import { LayoutJSON } from "../lib/printEngine/types";
 
@@ -161,7 +161,6 @@ export function BatchReviewDashboard({
         });
 
         setReviewModalOpen(false);
-        setActiveReviewItem(null);
     };
 
     // ── Manually Assign Student from Roster ────────────────────────────────────
@@ -222,24 +221,91 @@ export function BatchReviewDashboard({
         }
     };
 
-    if (!visible) return null;
+    const subModals = (
+        <>
+            {/* Manual Question Review Modal (reusing LowConfidenceReviewModal) */}
+            {activeReviewItem && (
+                <LowConfidenceReviewModal
+                    visible={reviewModalOpen}
+                    onClose={() => {
+                        setReviewModalOpen(false);
+                    }}
+                    gradingResult={activeReviewItem.gradingResult || null}
+                    scannedImageUri={activeReviewItem.imageUri}
+                    layoutJson={activeReviewItem.matchedLayoutJson || layoutJson}
+                    studentName={
+                        activeReviewItem.matchedStudentName ||
+                        activeReviewItem.studentNameExtracted ||
+                        undefined
+                    }
+                    accentColor={accentColor}
+                    initialFilterOnlyFlagged={reviewOnlyFlagged}
+                    initialQuestionNumber={
+                        reviewOnlyFlagged
+                            ? activeReviewItem.gradingResult?.results?.find(isItemUnresolvedFlag)?.questionNumber
+                            : 1
+                    }
+                    onSaveReviewedResults={handleSaveReviewedResults}
+                />
+            )}
+
+            {/* Full-Screen Test Paper Image Preview Modal */}
+            {previewImageUri && (
+                <Modal visible transparent animationType="fade" onRequestClose={() => setPreviewImageUri(null)}>
+                    <View style={styles.fullImageOverlay}>
+                        <TouchableOpacity style={styles.fullImageCloseBtn} onPress={() => setPreviewImageUri(null)}>
+                            <Ionicons name="close" size={26} color="#FFFFFF" />
+                        </TouchableOpacity>
+                        <Image source={{ uri: previewImageUri }} style={styles.fullImage} resizeMode="contain" />
+                    </View>
+                </Modal>
+            )}
+
+            {/* Quick Student Assign Modal */}
+            {assignPickerItemId && (
+                <Modal transparent visible animationType="fade" onRequestClose={() => setAssignPickerItemId(null)}>
+                    <TouchableOpacity
+                        style={styles.assignOverlay}
+                        activeOpacity={1}
+                        onPress={() => setAssignPickerItemId(null)}
+                    >
+                        <View style={[styles.assignSheet, { backgroundColor: cardBg }]}>
+                            <Text style={[styles.assignTitle, { color: textMain }]}>Assign to Enrolled Student</Text>
+                            <ScrollView style={{ maxHeight: 320 }}>
+                                {roster.map((s) => (
+                                    <TouchableOpacity
+                                        key={s.id}
+                                        style={[styles.assignItem, { borderBottomColor: border }]}
+                                        onPress={() => handleAssignStudent(assignPickerItemId, s)}
+                                    >
+                                        <Ionicons name="person-outline" size={16} color={accentColor} />
+                                        <Text style={[styles.assignItemText, { color: textMain }]}>{s.full_name}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+                    </TouchableOpacity>
+                </Modal>
+            )}
+        </>
+    );
 
     return (
-        <Modal
+        <SmoothBottomSheetModal
             visible={visible}
-            animationType="slide"
-            transparent={true}
-            statusBarTranslucent={true}
-            onRequestClose={onClose}
+            onClose={() => {
+                if (!isSaving) onClose();
+            }}
+            onRequestClose={() => {
+                if (!isSaving) onClose();
+            }}
+            dismissOnBackdropPress={!isSaving}
+            backdropColor="rgba(15, 23, 42, 0.48)"
+            sheetStyle={[styles.sheetContainer, { backgroundColor: bg }]}
+            overlayChildren={subModals}
         >
-            <View style={styles.modalRoot}>
-                {/* Full-Screen Dimmed Backdrop */}
-                <Pressable style={styles.modalBackdrop} onPress={onClose} />
-
-                {/* Bottom-Anchored Sheet Container */}
-                <View style={[styles.sheetContainer, { backgroundColor: bg }]}>
-                    {/* Centered Drag Pill */}
-                    <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
+            {/* Centered Drag Pill */}
+            <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
 
                     {/* Header */}
                     <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: border }]}>
@@ -672,75 +738,7 @@ export function BatchReviewDashboard({
                             )}
                         </TouchableOpacity>
                     </View>
-                </View>
-
-                {/* Manual Question Review Modal (reusing LowConfidenceReviewModal) */}
-                {reviewModalOpen && activeReviewItem && (
-                    <LowConfidenceReviewModal
-                        visible={reviewModalOpen}
-                        onClose={() => {
-                            setReviewModalOpen(false);
-                            setActiveReviewItem(null);
-                        }}
-                        gradingResult={activeReviewItem.gradingResult || null}
-                        scannedImageUri={activeReviewItem.imageUri}
-                        layoutJson={activeReviewItem.matchedLayoutJson || layoutJson}
-                        studentName={
-                            activeReviewItem.matchedStudentName ||
-                            activeReviewItem.studentNameExtracted ||
-                            undefined
-                        }
-                        accentColor={accentColor}
-                        initialFilterOnlyFlagged={reviewOnlyFlagged}
-                        initialQuestionNumber={
-                            reviewOnlyFlagged
-                                ? activeReviewItem.gradingResult?.results?.find(isItemUnresolvedFlag)?.questionNumber
-                                : 1
-                        }
-                        onSaveReviewedResults={handleSaveReviewedResults}
-                    />
-                )}
-
-                {/* Full-Screen Test Paper Image Preview Modal */}
-                {previewImageUri && (
-                    <Modal visible transparent animationType="fade" onRequestClose={() => setPreviewImageUri(null)}>
-                        <View style={styles.fullImageOverlay}>
-                            <TouchableOpacity style={styles.fullImageCloseBtn} onPress={() => setPreviewImageUri(null)}>
-                                <Ionicons name="close" size={26} color="#FFFFFF" />
-                            </TouchableOpacity>
-                            <Image source={{ uri: previewImageUri }} style={styles.fullImage} resizeMode="contain" />
-                        </View>
-                    </Modal>
-                )}
-
-                {/* Quick Student Assign Modal */}
-                {assignPickerItemId && (
-                    <Modal transparent visible animationType="fade" onRequestClose={() => setAssignPickerItemId(null)}>
-                        <TouchableOpacity
-                            style={styles.assignOverlay}
-                            activeOpacity={1}
-                            onPress={() => setAssignPickerItemId(null)}
-                        >
-                            <View style={[styles.assignSheet, { backgroundColor: cardBg }]}>
-                                <Text style={[styles.assignTitle, { color: textMain }]}>Assign to Enrolled Student</Text>
-                                <ScrollView style={{ maxHeight: 320 }}>
-                                    {roster.map((s) => (
-                                        <TouchableOpacity
-                                            key={s.id}
-                                            style={[styles.assignItem, { borderBottomColor: border }]}
-                                            onPress={() => handleAssignStudent(assignPickerItemId, s)}
-                                        >
-                                            <Ionicons name="person-outline" size={16} color={accentColor} />
-                                            <Text style={[styles.assignItemText, { color: textMain }]}>{s.full_name}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        </TouchableOpacity>
-                    </Modal>
-                )}
-            </View>
-        </Modal>
+        </SmoothBottomSheetModal>
     );
 }
 

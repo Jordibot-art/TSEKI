@@ -7,10 +7,7 @@ import {
     Alert,
     Animated,
     Keyboard,
-    KeyboardAvoidingView,
     Modal,
-    Platform,
-    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -24,6 +21,14 @@ import { AssessmentGeneratingAnimation } from "./AssessmentGeneratingAnimation";
 import { PublishingQuizAnimation } from "./PublishingQuizAnimation";
 import { PdfExportingAnimation } from "./PdfExportingAnimation";
 import { PreGenReviewModal } from "./aiBuilder/PreGenReviewModal";
+import {
+    SmoothBottomSheetModal,
+    SmoothCenterModal,
+    SmoothStageTransition,
+    TRANSITION_EXIT_WAIT_MS,
+    TRANSITION_HANDOFF_DELAY_MS,
+    waitForTransition,
+} from "./SmoothModalTransition";
 import {
     detectDocType,
     getDocBadgeInfo,
@@ -584,10 +589,11 @@ export default function AIBuilderTab({
         setReviewPreviewOpen(true);
     }
 
-    function handleConfirmGenerateFromPreview() {
+    async function handleConfirmGenerateFromPreview() {
         setReviewPreviewOpen(false);
         setPreviewEditingField(null);
-        handleGenerate();
+        await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
+        void handleGenerate();
     }
 
     // ── Generate handler ───────────────────────────────────────────────────────
@@ -701,10 +707,18 @@ export default function AIBuilderTab({
 
             setGeneratedAssessment(assessment);
             setShowResults(true);
+            setGenerating(false);
+            setGeneratingStatus("");
+            setIsAiBusy(false);
         } catch (error: any) {
             console.error("Generation error:", error);
             const errMsg = error?.message || "";
             recordGenerationFailure(activeTeacherId, errMsg).catch(() => {});
+            setGenerating(false);
+            setGeneratingStatus("");
+            setIsAiBusy(false);
+            await waitForTransition(TRANSITION_EXIT_WAIT_MS);
+
             const isBusy =
                 errMsg.toLowerCase().includes("busy") ||
                 errMsg.includes("429") ||
@@ -1426,27 +1440,33 @@ export default function AIBuilderTab({
             ? `${generatedAssessment.quizTitle} — Teacher Answer Key (Set ${activeVersion})`
             : `${generatedAssessment.quizTitle} — Student Paper (Set ${activeVersion})`;
 
-        // Dismiss the export options bottom sheet immediately so it does not render underneath the loading modal
+        // Dismiss the export options bottom sheet smoothly before mounting the export loading overlay
+        const wasSheetOpen = exportModalOpen;
         setExportModalOpen(false);
         setExportingStage(
             includeKey
                 ? `Preparing Teacher Answer Key for Set ${activeVersion}...`
                 : `Formatting Set ${activeVersion} (${paperSize === "long" ? "Long Bond" : "Short Bond"})...`
         );
-        setExportingPdf(true);
 
         try {
+            if (wasSheetOpen) {
+                await abortableDelay(TRANSITION_HANDOFF_DELAY_MS, controller.signal);
+                if (isCancelled()) return;
+            }
+            setExportingPdf(true);
+
             // 1. Instant check in cache
             const cachedUri = await getCachedPdfUri(cacheKey);
             if (isCancelled()) return;
 
             if (cachedUri) {
                 setExportingStage(`Loading cached Set ${activeVersion} PDF...`);
-                await abortableDelay(600, controller.signal);
+                await abortableDelay(680, controller.signal);
                 if (isCancelled()) return;
                 setExportModalOpen(false);
                 setExportingPdf(false);
-                await abortableDelay(120, controller.signal);
+                await abortableDelay(TRANSITION_EXIT_WAIT_MS, controller.signal);
                 if (isCancelled()) return;
                 await shareCachedPdfUri(cachedUri, dialogTitle, suggestedFileName).catch(console.warn);
                 return;
@@ -1454,7 +1474,7 @@ export default function AIBuilderTab({
 
             // 2. Build PDF cleanly on demand and cache for subsequent exports
             setExportingStage(`Rendering scannable test sheet for Set ${activeVersion}...`);
-            await abortableDelay(200, controller.signal);
+            await abortableDelay(240, controller.signal);
             if (isCancelled()) return;
 
             const resolvedExportQuizId =
@@ -1491,12 +1511,12 @@ export default function AIBuilderTab({
             const shareUri = await writeCachedPdf(suggestedFileName, bytesToExport);
             if (isCancelled()) return;
 
-            await abortableDelay(250, controller.signal);
+            await abortableDelay(280, controller.signal);
             if (isCancelled()) return;
             setExportModalOpen(false);
             setExportingPdf(false);
 
-            await abortableDelay(120, controller.signal);
+            await abortableDelay(TRANSITION_EXIT_WAIT_MS, controller.signal);
             if (isCancelled()) return;
             await shareCachedPdfUri(
                 shareUri || fileUri,
@@ -1511,6 +1531,7 @@ export default function AIBuilderTab({
             }
             if (exportRunIdRef.current === runId) {
                 setExportingPdf(false);
+                await waitForTransition(TRANSITION_EXIT_WAIT_MS);
                 Alert.alert("Export Error", err.message || "Failed to export PDF test paper.");
             }
         } finally {
@@ -1547,11 +1568,12 @@ export default function AIBuilderTab({
 
     async function executePublish() {
         if (!generatedAssessment || publishingQuiz) return;
+        const startedAt = Date.now();
         setPublishingStage(`Mapping scannable answer boxes for "${generatedAssessment.quizTitle}"...`);
         setPublishingQuiz(true);
         try {
-            // Allow the Publishing Loading Modal to mount & animate smoothly before computing
-            await new Promise((r) => setTimeout(r, 60));
+            // Allow the Publishing Loading Modal to smoothly enter before computing
+            await waitForTransition(180);
 
             const quizId =
                 (generatedAssessment as any).id ||
@@ -1588,9 +1610,15 @@ export default function AIBuilderTab({
             await savePublishedQuiz(selectedClassroomId, quizWithMeta, selectedClassTitle);
             setGeneratedAssessment(quizWithMeta as any);
 
+            // Ensure a graceful minimum display beat so fast local publishes never flash and snap shut
+            const elapsed = Date.now() - startedAt;
+            if (elapsed < 900) {
+                await waitForTransition(900 - elapsed);
+            }
+
             setPublishingQuiz(false);
             setPublishingStage("");
-            await new Promise((r) => setTimeout(r, 120));
+            await waitForTransition(TRANSITION_EXIT_WAIT_MS);
 
             Alert.alert(
                 "Quiz Published!",
@@ -1613,6 +1641,7 @@ export default function AIBuilderTab({
         } catch (err: any) {
             setPublishingQuiz(false);
             setPublishingStage("");
+            await waitForTransition(TRANSITION_EXIT_WAIT_MS);
             Alert.alert("Publish Failed", err.message || "Failed to save quiz to grader.");
         } finally {
             setPublishingQuiz(false);
@@ -1869,6 +1898,7 @@ export default function AIBuilderTab({
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
+            <SmoothStageTransition transitionKey={showResults ? "results" : "setup"}>
             {!showResults ? (
                 <>
                     {/* ── Header ── */}
@@ -2622,25 +2652,25 @@ export default function AIBuilderTab({
                     </View>
                 </>
             )}
+            </SmoothStageTransition>
 
             {/* ── Publishing Quiz Loading Overlay ── */}
-            <Modal
+            <SmoothCenterModal
                 visible={publishingQuiz}
-                transparent
-                animationType="fade"
-                statusBarTranslucent
-                onRequestClose={() => { }}
+                cardStyle={[
+                    styles.loadingCard,
+                    {
+                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                        borderColor: darkMode ? border : "#E2E8F0",
+                    },
+                ]}
             >
-                <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-                        <PublishingQuizAnimation
-                            quizTitle={generatedAssessment?.quizTitle || "Assessment"}
-                            accentColor={accentColor}
-                            darkMode={darkMode}
-                        />
-                    </View>
-                </View>
-            </Modal>
+                <PublishingQuizAnimation
+                    quizTitle={generatedAssessment?.quizTitle || "Assessment"}
+                    accentColor={accentColor}
+                    darkMode={darkMode}
+                />
+            </SmoothCenterModal>
 
             {/* ── Pre-Generation Review & Preview Modal ── */}
             <PreGenReviewModal
@@ -2690,79 +2720,61 @@ export default function AIBuilderTab({
             />
 
             {/* ── Full-Screen Generating Loading Overlay ── */}
-            <Modal
+            <SmoothCenterModal
                 visible={generating}
-                transparent
-                animationType="fade"
-                statusBarTranslucent
-                navigationBarTranslucent
-                onRequestClose={() => { }}
+                cardStyle={[
+                    styles.loadingCard,
+                    {
+                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                        borderColor: darkMode ? border : "#E2E8F0",
+                    },
+                ]}
             >
-                <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-                        <AssessmentGeneratingAnimation
-                            topicOrSubject={subject || selectedClassTitle || "Assessment"}
-                            questionCount={typeof questionCount === "string" ? questionCount : `${questionCount} Items`}
-                            difficulty={difficulty}
-                            questionType={questionType}
-                            isAiBusy={isAiBusy}
-                            statusMessage={generatingStatus}
-                            accentColor={accentColor}
-                            darkMode={darkMode}
-                        />
-                    </View>
-                </View>
-            </Modal>
+                <AssessmentGeneratingAnimation
+                    topicOrSubject={subject || selectedClassTitle || "Assessment"}
+                    questionCount={typeof questionCount === "string" ? questionCount : `${questionCount} Items`}
+                    difficulty={difficulty}
+                    questionType={questionType}
+                    isAiBusy={isAiBusy}
+                    statusMessage={generatingStatus}
+                    accentColor={accentColor}
+                    darkMode={darkMode}
+                />
+            </SmoothCenterModal>
 
             {/* ── PDF Exporting Progress Overlay ── */}
-            <Modal
+            <SmoothCenterModal
                 visible={exportingPdf}
-                transparent
-                animationType="fade"
-                statusBarTranslucent
-                navigationBarTranslucent
                 onRequestClose={handleCancelExport}
+                cardStyle={[
+                    styles.loadingCard,
+                    {
+                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
+                        borderColor: darkMode ? border : "#E2E8F0",
+                    },
+                ]}
             >
-                <View style={styles.loadingOverlay}>
-                    <View style={[styles.loadingCard, { backgroundColor: darkMode ? cardBg : "#FFFFFF", borderColor: darkMode ? border : "#E2E8F0" }]}>
-                        <PdfExportingAnimation
-                            exportVersion={exportVersion}
-                            quizTitle={generatedAssessment?.quizTitle || "Assessment"}
-                            accentColor={accentColor}
-                            darkMode={darkMode}
-                            onCancel={handleCancelExport}
-                            isCancelling={cancellingExport}
-                        />
-                    </View>
-                </View>
-            </Modal>
+                <PdfExportingAnimation
+                    exportVersion={exportVersion}
+                    quizTitle={generatedAssessment?.quizTitle || "Assessment"}
+                    accentColor={accentColor}
+                    darkMode={darkMode}
+                    onCancel={handleCancelExport}
+                    isCancelling={cancellingExport}
+                />
+            </SmoothCenterModal>
 
             {/* ── Export Paper Sheet Modal ── */}
-            <Modal
+            <SmoothBottomSheetModal
                 visible={exportModalOpen}
-                transparent
-                animationType="fade"
-                statusBarTranslucent
-                navigationBarTranslucent
-                onRequestClose={() => {
+                onClose={() => {
                     if (!exportingPdf) setExportModalOpen(false);
                 }}
+                dismissOnBackdropPress={!exportingPdf}
+                sheetStyle={[styles.exportSheet, { backgroundColor: cardBg }]}
             >
-                <TouchableOpacity
-                    style={styles.exportBackdrop}
-                    activeOpacity={1}
-                    onPress={() => {
-                        if (!exportingPdf) setExportModalOpen(false);
-                    }}
-                >
-                    <Pressable
-                        style={[styles.exportSheet, { backgroundColor: cardBg }]}
-                        onPress={(e) => {
-                            e.stopPropagation?.();
-                        }}
-                    >
-                        {/* Drag Handle */}
-                        <View style={styles.sheetDragHandle} />
+                {/* Drag Handle */}
+                <View style={styles.sheetDragHandle} />
 
                         <View style={styles.exportSheetHeader}>
                             <View style={{ flex: 1, paddingRight: 8 }}>
@@ -2918,29 +2930,17 @@ export default function AIBuilderTab({
                                     </View>
                                     <Ionicons name="download-outline" size={18} color="#94A3B8" />
                                 </TouchableOpacity>
-                    </Pressable>
-                </TouchableOpacity>
-            </Modal>
+            </SmoothBottomSheetModal>
 
             {/* ── Add Question Manually Modal ── */}
-            <Modal
+            <SmoothBottomSheetModal
                 visible={addQuestionModalOpen}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setAddQuestionModalOpen(false)}
+                onClose={() => setAddQuestionModalOpen(false)}
+                avoidKeyboard
+                sheetStyle={[styles.addQSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}
             >
-                <KeyboardAvoidingView
-                    style={{ flex: 1 }}
-                    behavior={Platform.OS === "ios" ? "padding" : undefined}
-                >
-                    <TouchableOpacity
-                        style={styles.addQOverlay}
-                        activeOpacity={1}
-                        onPress={() => { Keyboard.dismiss(); }}
-                    >
-                        <View style={[styles.addQSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
-                            {/* Drag Handle */}
-                            <View style={styles.sheetDragHandle} />
+                {/* Drag Handle */}
+                <View style={styles.sheetDragHandle} />
 
                             <ScrollView
                                 ref={addQScrollRef}
@@ -3258,32 +3258,18 @@ export default function AIBuilderTab({
                                     <Text style={styles.addQSubmitText}>Add to Assessment</Text>
                                 </TouchableOpacity>
                             </View>
-                        </View>
-                    </TouchableOpacity>
-                </KeyboardAvoidingView>
-            </Modal>
+            </SmoothBottomSheetModal>
 
             {/* ── Adjust Assessment Setup Modal Sheet (In Preview) ── */}
-            <Modal
+            <SmoothBottomSheetModal
                 visible={adjustSetupModalOpen}
-                transparent
-                animationType="slide"
-                onRequestClose={() => {
+                onClose={() => {
                     if (!generatingMore) setAdjustSetupModalOpen(false);
                 }}
+                dismissOnBackdropPress={!generatingMore}
+                sheetStyle={[styles.adjustSheet, { backgroundColor: cardBg }]}
             >
-                <TouchableOpacity
-                    style={styles.adjustOverlay}
-                    activeOpacity={1}
-                    onPress={() => {
-                        if (!generatingMore) setAdjustSetupModalOpen(false);
-                    }}
-                >
-                    <Pressable
-                        style={[styles.adjustSheet, { backgroundColor: cardBg }]}
-                        onPress={(e) => e.stopPropagation?.()}
-                    >
-                        <View style={styles.dragPill} />
+                <View style={styles.dragPill} />
                         <View style={styles.adjustHeader}>
                             <View style={[styles.adjustHeaderIcon, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
                                 <Ionicons name="options-outline" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
@@ -3483,36 +3469,20 @@ export default function AIBuilderTab({
                                 <Text style={styles.adjustSaveBtnText}>Save Setup Changes</Text>
                             </TouchableOpacity>
                         </ScrollView>
-                    </Pressable>
-                </TouchableOpacity>
-            </Modal>
+            </SmoothBottomSheetModal>
 
             {/* ── Change Question Type Modal Sheet (In Preview) ── */}
-            <Modal
+            <SmoothBottomSheetModal
                 visible={changeTypeModalOpen && selectedQForTypeChange !== null}
-                transparent
-                animationType="slide"
-                onRequestClose={() => {
+                onClose={() => {
                     if (regeneratingQNum === null) {
                         setChangeTypeModalOpen(false);
                         setSelectedQForTypeChange(null);
                     }
                 }}
+                dismissOnBackdropPress={regeneratingQNum === null}
+                sheetStyle={[styles.adjustSheet, { backgroundColor: cardBg }]}
             >
-                <TouchableOpacity
-                    style={styles.adjustOverlay}
-                    activeOpacity={1}
-                    onPress={() => {
-                        if (regeneratingQNum === null) {
-                            setChangeTypeModalOpen(false);
-                            setSelectedQForTypeChange(null);
-                        }
-                    }}
-                >
-                    <Pressable
-                        style={[styles.adjustSheet, { backgroundColor: cardBg }]}
-                        onPress={(e) => e.stopPropagation?.()}
-                    >
                         <View style={styles.dragPill} />
                         <View style={styles.adjustHeader}>
                             <View style={[styles.adjustHeaderIcon, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
@@ -3625,9 +3595,7 @@ export default function AIBuilderTab({
                                 </Text>
                             </TouchableOpacity>
                         </View>
-                    </Pressable>
-                </TouchableOpacity>
-            </Modal>
+            </SmoothBottomSheetModal>
         </ScrollView>
 
         {/* Non-blocking Draft Toast */}
