@@ -2,7 +2,7 @@
 
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib';
 import { FONT_CONFIG } from './constants';
-import type { ScannableQuestion } from './types';
+import type { AnswerKeyItem, ScannableQuestion } from './types';
 
 let cachedRegularFont: PDFFont | null = null;
 let cachedBoldFont: PDFFont | null = null;
@@ -246,13 +246,293 @@ export interface AllInOneItemMetrics {
 }
 
 /**
+ * Converts a 0-based index into a bijective spreadsheet-style uppercase letter label:
+ * 0 -> "A", 25 -> "Z", 26 -> "AA", 27 -> "AB", ...
+ */
+export function indexToWordBankLabel(index: number): string {
+    let n = Math.max(0, Math.floor(index));
+    let label = '';
+    while (n >= 0) {
+        label = String.fromCharCode(65 + (n % 26)) + label;
+        n = Math.floor(n / 26) - 1;
+    }
+    return label;
+}
+
+/**
+ * Inverse of indexToWordBankLabel: "A" -> 0, "Z" -> 25, "AA" -> 26, or -1 if invalid.
+ */
+export function wordBankLabelToIndex(label: string): number {
+    const clean = (label || '').trim().toUpperCase();
+    if (!/^[A-Z]+$/.test(clean)) return -1;
+    let acc = 0;
+    for (let i = 0; i < clean.length; i++) {
+        acc = acc * 26 + (clean.charCodeAt(i) - 64);
+    }
+    return acc - 1;
+}
+
+/**
+ * Returns the maximum label character length needed for a word bank of `wordCount` items
+ * (1 for <= 26 words, 2 for 27..702 words, etc.).
+ */
+export function getWordBankMaxChars(wordCount: number): number {
+    if (wordCount <= 0) return 1;
+    return indexToWordBankLabel(wordCount - 1).length;
+}
+
+/**
+ * Strips a leading word-bank letter prefix like "A) " or "AA) " without stripping
+ * abbreviations like "Dr. Smith" or numbers like "1.4".
+ */
+export function stripWordBankPrefix(raw: string): string {
+    return (raw || '').trim().replace(/^[A-Za-z]{1,2}\)\s+/, '').trim();
+}
+
+/**
+ * Aggregates all unique words across every `word_box` question in order of appearance,
+ * deduplicating case-insensitively while preserving first-seen display casing.
+ * Also guarantees that any word-form correctAnswer in `answerKey` is present in the bank.
+ */
+export function extractSharedWordBank(
+    questions: ScannableQuestion[],
+    answerKey?: AnswerKeyItem[]
+): string[] {
+    const wordBoxQuestions = questions.filter((q) => q.type === 'word_box');
+    if (wordBoxQuestions.length === 0) return [];
+
+    const seen = new Set<string>();
+    const words: string[] = [];
+
+    const addWord = (raw: string | undefined | null) => {
+        if (!raw) return;
+        const clean = stripWordBankPrefix(String(raw)).replace(/\s+/g, ' ').trim();
+        if (!clean) return;
+        const normKey = clean.toLowerCase();
+        if (!seen.has(normKey)) {
+            seen.add(normKey);
+            words.push(clean);
+        }
+    };
+
+    for (const q of wordBoxQuestions) {
+        if (Array.isArray(q.options)) {
+            for (const opt of q.options) {
+                addWord(opt);
+            }
+        }
+    }
+
+    if (answerKey && answerKey.length > 0) {
+        const keyMap = new Map(answerKey.map((k) => [k.questionNumber, k]));
+        for (const q of wordBoxQuestions) {
+            const rawAns = String(
+                keyMap.get(q.questionNumber)?.correctAnswer ??
+                    (q as ScannableQuestion & { correctAnswer?: string }).correctAnswer ??
+                    ''
+            ).trim();
+            if (!rawAns) continue;
+            const idx = wordBankLabelToIndex(rawAns);
+            const isValidBankLetterRef = idx >= 0 && idx < words.length;
+            if (!isValidBankLetterRef) {
+                addWord(rawAns);
+            }
+        }
+    }
+
+    return words;
+}
+
+/**
+ * Resolves a `word_box` answer (either a word like "Canva" or a bank label like "A"/"AA")
+ * to its canonical bank label and word entry.
+ */
+export function resolveWordBankLabel(
+    answer: string,
+    words: string[]
+): { label: string; word: string } | null {
+    if (!answer || words.length === 0) return null;
+    const trimmed = answer.trim();
+    const cleaned = stripWordBankPrefix(trimmed).replace(/\s+/g, ' ').trim();
+
+    if (cleaned) {
+        const norm = cleaned.toLowerCase();
+        const wordIdx = words.findIndex((w) => w.toLowerCase() === norm);
+        if (wordIdx >= 0) {
+            return {
+                label: indexToWordBankLabel(wordIdx),
+                word: words[wordIdx],
+            };
+        }
+    }
+
+    const letterIdx = wordBankLabelToIndex(trimmed);
+    if (letterIdx >= 0 && letterIdx < words.length) {
+        return {
+            label: indexToWordBankLabel(letterIdx),
+            word: words[letterIdx],
+        };
+    }
+
+    return null;
+}
+
+export interface WordBankEntry {
+    label: string;
+    word: string;
+    display: string;
+}
+
+export function formatWordBankEntries(words: string[]): WordBankEntry[] {
+    return words.map((word, index) => {
+        const label = indexToWordBankLabel(index);
+        return {
+            label,
+            word,
+            display: `${label}) ${word}`,
+        };
+    });
+}
+
+/**
+ * Packs complete labeled Word Bank entries ("A) Word") onto lines separated by clear spacing
+ * without splitting an entry between its label and its word.
+ */
+export function wrapWordBankLines(
+    entries: WordBankEntry[],
+    maxWidth: number,
+    fontSize: number,
+    font: PDFFont,
+    prefix: string = ''
+): string[] {
+    if (entries.length === 0) return [];
+    const sep = '   ';
+    const lines: string[] = [];
+    let currentLine = prefix;
+
+    for (const entry of entries) {
+        const token = entry.display;
+        const candidate =
+            currentLine.length === 0
+                ? token
+                : currentLine === prefix
+                    ? `${prefix}${token}`
+                    : `${currentLine}${sep}${token}`;
+
+        if (measureTextWidth(candidate, fontSize, font) <= maxWidth) {
+            currentLine = candidate;
+        } else {
+            if (currentLine.length > 0 && currentLine !== prefix) {
+                lines.push(currentLine);
+                currentLine = '';
+            }
+            const singleTarget = currentLine === prefix ? `${prefix}${token}` : token;
+            if (measureTextWidth(singleTarget, fontSize, font) <= maxWidth) {
+                currentLine = singleTarget;
+            } else {
+                const subLines = wrapText(singleTarget, maxWidth, fontSize, font);
+                for (let i = 0; i < subLines.length - 1; i++) {
+                    lines.push(subLines[i]);
+                }
+                currentLine = subLines[subLines.length - 1] || '';
+            }
+        }
+    }
+
+    if (currentLine.length > 0) {
+        lines.push(currentLine);
+    }
+
+    return lines;
+}
+
+export interface WordBankLayoutMetrics {
+    bankSize: number;
+    lineHeight: number;
+    padding: number;
+    bottomGap: number;
+    entries: WordBankEntry[];
+    lines: string[];
+    boxHeight: number;
+    totalHeight: number;
+}
+
+/**
+ * Single source of truth for Word Bank typography, wrapping, and vertical height across
+ * fitDecision, allInOneRenderer, and bookletRenderer.
+ */
+export function measureWordBankLayout(
+    words: string[],
+    maxWidth: number,
+    fontSize: number,
+    font: PDFFont,
+    mode: 'ALL_IN_ONE' | 'BOOKLET'
+): WordBankLayoutMetrics {
+    const entries = formatWordBankEntries(words);
+    if (entries.length === 0) {
+        return {
+            bankSize: 8,
+            lineHeight: 10,
+            padding: 5,
+            bottomGap: 0,
+            entries: [],
+            lines: [],
+            boxHeight: 0,
+            totalHeight: 0,
+        };
+    }
+
+    let bankSize: number;
+    let lineHeight: number;
+    let padding: number;
+    let bottomGap: number;
+    let prefix = '';
+
+    if (mode === 'ALL_IN_ONE') {
+        bankSize =
+            words.length > 26
+                ? Math.max(7.0, Math.min(7.5, fontSize - 1.5))
+                : words.length > 16
+                    ? Math.max(7.2, Math.min(8.0, fontSize - 1.2))
+                    : Math.max(7.5, Math.min(8.5, fontSize - 1));
+        lineHeight = bankSize + (words.length > 16 ? 2.2 : 2.5);
+        padding = 5;
+        bottomGap = 8;
+        prefix = 'WORD BANK:  ';
+    } else {
+        const isCompact = fontSize <= 9.5 || words.length > 16;
+        bankSize = words.length > 26 ? 7.0 : isCompact ? 7.5 : 8.5;
+        lineHeight = words.length > 26 ? 9.0 : isCompact ? 9.5 : 11.0;
+        padding = isCompact ? 5 : 6;
+        bottomGap = isCompact ? 6 : 8;
+    }
+
+    const innerWidth = Math.max(60, maxWidth - padding * 2);
+    const lines = wrapWordBankLines(entries, innerWidth, bankSize, font, prefix);
+    const boxHeight = lines.length * lineHeight + padding * 2;
+    const totalHeight = boxHeight + bottomGap;
+
+    return {
+        bankSize,
+        lineHeight,
+        padding,
+        bottomGap,
+        entries,
+        lines,
+        boxHeight,
+        totalHeight,
+    };
+}
+
+/**
  * Shared exact geometry metrics used by both measurement (decideFit) and
  * rendering (allInOneRenderer) so ALL-IN-ONE pages never overflow or collide.
  */
 export function getAllInOneItemMetrics(
     question: ScannableQuestion,
     fontSize: number,
-    columnWidth: number
+    columnWidth: number,
+    wordBoxMaxChars: number = 1
 ): AllInOneItemMetrics {
     const isLetter =
         question.type === 'multiple_choice' ||
@@ -262,7 +542,18 @@ export function getAllInOneItemMetrics(
     const enumBoxes = isEnumeration ? Math.max(1, question.answerBoxesRequired || 3) : 1;
 
     const isCompact = fontSize <= 9.5;
-    const boxWidth = isLetter ? (isCompact ? 20 : 22) : isCompact ? 80 : 88;
+    const isWideWordBox = question.type === 'word_box' && wordBoxMaxChars > 1;
+    const boxWidth = isLetter
+        ? isWideWordBox
+            ? isCompact
+                ? 26
+                : 28
+            : isCompact
+                ? 20
+                : 22
+        : isCompact
+            ? 80
+            : 88;
     const boxHeight = isLetter ? (isCompact ? 17 : 20) : isCompact ? 15.5 : 18;
     const enumGap = 3;
     const totalBoxHeight = isEnumeration
@@ -296,10 +587,11 @@ export function measureQuestionHeight(
     columnWidth: number,
     font: PDFFont,
     isAllInOne: boolean = false,
-    allowCompactOptionPairing: boolean = false
+    allowCompactOptionPairing: boolean = false,
+    wordBoxMaxChars: number = 1
 ): number {
     const lineHeight = fontSize * getLineHeightFactor(fontSize);
-    const metrics = isAllInOne ? getAllInOneItemMetrics(question, fontSize, columnWidth) : null;
+    const metrics = isAllInOne ? getAllInOneItemMetrics(question, fontSize, columnWidth, wordBoxMaxChars) : null;
     const itemGap = metrics ? metrics.itemGap : fontSize >= 10.5 ? 6 : fontSize >= 9.0 ? 4.5 : 3.5;
 
     const availableTextWidth = metrics ? metrics.textWidth : columnWidth;
@@ -352,18 +644,19 @@ export function measureAllInOneColumns(
     questions: ScannableQuestion[],
     fontSize: number,
     columnWidth: number,
-    font: PDFFont
+    font: PDFFont,
+    wordBoxMaxChars: number = 1
 ): { col1Height: number; col2Height: number; maxHeight: number; splitIndex: number } {
     if (questions.length === 0) {
         return { col1Height: 0, col2Height: 0, maxHeight: 0, splitIndex: 0 };
     }
     if (questions.length === 1) {
-        const h = measureQuestionHeight(questions[0], fontSize, columnWidth, font, true);
+        const h = measureQuestionHeight(questions[0], fontSize, columnWidth, font, true, false, wordBoxMaxChars);
         return { col1Height: h, col2Height: 0, maxHeight: h, splitIndex: 1 };
     }
 
     const heights = questions.map((q) =>
-        measureQuestionHeight(q, fontSize, columnWidth, font, true)
+        measureQuestionHeight(q, fontSize, columnWidth, font, true, false, wordBoxMaxChars)
     );
     const total = heights.reduce((acc, h) => acc + h, 0);
 

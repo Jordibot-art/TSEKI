@@ -42,6 +42,7 @@ const TEST_SUITES = [
   { label: "Export Cancellation", cmd: "npx", args: ["tsx", "lib/printEngine/__tests__/testExportCancellation.ts"] },
   { label: "Long Header Fit", cmd: "npx", args: ["tsx", "lib/printEngine/__tests__/testLongHeaderFit.ts"] },
   { label: "Responsive Bond Layout", cmd: "npx", args: ["tsx", "lib/printEngine/__tests__/testResponsiveBondLayout.ts"] },
+  { label: "Word Box Multi-Question Export", cmd: "npx", args: ["tsx", "lib/printEngine/__tests__/testWordBoxExport.ts"] },
   { label: "Photo Quality Check", cmd: "npx", args: ["tsx", "lib/printEngine/__tests__/runPhotoQualityTest.ts"] },
   { label: "Reticle Crop", cmd: "npx", args: ["tsx", "lib/printEngine/__tests__/testReticleCrop.ts"] },
   { label: "All Phone Resolutions", cmd: "node", args: ["lib/printEngine/__tests__/testAllPhoneResolutions.cjs"] },

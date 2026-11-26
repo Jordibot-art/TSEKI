@@ -6,7 +6,14 @@ import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { topY } from './layoutJson';
 import { drawCornerMarkers } from './markers';
-import { fitHeaderText, getMeasureBoldFont, getMeasureFont, truncateTextToWidth } from './measure';
+import {
+    extractSharedWordBank,
+    fitHeaderText,
+    getMeasureBoldFont,
+    getMeasureFont,
+    getWordBankMaxChars,
+    truncateTextToWidth,
+} from './measure';
 import { drawQRCode } from './qrStamp';
 import type { LayoutItem, LayoutPage, MarkerRect, PrintOptions, QRRect, ScannableQuestion } from './types';
 
@@ -554,12 +561,27 @@ function drawAnswerSections(
         } else if (qType === 'word_box') {
             processed.add('word_box');
             const wb = byType.get('word_box')!;
+            const sharedWordBank = extractSharedWordBank(questions);
+            const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
             const rows = Math.ceil(wb.length / density.letterCols);
             const needed = 21 + rows * (density.letterHeight + density.letterSpacingY);
             const st = ensureSheetSpace(pageStates, ctx, needed);
-            const title = `${toRoman(sectionNum++)}. WORD BOX (items ${wb[0].questionNumber}-${wb[wb.length - 1].questionNumber}) - write the LETTER from the word bank`;
+            const letterPrompt = wordBoxMaxChars > 1 ? 'LETTER(S)' : 'LETTER';
+            const title = `${toRoman(sectionNum++)}. WORD BOX (items ${wb[0].questionNumber}-${wb[wb.length - 1].questionNumber}) - write the ${letterPrompt} from the word bank`;
             st.cursorY = drawSectionBanner(st.pdfPage, MARGINS.left, st.cursorY, printableWidth, title, fontBold);
-            st.cursorY = drawLetterGrid(st.pdfPage, MARGINS.left, st.cursorY, wb, font, fontBold, 'word_box', st.items, ctx.height, density);
+            st.cursorY = drawLetterGrid(
+                st.pdfPage,
+                MARGINS.left,
+                st.cursorY,
+                wb,
+                font,
+                fontBold,
+                'word_box',
+                st.items,
+                ctx.height,
+                density,
+                wordBoxMaxChars
+            );
             st.cursorY -= density.sectionGap;
         } else if (qType === 'fill_blank' || qType === 'identification') {
             const fb = !processed.has('fill_blank') ? (byType.get('fill_blank') || []) : [];
@@ -681,7 +703,8 @@ function drawLetterGrid(
     itemType: 'letter' | 'tf' | 'word_box',
     layoutItems: LayoutItem[],
     pageHeight: number,
-    density: AnswerSheetDensity
+    density: AnswerSheetDensity,
+    maxChars: number = 1
 ): number {
     let col = 0;
     let rowY = startY;
@@ -731,7 +754,7 @@ function drawLetterGrid(
                 width: density.letterWidth,
                 height: density.letterInputHeight,
             },
-            maxChars: 1,
+            maxChars,
         });
 
         col++;

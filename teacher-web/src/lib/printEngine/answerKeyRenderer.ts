@@ -5,7 +5,7 @@ import { abortableDelay, throwIfExportAborted } from './cancel';
 import { MARGINS, PAPER_DIMENSIONS } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { generateAnswerVariants } from './layoutJson';
-import { fitHeaderText, wrapText } from './measure';
+import { extractSharedWordBank, fitHeaderText, resolveWordBankLabel, wrapText } from './measure';
 import type { AnswerVariant, GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
 interface TableColumns {
@@ -31,6 +31,7 @@ export async function renderAnswerKeyPDF(
         assessment.quizTitle,
         options.classTitle,
         ...(assessment.answerKey || []).map((a) => a.correctAnswer || ''),
+        ...assessment.questions.flatMap((q) => q.options || []),
     ].filter(Boolean).join('\n');
     const { regular: font, bold: fontBold } = await embedPrintFonts(doc, textSample);
     throwIfExportAborted(signal);
@@ -229,6 +230,7 @@ function buildAnswerKeyRows(
 ): AnswerRowData[] {
     const keyMap = new Map((answerKey || []).map((k) => [k.questionNumber, k]));
     const varMap = new Map(variants.map((v) => [v.questionNumber, v]));
+    const sharedWordBank = extractSharedWordBank(questions, answerKey);
     const rows: AnswerRowData[] = [];
 
     for (let i = 0; i < questions.length; i++) {
@@ -250,13 +252,18 @@ function buildAnswerKeyRows(
             });
         } else {
             const typeLabel = formatType(q.type);
+            let displayAnswer = rawAns;
             let graderRule = 'Single letter';
             if (q.type === 'multiple_choice') {
                 graderRule = 'Single letter';
             } else if (q.type === 'true_false') {
                 graderRule = 'T or F only';
             } else if (q.type === 'word_box') {
-                graderRule = 'Letter from bank';
+                const resolved = resolveWordBankLabel(rawAns, sharedWordBank);
+                if (resolved) {
+                    displayAnswer = `${resolved.label} (${resolved.word})`;
+                }
+                graderRule = sharedWordBank.length > 26 ? 'Letter(s) from bank' : 'Letter from bank';
             } else {
                 const extraAccepted = (variant?.accepted || []).filter(
                     (a) => a !== rawAns.toUpperCase()
@@ -271,7 +278,7 @@ function buildAnswerKeyRows(
             rows.push({
                 numLabel: `${q.questionNumber}`,
                 typeLabel,
-                answer: rawAns,
+                answer: displayAnswer,
                 pts: keyItem?.points || 1,
                 graderRule,
                 isShaded,

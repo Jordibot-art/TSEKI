@@ -4,13 +4,16 @@ import { PDFFont } from 'pdf-lib';
 import { throwIfExportAborted } from './cancel';
 import { type BondPaperSize, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS } from './constants';
 import {
+    extractSharedWordBank,
     getLineHeightFactor,
+    getMeasureBoldFont,
     getMeasureFont,
+    getWordBankMaxChars,
     measureAllInOneColumns,
     measureQuestionHeight,
-    wrapText,
+    measureWordBankLayout,
 } from './measure';
-import type { FitResult, GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
+import type { AnswerKeyItem, FitResult, GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
 export interface BookletLayoutEstimate {
     pages: number;
@@ -30,24 +33,31 @@ function isPrimaryGrade(gradeLevel?: string): boolean {
 
 function estimatePartOverhead(
     partType: ScannableQuestion['type'],
-    questions: ScannableQuestion[],
+    sharedWordBank: string[],
     fontSize: number,
     columnWidth: number,
-    font: PDFFont
+    font: PDFFont,
+    boldFont?: PDFFont
 ): number {
     const isCompact = fontSize <= 9.5;
     const bannerHeight = isCompact ? 14 : 16;
-    const instSize = isCompact ? 7.5 : 8.5;
     const instLineH = isCompact ? 9.5 : 11;
     const instLines = partType === 'multiple_choice' || partType === 'word_box' ? 2 : 1;
-    let overhead = bannerHeight + 10 + instLines * instLineH + 4;
+    let overhead = bannerHeight + (isCompact ? 10 : 12) + instLines * instLineH + (isCompact ? 2 : 4);
 
     if (partType === 'word_box') {
-        const wb = questions.find((q) => q.type === 'word_box' && q.options && q.options.length > 0);
-        const words = wb?.options || ['A) Option 1', 'B) Option 2', 'C) Option 3', 'D) Option 4'];
-        const bankText = words.join('    ');
-        const bankLines = wrapText(bankText, columnWidth - 12, instSize, font);
-        overhead += bankLines.length * instLineH + 18;
+        const words =
+            sharedWordBank.length > 0
+                ? sharedWordBank
+                : ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
+        const wbLayout = measureWordBankLayout(
+            words,
+            boldFont ? columnWidth : columnWidth * 0.94,
+            fontSize,
+            boldFont || font,
+            'BOOKLET'
+        );
+        overhead += wbLayout.totalHeight;
     }
 
     return overhead;
@@ -58,12 +68,15 @@ export function estimateBookletLayout(
     fontSize: number,
     columnWidth: number,
     pageHeight: number,
-    font: PDFFont
+    font: PDFFont,
+    answerKey?: AnswerKeyItem[],
+    boldFont?: PDFFont
 ): BookletLayoutEstimate {
     if (questions.length === 0) {
         return { pages: 1, lastPageFillRatio: 0 };
     }
 
+    const sharedWordBank = extractSharedWordBank(questions, answerKey);
     const printableHeight = pageHeight - MARGINS.top - MARGINS.bottom;
     const page1Reserved = 84 + 34;
     const pageNReserved = 68 + 34;
@@ -108,9 +121,9 @@ export function estimateBookletLayout(
             if (prevType !== null) {
                 addHeight(partGap);
             }
-            const partHeaderH = estimatePartOverhead(q.type, questions, fontSize, columnWidth, font);
+            const partHeaderH = estimatePartOverhead(q.type, sharedWordBank, fontSize, columnWidth, font, boldFont);
             const firstItemH = measureQuestionHeight(q, fontSize, columnWidth, font, false, allowPairing);
-            advanceSlot(partHeaderH + Math.min(firstItemH, 40));
+            advanceSlot(Math.min(partHeaderH, currentCapacity) + Math.min(firstItemH, 40));
             addHeight(partHeaderH);
             prevType = q.type;
         }
@@ -135,16 +148,20 @@ export function estimateBookletPages(
     fontSize: number,
     columnWidth: number,
     pageHeight: number,
-    font: PDFFont
+    font: PDFFont,
+    answerKey?: AnswerKeyItem[],
+    boldFont?: PDFFont
 ): number {
-    return estimateBookletLayout(questions, fontSize, columnWidth, pageHeight, font).pages;
+    return estimateBookletLayout(questions, fontSize, columnWidth, pageHeight, font, answerKey, boldFont).pages;
 }
 
 export function chooseBookletFontSize(
     questions: GeneratedAssessment['questions'],
     paperSize: BondPaperSize = 'short',
     gradeLevel: string | undefined,
-    font: PDFFont
+    font: PDFFont,
+    answerKey?: AnswerKeyItem[],
+    boldFont?: PDFFont
 ): BookletFontSelection {
     const dimensions = PAPER_DIMENSIONS[paperSize];
     const printableWidth = dimensions.width - MARGINS.left - MARGINS.right;
@@ -155,7 +172,15 @@ export function chooseBookletFontSize(
     const minAllowed = isPrimary ? FONT_CONFIG.MIN_SIZE_PRIMARY : FONT_CONFIG.MIN_SIZE_DENSE;
     const allCandidates = FONT_CONFIG.BOOKLET_CANDIDATES.filter((sz) => sz >= minAllowed);
 
-    const stdLayout = estimateBookletLayout(questions, FONT_CONFIG.DEFAULT_SIZE, columnWidth, dimensions.height, font);
+    const stdLayout = estimateBookletLayout(
+        questions,
+        FONT_CONFIG.DEFAULT_SIZE,
+        columnWidth,
+        dimensions.height,
+        font,
+        answerKey,
+        boldFont
+    );
 
     if (questions.length <= 30) {
         if (stdLayout.pages === 1) {
@@ -179,7 +204,7 @@ export function chooseBookletFontSize(
         const gentleMin = isPrimary ? FONT_CONFIG.MIN_SIZE_PRIMARY : 9.0;
         const gentleCandidates = allCandidates.filter((sz) => sz < FONT_CONFIG.DEFAULT_SIZE && sz >= gentleMin);
         for (const sz of gentleCandidates) {
-            const sim = estimateBookletLayout(questions, sz, columnWidth, dimensions.height, font);
+            const sim = estimateBookletLayout(questions, sz, columnWidth, dimensions.height, font, answerKey, boldFont);
             if (sim.pages < stdLayout.pages) {
                 return {
                     fontSize: sz,
@@ -200,7 +225,7 @@ export function chooseBookletFontSize(
 
     const simulations = allCandidates.map((sz) => ({
         fontSize: sz,
-        ...estimateBookletLayout(questions, sz, columnWidth, dimensions.height, font),
+        ...estimateBookletLayout(questions, sz, columnWidth, dimensions.height, font, answerKey, boldFont),
     }));
 
     const minPages = Math.min(...simulations.map((s) => s.pages));
@@ -221,6 +246,7 @@ export async function decideFit(
 ): Promise<FitResult> {
     throwIfExportAborted(options.signal);
     const font = measureFont || (await getMeasureFont());
+    const boldFont = measureFont ? undefined : await getMeasureBoldFont();
     throwIfExportAborted(options.signal);
     const paperSize = options.paperSize || 'short';
     const dimensions = PAPER_DIMENSIONS[paperSize];
@@ -230,7 +256,14 @@ export async function decideFit(
     const allInOneColWidth = (printableWidth - 20) / 2;
 
     if (options.forceSeparate || options.mode === 'SEPARATE') {
-        const bookletChoice = chooseBookletFontSize(assessment.questions, paperSize, options.gradeLevel, font);
+        const bookletChoice = chooseBookletFontSize(
+            assessment.questions,
+            paperSize,
+            options.gradeLevel,
+            font,
+            assessment.answerKey,
+            boldFont
+        );
         return {
             mode: 'SEPARATE',
             fontSize: bookletChoice.fontSize,
@@ -255,14 +288,30 @@ export async function decideFit(
     const reservedVertical = 100 + 26 + 28;
     const availableQuestionHeight = printableHeight - reservedVertical;
 
-    const hasWordBox = assessment.questions.some((q) => q.type === 'word_box');
-    const wordBankReserve = hasWordBox ? 38 : 0;
-    const effectiveHeight = availableQuestionHeight - wordBankReserve;
+    const sharedWordBank = extractSharedWordBank(assessment.questions, assessment.answerKey);
+    const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
 
     for (const fontSize of candidates) {
-        const { maxHeight } = measureAllInOneColumns(assessment.questions, fontSize, allInOneColWidth, font);
+        const wordBankReserve =
+            sharedWordBank.length > 0
+                ? measureWordBankLayout(
+                      sharedWordBank,
+                      boldFont ? printableWidth : printableWidth * 0.94,
+                      fontSize,
+                      boldFont || font,
+                      'ALL_IN_ONE'
+                  ).totalHeight
+                : 0;
+        const effectiveHeight = availableQuestionHeight - wordBankReserve;
+        const { maxHeight } = measureAllInOneColumns(
+            assessment.questions,
+            fontSize,
+            allInOneColWidth,
+            font,
+            wordBoxMaxChars
+        );
 
-        if (maxHeight <= effectiveHeight) {
+        if (effectiveHeight > 0 && maxHeight <= effectiveHeight) {
             return {
                 mode: 'ALL_IN_ONE',
                 fontSize,
@@ -273,7 +322,14 @@ export async function decideFit(
         }
     }
 
-    const bookletChoice = chooseBookletFontSize(assessment.questions, paperSize, options.gradeLevel, font);
+    const bookletChoice = chooseBookletFontSize(
+        assessment.questions,
+        paperSize,
+        options.gradeLevel,
+        font,
+        assessment.answerKey,
+        boldFont
+    );
     return {
         mode: 'SEPARATE',
         fontSize: bookletChoice.fontSize,

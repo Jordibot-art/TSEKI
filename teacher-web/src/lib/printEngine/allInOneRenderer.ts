@@ -7,17 +7,20 @@ import { embedPrintFonts } from './fonts/embedFonts';
 import { topY } from './layoutJson';
 import { drawCornerMarkers } from './markers';
 import {
+    extractSharedWordBank,
     fitHeaderText,
     getAllInOneItemMetrics,
     getLineHeightFactor,
     getMeasureBoldFont,
     getMeasureFont,
+    getWordBankMaxChars,
     measureAllInOneColumns,
+    measureWordBankLayout,
     truncateTextToWidth,
     wrapText,
 } from './measure';
 import { drawQRCode } from './qrStamp';
-import type { GeneratedAssessment, LayoutItem, LayoutPage, PrintOptions, QRRect, ScannableQuestion } from './types';
+import type { AnswerKeyItem, GeneratedAssessment, LayoutItem, LayoutPage, PrintOptions, QRRect, ScannableQuestion } from './types';
 
 export interface AllInOneRenderResult {
     pdfBytes: Uint8Array;
@@ -75,6 +78,7 @@ export async function renderAllInOnePDF(
             assessment.quizTitle,
             options.classTitle,
             ...assessment.questions.map((q) => `${q.questionText || ''} ${(q.options || []).join(' ')}`),
+            ...(assessment.answerKey || []).map((k) => k.correctAnswer || ''),
         ].filter(Boolean).join('\n');
         const embedded = await embedPrintFonts(doc, textSample);
         font = embedded.regular;
@@ -129,7 +133,7 @@ export async function renderAllInOnePDF(
 
     // 3. Questions & Answer Boxes in 2 Columns
     const layoutItems: LayoutItem[] = [];
-    drawAllInOneColumns(page, ctx, cursorY, assessment.questions, layoutItems);
+    drawAllInOneColumns(page, ctx, cursorY, assessment.questions, assessment.answerKey, layoutItems);
 
     // 4. Footer
     drawAllInOneFooter(page, ctx, assessment.questions.length);
@@ -313,56 +317,50 @@ function drawAllInOneColumns(
     ctx: AllInOneContext,
     startY: number,
     questions: ScannableQuestion[],
+    answerKey: AnswerKeyItem[] | undefined,
     layoutItems: LayoutItem[]
 ): void {
     const { colWidth, colGutter, fontSize, font, fontBold, printableWidth } = ctx;
     let bodyStartY = startY;
 
-    const wordBoxQ = questions.find((q) => q.type === 'word_box' && q.options && q.options.length > 0);
-    if (wordBoxQ && wordBoxQ.options) {
-        const bankSize = Math.max(7.5, Math.min(8.5, fontSize - 1));
-        const formattedWords = wordBoxQ.options.map((w, i) => {
-            const trimmed = w.trim();
-            if (/^[A-Z]\)\s/i.test(trimmed)) return trimmed;
-            return `${String.fromCharCode(65 + i)}) ${trimmed}`;
-        });
-        const bankText = `WORD BANK:  ${formattedWords.join('    ')}`;
-        const lines = wrapText(bankText, printableWidth - 14, bankSize, fontBold);
-        const boxH = lines.length * (bankSize + 2.5) + 10;
+    const sharedWordBank = extractSharedWordBank(questions, answerKey);
+    const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
+    if (sharedWordBank.length > 0) {
+        const wbLayout = measureWordBankLayout(sharedWordBank, printableWidth, fontSize, fontBold, 'ALL_IN_ONE');
 
         page.drawRectangle({
             x: MARGINS.left,
-            y: bodyStartY - boxH,
+            y: bodyStartY - wbLayout.boxHeight,
             width: printableWidth,
-            height: boxH,
+            height: wbLayout.boxHeight,
             color: rgb(1, 1, 1),
             borderColor: rgb(0.75, 0.78, 0.82),
             borderWidth: 0.8,
         });
 
-        let lineY = bodyStartY - bankSize - 4;
-        for (const line of lines) {
+        let lineY = bodyStartY - wbLayout.padding - wbLayout.bankSize;
+        for (const line of wbLayout.lines) {
             page.drawText(line, {
-                x: MARGINS.left + 7,
+                x: MARGINS.left + wbLayout.padding,
                 y: lineY,
-                size: bankSize,
+                size: wbLayout.bankSize,
                 font: fontBold,
                 color: rgb(0.15, 0.15, 0.15),
             });
-            lineY -= bankSize + 2.5;
+            lineY -= wbLayout.lineHeight;
         }
-        bodyStartY -= boxH + 8;
+        bodyStartY -= wbLayout.totalHeight;
     }
 
     const col1X = MARGINS.left;
     const col2X = MARGINS.left + colWidth + colGutter;
 
-    const { splitIndex } = measureAllInOneColumns(questions, fontSize, colWidth, font);
+    const { splitIndex } = measureAllInOneColumns(questions, fontSize, colWidth, font, wordBoxMaxChars);
     const col1Questions = questions.slice(0, splitIndex);
     const col2Questions = questions.slice(splitIndex);
 
-    renderQuestionColumn(page, ctx, col1X, bodyStartY, col1Questions, layoutItems);
-    renderQuestionColumn(page, ctx, col2X, bodyStartY, col2Questions, layoutItems);
+    renderQuestionColumn(page, ctx, col1X, bodyStartY, col1Questions, layoutItems, wordBoxMaxChars);
+    renderQuestionColumn(page, ctx, col2X, bodyStartY, col2Questions, layoutItems, wordBoxMaxChars);
 }
 
 function renderQuestionColumn(
@@ -371,13 +369,14 @@ function renderQuestionColumn(
     startX: number,
     startY: number,
     questions: ScannableQuestion[],
-    layoutItems: LayoutItem[]
+    layoutItems: LayoutItem[],
+    wordBoxMaxChars: number = 1
 ): void {
     const { colWidth, fontSize, lineHeight, font, fontBold } = ctx;
     let cursorY = startY;
 
     for (const q of questions) {
-        const metrics = getAllInOneItemMetrics(q, fontSize, colWidth);
+        const metrics = getAllInOneItemMetrics(q, fontSize, colWidth, wordBoxMaxChars);
         const { isLetter, isEnumeration, enumBoxes, boxWidth, boxHeight, textWidth, itemGap } = metrics;
 
         const prefix = `${q.questionNumber}. `;
@@ -543,7 +542,7 @@ function renderQuestionColumn(
                     width: boxWidth,
                     height: boxHeight,
                 },
-                maxChars: isLetter ? 1 : 25,
+                maxChars: q.type === 'word_box' ? wordBoxMaxChars : isLetter ? 1 : 25,
             });
         }
 

@@ -1,5 +1,6 @@
 // lib/printEngine/layoutJson.ts
 
+import { extractSharedWordBank, getWordBankMaxChars, resolveWordBankLabel } from './measure';
 import { AnswerKeyItem, AnswerVariant, GeneratedAssessment, LayoutItem, LayoutJSON, LayoutPage } from './types';
 
 export interface FlaggedQuestion {
@@ -97,6 +98,8 @@ export function generateAnswerVariants(assessment: GeneratedAssessment): AnswerV
     const keyMap = new Map<number, AnswerKeyItem>(
         (assessment.answerKey || []).map((k) => [k.questionNumber, k])
     );
+    const sharedWordBank = extractSharedWordBank(assessment.questions, assessment.answerKey);
+    const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
 
     const variants: AnswerVariant[] = [];
 
@@ -137,11 +140,32 @@ export function generateAnswerVariants(assessment: GeneratedAssessment): AnswerV
             }
         }
 
+        // Word Box: accept both the Word Bank letter label (e.g. "E" or "AA") and the word itself
+        if (q.type === 'word_box') {
+            const resolved = resolveWordBankLabel(baseAnswer, sharedWordBank);
+            if (resolved) {
+                set.add(resolved.label.toUpperCase());
+                const wordUpper = resolved.word.toUpperCase();
+                set.add(wordUpper);
+                const wordStripped = resolved.word
+                    .replace(/[.,\-_/\\()]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toUpperCase();
+                if (wordStripped) set.add(wordStripped);
+            }
+        }
+
         variants.push({
             questionNumber: q.questionNumber,
             type: q.type,
             accepted: Array.from(set),
-            maxChars: q.type === 'multiple_choice' || q.type === 'true_false' || q.type === 'word_box' ? 1 : 25,
+            maxChars:
+                q.type === 'word_box'
+                    ? wordBoxMaxChars
+                    : q.type === 'multiple_choice' || q.type === 'true_false'
+                        ? 1
+                        : 25,
         });
     }
 

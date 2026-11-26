@@ -7,14 +7,16 @@ import { chooseBookletFontSize } from './fitDecision';
 import { embedPrintFonts } from './fonts/embedFonts';
 import {
     canPairMcOptions,
+    extractSharedWordBank,
     fitHeaderText,
     getLineHeightFactor,
     measureQuestionHeight,
+    measureWordBankLayout,
     truncateTextToWidth,
     wrapText,
 } from './measure';
 import { drawQRCode } from './qrStamp';
-import type { GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
+import type { AnswerKeyItem, GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
 interface BookletRenderContext {
     doc: PDFDocument;
@@ -47,6 +49,7 @@ export async function renderBookletPDF(
         assessment.quizTitle,
         options.classTitle,
         ...assessment.questions.map((q) => `${q.questionText || ''} ${(q.options || []).join(' ')}`),
+        ...(assessment.answerKey || []).map((k) => k.correctAnswer || ''),
     ].filter(Boolean).join('\n');
     const { regular: font, bold: fontBold } = await embedPrintFonts(doc, textSample);
     throwIfExportAborted(signal);
@@ -63,7 +66,14 @@ export async function renderBookletPDF(
     const fontSize =
         typeof selectedFontSize === 'number' && Number.isFinite(selectedFontSize)
             ? selectedFontSize
-            : chooseBookletFontSize(assessment.questions, paperSize, options.gradeLevel, font).fontSize;
+            : chooseBookletFontSize(
+                  assessment.questions,
+                  paperSize,
+                  options.gradeLevel,
+                  font,
+                  assessment.answerKey,
+                  fontBold
+              ).fontSize;
     const lineHeight = fontSize * getLineHeightFactor(fontSize);
 
     const ctx: BookletRenderContext = {
@@ -137,30 +147,55 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
     const allowPairing = fontSize <= 9.5;
     const partGap = fontSize <= 9.5 ? 5 : 8;
 
+    const advanceColumnOrPage = async () => {
+        if (currentCol === 1) {
+            currentCol = 2;
+            cursorY = currentY;
+        } else {
+            // Yield between pages so JS thread stays responsive & cancellation fires promptly
+            await abortableDelay(0, signal);
+            currentPage = doc.addPage([width, height]);
+            pages.push(currentPage);
+            currentY = drawBookletContinuationHeader(currentPage, ctx);
+            currentCol = 1;
+            cursorY = currentY;
+        }
+    };
+
     // Group questions by section/part in order of appearance (tick order)
-    const parts = groupQuestionsByPart(ctx.assessment.questions);
+    const parts = groupQuestionsByPart(ctx.assessment.questions, ctx.assessment.answerKey);
     let renderedCount = 0;
 
     for (let pIdx = 0; pIdx < parts.length; pIdx++) {
         throwIfExportAborted(signal);
         const part = parts[pIdx];
         const partRoman = toRoman(pIdx + 1);
-        const partHeaderHeight = fontSize <= 9.5 ? 30 : 36;
+        const isCompact = fontSize <= 9.5;
+        const instFontSize = isCompact ? 7.5 : 8.5;
+        const instLineH = isCompact ? 9.5 : 11;
+        const instLinesCount = part.instructions
+            ? wrapText(part.instructions, colWidth, instFontSize, ctx.font).length
+            : 0;
+        const partBannerHeight =
+            (isCompact ? 14 : 16) +
+            (isCompact ? 10 : 12) +
+            (instLinesCount > 0 ? instLinesCount * instLineH + (isCompact ? 2 : 4) : 0);
 
-        // Check if part header fits in current column
-        if (cursorY - partHeaderHeight < bottomLimit) {
-            if (currentCol === 1) {
-                currentCol = 2;
-                cursorY = currentY;
-            } else {
-                // Yield between pages so JS thread stays responsive & cancellation fires promptly
-                await abortableDelay(0, signal);
-                currentPage = doc.addPage([width, height]);
-                pages.push(currentPage);
-                currentY = drawBookletContinuationHeader(currentPage, ctx);
-                currentCol = 1;
-                cursorY = currentY;
-            }
+        const wordBankLayout =
+            part.type === 'word_box' && part.wordBank && part.wordBank.length > 0
+                ? measureWordBankLayout(part.wordBank, colWidth, fontSize, ctx.fontBold, 'BOOKLET')
+                : null;
+        const firstQReserve = part.questions[0]
+            ? Math.min(measureQuestionHeight(part.questions[0], fontSize, colWidth, ctx.font, false, allowPairing), 36)
+            : 0;
+        const blockNeed =
+            partBannerHeight +
+            (wordBankLayout ? Math.min(wordBankLayout.totalHeight, 180) : 0) +
+            firstQReserve;
+
+        // Check if part header (+ word bank) fits in current column; avoid skipping an already-empty column
+        if (cursorY < currentY - 1 && cursorY - blockNeed < bottomLimit) {
+            await advanceColumnOrPage();
         }
 
         const colX = currentCol === 1 ? col1X : col2X;
@@ -168,9 +203,43 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
         // Draw Part Banner
         cursorY = drawPartBanner(currentPage, ctx, colX, cursorY, partRoman, part.title, part.pts, part.instructions);
 
-        // If word box, draw word bank
-        if (part.type === 'word_box' && part.wordBank && part.wordBank.length > 0) {
-            cursorY = drawWordBank(currentPage, ctx, colX, cursorY, part.wordBank);
+        // If word box, draw the full shared Word Bank (splitting across columns/pages safely if very tall)
+        if (wordBankLayout && wordBankLayout.lines.length > 0) {
+            let lineIdx = 0;
+            while (lineIdx < wordBankLayout.lines.length) {
+                const availForBox = cursorY - bottomLimit;
+                const minChunkH = wordBankLayout.lineHeight + wordBankLayout.padding * 2;
+                if (availForBox < minChunkH) {
+                    await advanceColumnOrPage();
+                }
+
+                const remainingLines = wordBankLayout.lines.length - lineIdx;
+                const maxLinesHere = Math.max(
+                    1,
+                    Math.floor((cursorY - bottomLimit - wordBankLayout.padding * 2) / wordBankLayout.lineHeight)
+                );
+                const take = Math.min(remainingLines, maxLinesHere);
+                const chunkLines = wordBankLayout.lines.slice(lineIdx, lineIdx + take);
+                const activeBankColX = currentCol === 1 ? col1X : col2X;
+                const isLastChunk = lineIdx + take >= wordBankLayout.lines.length;
+
+                cursorY = drawWordBankLinesBox(
+                    currentPage,
+                    ctx,
+                    activeBankColX,
+                    cursorY,
+                    chunkLines,
+                    wordBankLayout.bankSize,
+                    wordBankLayout.lineHeight,
+                    wordBankLayout.padding,
+                    isLastChunk ? wordBankLayout.bottomGap : 4
+                );
+                lineIdx += take;
+
+                if (!isLastChunk) {
+                    await advanceColumnOrPage();
+                }
+            }
         }
 
         // Render questions in this part
@@ -183,17 +252,7 @@ async function layoutBookletPages(ctx: BookletRenderContext): Promise<PDFPage[]>
             const neededHeight = measureQuestionHeight(q, fontSize, colWidth, ctx.font, false, allowPairing);
 
             if (cursorY - neededHeight < bottomLimit) {
-                if (currentCol === 1) {
-                    currentCol = 2;
-                    cursorY = currentY;
-                } else {
-                    await abortableDelay(0, signal);
-                    currentPage = doc.addPage([width, height]);
-                    pages.push(currentPage);
-                    currentY = drawBookletContinuationHeader(currentPage, ctx);
-                    currentCol = 1;
-                    cursorY = currentY;
-                }
+                await advanceColumnOrPage();
             }
 
             const activeColX = currentCol === 1 ? col1X : col2X;
@@ -377,26 +436,18 @@ function drawPartBanner(
     return nextY;
 }
 
-function drawWordBank(
+function drawWordBankLinesBox(
     page: PDFPage,
     ctx: BookletRenderContext,
     x: number,
     y: number,
-    words: string[]
+    lines: string[],
+    bankSize: number,
+    bankLineH: number,
+    padding: number,
+    bottomGap: number
 ): number {
-    const { colWidth, fontBold, fontSize } = ctx;
-    const isCompact = fontSize <= 9.5;
-    const bankSize = isCompact ? 7.5 : 8.5;
-    const bankLineH = isCompact ? 9.5 : 11;
-    const padding = isCompact ? 5 : 6;
-    const formattedWords = words.map((w, i) => {
-        const trimmed = w.trim();
-        if (/^[A-Z]\)\s/i.test(trimmed)) return trimmed;
-        const letter = String.fromCharCode(65 + i);
-        return `${letter}) ${trimmed}`;
-    });
-    const bankText = formattedWords.join('    ');
-    const lines = wrapText(bankText, colWidth - padding * 2, bankSize, fontBold);
+    const { colWidth, fontBold } = ctx;
     const boxHeight = lines.length * bankLineH + padding * 2;
 
     page.drawRectangle({
@@ -421,7 +472,7 @@ function drawWordBank(
         lineY -= bankLineH;
     }
 
-    return y - boxHeight - (isCompact ? 6 : 8);
+    return y - boxHeight - bottomGap;
 }
 
 function drawQuestionItem(
@@ -588,19 +639,27 @@ interface QuestionPart {
     questions: ScannableQuestion[];
 }
 
-function groupQuestionsByPart(questions: ScannableQuestion[]): QuestionPart[] {
+function groupQuestionsByPart(
+    questions: ScannableQuestion[],
+    answerKey?: AnswerKeyItem[]
+): QuestionPart[] {
+    const sharedWordBank = extractSharedWordBank(questions, answerKey);
+    const effectiveWordBank =
+        sharedWordBank.length > 0
+            ? sharedWordBank
+            : ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
     const parts: QuestionPart[] = [];
     let currentPart: QuestionPart | null = null;
 
     for (const q of questions) {
         if (!currentPart || currentPart.type !== q.type) {
-            const config = getPartConfig(q.type);
+            const config = getPartConfig(q.type, effectiveWordBank.length);
             currentPart = {
                 type: q.type,
                 title: config.title,
                 instructions: config.instructions,
                 pts: 0,
-                wordBank: q.type === 'word_box' ? extractWordBank(questions) : undefined,
+                wordBank: q.type === 'word_box' ? effectiveWordBank : undefined,
                 questions: [],
             };
             parts.push(currentPart);
@@ -612,7 +671,7 @@ function groupQuestionsByPart(questions: ScannableQuestion[]): QuestionPart[] {
     return parts;
 }
 
-function getPartConfig(type: string): { title: string; instructions: string } {
+function getPartConfig(type: string, wordBankCount: number = 0): { title: string; instructions: string } {
     switch (type) {
         case 'multiple_choice':
             return {
@@ -627,7 +686,10 @@ function getPartConfig(type: string): { title: string; instructions: string } {
         case 'word_box':
             return {
                 title: 'Word Box',
-                instructions: 'Pick the best word from the WORD BANK. Write the corresponding letter.',
+                instructions:
+                    wordBankCount > 26
+                        ? 'Pick the best word from the WORD BANK. Write the corresponding letter(s).'
+                        : 'Pick the best word from the WORD BANK. Write the corresponding letter.',
             };
         case 'fill_blank':
             return {
@@ -650,11 +712,6 @@ function getPartConfig(type: string): { title: string; instructions: string } {
                 instructions: 'Answer the following questions carefully.',
             };
     }
-}
-
-function extractWordBank(questions: ScannableQuestion[]): string[] {
-    const wb = questions.find((q) => q.type === 'word_box' && q.options && q.options.length > 0);
-    return wb?.options || ['A) Option 1', 'B) Option 2', 'C) Option 3', 'D) Option 4'];
 }
 
 function toRoman(num: number): string {
