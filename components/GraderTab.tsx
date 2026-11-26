@@ -46,6 +46,13 @@ import {
     TRANSITION_HANDOFF_DELAY_MS,
     waitForTransition,
 } from "./SmoothModalTransition";
+import {
+    getSkeuoPalette,
+    skeuoButtonStyle,
+    skeuoCardStyle,
+    skeuoGrooveStyle,
+    skeuoWellStyle,
+} from "./skeuoTheme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Student = {
@@ -74,9 +81,10 @@ function Dropdown({
     const [visibleCount, setVisibleCount] = useState<number>(pageSize);
     const [searchQuery, setSearchQuery] = useState<string>("");
     const hasValue = Boolean(value && value.trim().length > 0);
-    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-    const textMain = darkMode ? "#F9FAFB" : "#374151";
-    const borderCol = darkMode ? "#374151" : "#E5E7EB";
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
+    const textSub = skeuo.textSecondary;
+    const textMain = skeuo.textPrimary;
+    const borderCol = skeuo.border;
 
     const usePagination = Boolean(initialVisibleCount && options.length > initialVisibleCount);
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -97,15 +105,9 @@ function Dropdown({
     return (
         <View style={styles.dropdownContainer}>
             <TouchableOpacity
-                style={[
-                    styles.dropdownBtn,
-                    {
-                        backgroundColor: darkMode ? "#374151" : "#FFFFFF",
-                        borderColor: darkMode ? "#4B5563" : "#E5E7EB",
-                    },
-                ]}
+                style={[styles.dropdownBtn, skeuoWellStyle(skeuo, 12)]}
                 onPress={openDropdown}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
             >
                 <Text style={[styles.dropdownValue, { color: hasValue ? textMain : textSub }]} numberOfLines={1}>
                     {hasValue ? value : (placeholder || "Select option")}
@@ -338,13 +340,14 @@ export default function GraderTab({
     const batchQueueRef = useRef<BatchGradingQueue | null>(null);
 
     const { darkMode } = useTheme();
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
 
-    const bg = darkMode ? "#111827" : "#F9FAFB";
-    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-    const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-    const border = darkMode ? "#374151" : "#E5E7EB";
-    const subBorder = darkMode ? "#374151" : "#F3F4F6";
+    const bg = skeuo.canvas;
+    const cardBg = skeuo.surface;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
+    const border = skeuo.border;
+    const subBorder = skeuo.border;
 
     useEffect(() => {
         if (students !== undefined) {
@@ -1328,26 +1331,26 @@ export default function GraderTab({
                     <View style={styles.actionButtonsRow}>
                         {/* Left: Scan Another Sheet */}
                         <TouchableOpacity
-                            style={[styles.scanAnotherBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}
+                            style={[styles.scanAnotherBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 12 })]}
                             onPress={() => setSourceModalOpen(true)}
-                            activeOpacity={0.7}
+                            activeOpacity={0.75}
                         >
-                            <Ionicons name="sync-outline" size={18} color={darkMode ? "#F3F4F6" : "#334155"} />
-                            <Text style={[styles.scanAnotherBtnText, { color: darkMode ? "#F3F4F6" : "#334155" }]}>Scan Another Sheet</Text>
+                            <Ionicons name="sync-outline" size={18} color={textMain} />
+                            <Text style={[styles.scanAnotherBtnText, { color: textMain }]}>Scan Another Sheet</Text>
                         </TouchableOpacity>
 
                         {/* Right: Approve & Record OR Recorded to Class Record! */}
                         {isRecorded ? (
-                            <View style={[styles.recordedBadge, darkMode && { backgroundColor: "#064E3B", borderColor: "#059669" }]}>
+                            <View style={[styles.recordedBadge, darkMode && { backgroundColor: "#112921", borderColor: "#1E5B47" }]}>
                                 <Ionicons name="checkmark" size={18} color={darkMode ? "#34D399" : "#059669"} />
                                 <Text style={[styles.recordedBadgeText, darkMode && { color: "#A7F3D0" }]}>Recorded to Class Record!</Text>
                             </View>
                         ) : (
                             <TouchableOpacity
-                                style={[styles.approveBtn, { backgroundColor: accentColor || "#F97316" }]}
+                                style={[styles.approveBtn, skeuoButtonStyle(skeuo, { fill: accentColor || "#EA580C", radius: 12 })]}
                                 onPress={handleApproveAndRecord}
                                 disabled={savingScore}
-                                activeOpacity={0.8}
+                                activeOpacity={0.85}
                             >
                                 {savingScore ? (
                                     <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1363,7 +1366,7 @@ export default function GraderTab({
 
                     {/* ── Roster Synchronized Successfully Banner (Visible after approval) ── */}
                     {isRecorded && (
-                        <View style={[styles.syncBanner, darkMode && { backgroundColor: "#064E3B", borderColor: "#059669" }]}>
+                        <View style={[styles.syncBanner, darkMode && { backgroundColor: "#112921", borderColor: "#1E5B47" }]}>
                             <Ionicons name="shield-checkmark-outline" size={24} color={darkMode ? "#34D399" : "#059669"} />
                             <View style={{ flex: 1 }}>
                                 <Text style={[styles.syncBannerTitle, darkMode && { color: "#A7F3D0" }]}>Roster Synchronized Successfully</Text>
@@ -1373,9 +1376,9 @@ export default function GraderTab({
                     )}
 
                     {/* ── Scanned Student Sheet Card ── */}
-                    <View style={[styles.scannedCard, { backgroundColor: cardBg, borderColor: border }]}>
+                    <View style={[styles.scannedCard, skeuoCardStyle(skeuo, 18)]}>
                         {/* Dark Header Banner */}
-                        <View style={[styles.darkCardHeader, darkMode && { backgroundColor: "#111827" }]}>
+                        <View style={[styles.darkCardHeader, { backgroundColor: darkMode ? "#16191F" : "#1C1917" }]}>
                             <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
                                 <Text style={styles.cardHeaderSub}>SCANNED STUDENT SHEET</Text>
                                 <Text style={styles.cardStudentName} numberOfLines={1}>
@@ -1725,32 +1728,24 @@ export default function GraderTab({
                 /* ───────────────────────────────────────────────────────────────────
                     CASE 2: INITIAL SCAN LAUNCHER (Before scan)
                 ────────────────────────────────────────────────────────────────────── */
-                <View style={[styles.launcherCard, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}>
+                <View style={[styles.launcherCard, skeuoCardStyle(skeuo, 18)]}>
                     <View style={styles.launcherHeader}>
-                        <View style={[styles.launcherIconCircle, { backgroundColor: (accentColor || "#F97316") + "15" }]}>
-                            <Ionicons name="camera" size={18} color={accentColor || "#F97316"} />
+                        <View style={[styles.launcherIconCircle, skeuoWellStyle(skeuo, 12), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
+                            <Ionicons name="camera" size={18} color={accentColor || "#EA580C"} />
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={[styles.launcherTitle, { color: textMain }]}>Tseki Smart Vision Grader</Text>
                         </View>
                     </View>
 
-                    <View style={[styles.divider, { backgroundColor: subBorder }]}>
-                    </View>
+                    <View style={[skeuoGrooveStyle(skeuo), { marginVertical: 14 }]} />
 
                     {/* Mode Toggle Pills: Single vs Batch */}
-                    <View style={[styles.modeToggleRow, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                    <View style={[styles.modeToggleRow, skeuoWellStyle(skeuo, 12)]}>
                         <TouchableOpacity
                             style={[
                                 styles.modePill,
-                                gradingMode === "single" && {
-                                    backgroundColor: cardBg,
-                                    shadowColor: "#000",
-                                    shadowOffset: { width: 0, height: 1 },
-                                    shadowOpacity: 0.1,
-                                    shadowRadius: 2,
-                                    elevation: 2,
-                                },
+                                gradingMode === "single" && skeuoButtonStyle(skeuo, { neutral: true, radius: 9 }),
                             ]}
                             onPress={() => setGradingMode("single")}
                             activeOpacity={0.8}
@@ -1758,13 +1753,13 @@ export default function GraderTab({
                             <Ionicons
                                 name="document-text-outline"
                                 size={15}
-                                color={gradingMode === "single" ? (accentColor || "#F97316") : textSub}
+                                color={gradingMode === "single" ? (accentColor || "#EA580C") : textSub}
                             />
                             <Text
                                 style={[
                                     styles.modePillText,
                                     gradingMode === "single"
-                                        ? { color: accentColor || "#F97316", fontWeight: "800" }
+                                        ? { color: accentColor || "#EA580C", fontWeight: "800" }
                                         : { color: textSub },
                                 ]}
                             >
@@ -1775,14 +1770,7 @@ export default function GraderTab({
                         <TouchableOpacity
                             style={[
                                 styles.modePill,
-                                gradingMode === "batch" && {
-                                    backgroundColor: cardBg,
-                                    shadowColor: "#000",
-                                    shadowOffset: { width: 0, height: 1 },
-                                    shadowOpacity: 0.1,
-                                    shadowRadius: 2,
-                                    elevation: 2,
-                                },
+                                gradingMode === "batch" && skeuoButtonStyle(skeuo, { neutral: true, radius: 9 }),
                             ]}
                             onPress={() => setGradingMode("batch")}
                             activeOpacity={0.8}
@@ -1790,13 +1778,13 @@ export default function GraderTab({
                             <Ionicons
                                 name="flash"
                                 size={15}
-                                color={gradingMode === "batch" ? (accentColor || "#F97316") : textSub}
+                                color={gradingMode === "batch" ? (accentColor || "#EA580C") : textSub}
                             />
                             <Text
                                 style={[
                                     styles.modePillText,
                                     gradingMode === "batch"
-                                        ? { color: accentColor || "#F97316", fontWeight: "800" }
+                                        ? { color: accentColor || "#EA580C", fontWeight: "800" }
                                         : { color: textSub },
                                 ]}
                             >
@@ -1809,7 +1797,7 @@ export default function GraderTab({
                         <>
                             {/* Select assessment */}
                             <View style={styles.fieldGroup}>
-                                <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Select assessment</Text>
+                                <Text style={[styles.fieldLabel, { color: textSub }]}>Select assessment</Text>
                                 <Dropdown
                                     label="Select assessment"
                                     value={currentQuizValue}
@@ -1823,7 +1811,7 @@ export default function GraderTab({
 
                             {/* Student identification */}
                             <View style={styles.fieldGroup}>
-                                <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Student identification</Text>
+                                <Text style={[styles.fieldLabel, { color: textSub }]}>Student identification</Text>
                                 <Dropdown
                                     label="Student identification"
                                     value={currentStudentValue}
@@ -1835,7 +1823,7 @@ export default function GraderTab({
 
                             {/* Primary Scan Button */}
                             <TouchableOpacity
-                                style={[styles.primaryScanBtn, { backgroundColor: accentColor || "#F97316" }]}
+                                style={[styles.primaryScanBtn, skeuoButtonStyle(skeuo, { fill: accentColor || "#EA580C", radius: 14 })]}
                                 onPress={() => {
                                     if (publishedQuizzes.length === 0) {
                                         Alert.alert(
@@ -1846,7 +1834,7 @@ export default function GraderTab({
                                     }
                                     setSourceModalOpen(true);
                                 }}
-                                activeOpacity={0.8}
+                                activeOpacity={0.85}
                             >
                                 <Ionicons name="camera-outline" size={20} color="#FFFFFF" />
                                 <Text style={styles.primaryScanBtnText}>Open Camera & Scan</Text>
@@ -1856,7 +1844,7 @@ export default function GraderTab({
                         <>
                             {/* Select assessment */}
                             <View style={styles.fieldGroup}>
-                                <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Select assessment</Text>
+                                <Text style={[styles.fieldLabel, { color: textSub }]}>Select assessment</Text>
                                 <Dropdown
                                     label="Select assessment"
                                     value={currentQuizValue}
@@ -1869,15 +1857,15 @@ export default function GraderTab({
                             </View>
 
                             {/* Batch Info Card */}
-                            <View style={[styles.batchInfoCard, { backgroundColor: darkMode ? "#374151" : "#FFF7ED", borderColor: (accentColor || "#F97316") + "40" }]}>
-                                <View style={[styles.batchInfoIconBg, { backgroundColor: (accentColor || "#F97316") + "20" }]}>
-                                    <Ionicons name="flash" size={20} color={accentColor || "#F97316"} />
+                            <View style={[styles.batchInfoCard, skeuoWellStyle(skeuo, 12), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
+                                <View style={[styles.batchInfoIconBg, { backgroundColor: (accentColor || "#EA580C") + "20" }]}>
+                                    <Ionicons name="flash" size={20} color={accentColor || "#EA580C"} />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.batchInfoTitle, { color: darkMode ? "#FED7AA" : "#9A3412" }]}>
+                                    <Text style={[styles.batchInfoTitle, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>
                                         Continuous Batch Scanner
                                     </Text>
-                                    <Text style={[styles.batchInfoSub, { color: darkMode ? "#FDBA74" : "#C2410C" }]}>
+                                    <Text style={[styles.batchInfoSub, { color: darkMode ? "#FED7AA" : "#7C2D12" }]}>
                                         Keep the camera open and snap your entire stack of test papers without stopping. The AI grades in the background and auto-matches students from the {roster.length}-student roster.
                                     </Text>
                                 </View>
@@ -1885,9 +1873,9 @@ export default function GraderTab({
 
                             {/* Start Continuous Batch Scanner Button */}
                             <TouchableOpacity
-                                style={[styles.primaryScanBtn, { backgroundColor: accentColor || "#F97316" }]}
+                                style={[styles.primaryScanBtn, skeuoButtonStyle(skeuo, { fill: accentColor || "#EA580C", radius: 14 })]}
                                 onPress={handleStartBatchScanner}
-                                activeOpacity={0.8}
+                                activeOpacity={0.85}
                             >
                                 <Ionicons name="flash-outline" size={20} color="#FFFFFF" />
                                 <Text style={styles.primaryScanBtnText}>Start Batch Scanner</Text>
@@ -1896,15 +1884,15 @@ export default function GraderTab({
                             {/* View Current Batch If Exists */}
                             {batchItems.length > 0 && (
                                 <TouchableOpacity
-                                    style={[styles.batchViewBtn, { borderColor: accentColor || "#F97316" }]}
+                                    style={[styles.batchViewBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }), { borderColor: accentColor || "#EA580C" }]}
                                     onPress={handleFinishAndReview}
-                                    activeOpacity={0.7}
+                                    activeOpacity={0.75}
                                 >
-                                    <Ionicons name="documents-outline" size={18} color={accentColor || "#F97316"} />
-                                    <Text style={[styles.batchViewBtnText, { color: accentColor || "#F97316" }]}>
+                                    <Ionicons name="documents-outline" size={18} color={accentColor || "#EA580C"} />
+                                    <Text style={[styles.batchViewBtnText, { color: accentColor || "#EA580C" }]}>
                                         View Scanned Batch ({batchItems.length} Papers)
                                     </Text>
-                                    <Ionicons name="chevron-forward" size={16} color={accentColor || "#F97316"} />
+                                    <Ionicons name="chevron-forward" size={16} color={accentColor || "#EA580C"} />
                                 </TouchableOpacity>
                             )}
                         </>
@@ -1918,9 +1906,9 @@ export default function GraderTab({
             <SmoothBottomSheetModal
                 visible={sourceModalOpen}
                 onClose={() => setSourceModalOpen(false)}
-                sheetStyle={[styles.actionSheet, { backgroundColor: cardBg }]}
+                sheetStyle={[styles.actionSheet, skeuoCardStyle(skeuo, 22), { backgroundColor: cardBg }]}
             >
-                <View style={styles.sheetDragHandle} />
+                <View style={[styles.sheetDragHandle, { backgroundColor: skeuo.borderStrong }]} />
 
                 <View style={styles.actionSheetHeader}>
                     <View style={{ flex: 1, paddingRight: 10 }}>
@@ -1929,7 +1917,7 @@ export default function GraderTab({
                     </View>
                     <TouchableOpacity
                         onPress={() => setSourceModalOpen(false)}
-                        style={[styles.sheetCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                        style={[styles.sheetCloseBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
                         <Ionicons name="close" size={16} color={textSub} />
@@ -1937,33 +1925,33 @@ export default function GraderTab({
                 </View>
 
                 <TouchableOpacity
-                    style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
+                    style={[styles.sheetBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
                     onPress={handleOpenCamera}
-                    activeOpacity={0.7}
+                    activeOpacity={0.75}
                 >
-                    <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
-                        <Ionicons name="camera-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                    <View style={[styles.neutralOptionIcon, skeuoWellStyle(skeuo, 10)]}>
+                        <Ionicons name="camera-outline" size={18} color={textMain} />
                     </View>
                     <View style={{ flex: 1 }}>
                         <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Take Photo with Camera</Text>
                         <Text style={[styles.sheetBtnSub, { color: textSub }]}>{"Snap a photo of the student's test sheet"}</Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                    <Ionicons name="chevron-forward" size={18} color={textSub} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[styles.sheetBtn, { backgroundColor: darkMode ? "#1E293B" : "#F9FAFB", borderColor: border }]}
+                    style={[styles.sheetBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
                     onPress={handlePickImage}
-                    activeOpacity={0.7}
+                    activeOpacity={0.75}
                 >
-                    <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#0F172A" : "#FFFFFF", borderColor: border }]}>
-                        <Ionicons name="image-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                    <View style={[styles.neutralOptionIcon, skeuoWellStyle(skeuo, 10)]}>
+                        <Ionicons name="image-outline" size={18} color={textMain} />
                     </View>
                     <View style={{ flex: 1 }}>
                         <Text style={[styles.sheetBtnTitle, { color: textMain }]}>Choose from Photo Library</Text>
                         <Text style={[styles.sheetBtnSub, { color: textSub }]}>Upload an existing photo from device</Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                    <Ionicons name="chevron-forward" size={18} color={textSub} />
                 </TouchableOpacity>
             </SmoothBottomSheetModal>
 
@@ -2063,7 +2051,7 @@ export default function GraderTab({
                     activeOpacity={1}
                     onPress={() => setStudentPickerOpen(false)}
                 >
-                    <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
+                    <View style={[styles.ddSheet, skeuoCardStyle(skeuo, 18), { backgroundColor: cardBg }]}>
                         <Text style={[styles.ddTitle, { color: accentColor }]}>
                             Link Sheet to Classroom Student
                         </Text>
@@ -2138,7 +2126,7 @@ export default function GraderTab({
                         const remaining = Math.max(0, filteredEntries.length - visibleEntries.length);
 
                         return (
-                            <View style={[styles.ddSheet, { backgroundColor: darkMode ? "#1F2937" : "#FFFFFF" }]}>
+                            <View style={[styles.ddSheet, skeuoCardStyle(skeuo, 18), { backgroundColor: cardBg }]}>
                                 <View style={styles.ddHeaderRow}>
                                     <View style={{ flex: 1 }}>
                                         <Text style={[styles.ddTitle, { color: accentColor, marginBottom: 0 }]}>
@@ -2162,10 +2150,7 @@ export default function GraderTab({
                                     <View
                                         style={[
                                             styles.ddSearchBox,
-                                            {
-                                                backgroundColor: darkMode ? "#111827" : "#F8FAFC",
-                                                borderColor: darkMode ? "#374151" : "#E5E7EB",
-                                            },
+                                            skeuoWellStyle(skeuo, 10),
                                         ]}
                                     >
                                         <Ionicons name="search-outline" size={15} color={textSub} />

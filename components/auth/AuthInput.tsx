@@ -10,6 +10,7 @@ import {
   View,
   ViewStyle,
 } from "react-native";
+import { getSkeuoPalette, skeuoWellStyle } from "../skeuoTheme";
 
 export interface AuthTheme {
   bgPage: string;
@@ -38,52 +39,52 @@ export interface AuthTheme {
 export function getAuthTheme(darkMode: boolean): AuthTheme {
   if (darkMode) {
     return {
-      bgPage: "#09090B",
-      bgSurface: "#18181B",
-      bgSubtle: "#27272A",
-      border: "#27272A",
-      borderHairline: "#27272A",
-      borderInput: "#3F3F46",
-      textPrimary: "#FAFAFA",
-      textSecondary: "#E4E4E7",
-      textMuted: "#A1A1AA",
-      placeholder: "#71717A",
+      bgPage: "#121418",
+      bgSurface: "#22262E",
+      bgSubtle: "#16191F",
+      border: "#323742",
+      borderHairline: "#262B35",
+      borderInput: "#3A404D",
+      textPrimary: "#F4F2ED",
+      textSecondary: "#C8CCD6",
+      textMuted: "#8F96A6",
+      placeholder: "#687082",
       accent: "#EA580C",
-      accentBg: "rgba(234, 88, 12, 0.14)",
+      accentBg: "#2E1A10",
       accentText: "#FB923C",
       success: "#10B981",
-      successBg: "rgba(16, 185, 129, 0.14)",
-      successBorder: "rgba(16, 185, 129, 0.35)",
-      successText: "#34D399",
-      btnDarkBg: "#FAFAFA",
-      btnDarkText: "#18181B",
-      btnDisabledBg: "#27272A",
-      btnDisabledText: "#71717A",
+      successBg: "#112921",
+      successBorder: "#1E5B47",
+      successText: "#86EFAC",
+      btnDarkBg: "#F4F2ED",
+      btnDarkText: "#181A1F",
+      btnDisabledBg: "#1D2028",
+      btnDisabledText: "#687082",
     };
   }
 
   return {
-    bgPage: "#FAFAFA",
-    bgSurface: "#FFFFFF",
-    bgSubtle: "#F4F4F5",
-    border: "#E4E4E7",
-    borderHairline: "#F4F4F5",
-    borderInput: "#D4D4D8",
-    textPrimary: "#18181B",
-    textSecondary: "#3F3F46",
-    textMuted: "#71717A",
-    placeholder: "#A1A1AA",
+    bgPage: "#EAE7E1",
+    bgSurface: "#F9F7F3",
+    bgSubtle: "#E5E1D9",
+    border: "#D4CFC5",
+    borderHairline: "#E1DCD2",
+    borderInput: "#C3BCB0",
+    textPrimary: "#1C1917",
+    textSecondary: "#44403C",
+    textMuted: "#78716C",
+    placeholder: "#9C958B",
     accent: "#EA580C",
-    accentBg: "#FFF7ED",
+    accentBg: "#FCEEE3",
     accentText: "#C2410C",
-    success: "#10B981",
-    successBg: "#ECFDF5",
-    successBorder: "#D1FAE5",
-    successText: "#059669",
-    btnDarkBg: "#18181B",
-    btnDarkText: "#FFFFFF",
-    btnDisabledBg: "#E4E4E7",
-    btnDisabledText: "#A1A1AA",
+    success: "#059669",
+    successBg: "#E8F6EF",
+    successBorder: "#9CD6BC",
+    successText: "#065F46",
+    btnDarkBg: "#24272E",
+    btnDarkText: "#FAF8F5",
+    btnDisabledBg: "#DDD8CE",
+    btnDisabledText: "#9C958B",
   };
 }
 
@@ -169,6 +170,7 @@ export function AuthInput({
 }: AuthInputProps) {
   const [focused, setFocused] = useState(false);
   const theme = getAuthTheme(darkMode);
+  const palette = getSkeuoPalette(darkMode, theme.accent);
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
@@ -185,9 +187,14 @@ export function AuthInput({
       <View
         style={[
           styles.inputBox,
-          {
-            backgroundColor: theme.bgSurface,
-            borderColor: focused ? theme.accent : theme.borderInput,
+          skeuoWellStyle(palette, 12),
+          focused && {
+            backgroundColor: darkMode ? "#12151C" : "#FCFBF8",
+            borderWidth: 1.5,
+            borderTopColor: palette.accent,
+            borderLeftColor: palette.accent,
+            borderRightColor: palette.accent,
+            borderBottomColor: palette.accent,
           },
         ]}
       >
@@ -224,8 +231,9 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     marginBottom: 6,
+    letterSpacing: 0.1,
   },
   helperText: {
     fontSize: 12,

@@ -22,6 +22,10 @@ import {
 } from "../lib/gradingService";
 import { LayoutJSON } from "../lib/printEngine/types";
 import { getCroppedQuestionImageUri } from "../lib/questionCropService";
+import {
+    getSkeuoPalette,
+    skeuoButtonStyle,
+} from "./skeuoTheme";
 
 export interface LowConfidenceReviewModalProps {
     visible: boolean;
@@ -264,12 +268,13 @@ export function LowConfidenceReviewModal({
 
     if (!gradingResult) return null;
 
-    // Theme tokens
-    const bg = darkMode ? "#0F172A" : "#FFFFFF";
-    const cardBg = darkMode ? "#1E293B" : "#FFFFFF";
-    const border = darkMode ? "#334155" : "#E2E8F0";
-    const textMain = darkMode ? "#F8FAFC" : "#0F172A";
-    const textSub = darkMode ? "#94A3B8" : "#64748B";
+    // Skeuomorphic Theme tokens
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
+    const bg = skeuo.canvas;
+    const cardBg = skeuo.surface;
+    const border = skeuo.border;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
 
     const fullPreviewModal = scannedImageUri ? (() => {
         const activeCropUri =
@@ -434,11 +439,11 @@ export function LowConfidenceReviewModal({
                             )}
 
                             <TouchableOpacity
-                                style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                                style={[styles.closeIconBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}
                                 onPress={onClose}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                                <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
+                                <Ionicons name="close" size={18} color={textSub} />
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -1028,7 +1033,7 @@ export function LowConfidenceReviewModal({
                     </ScrollView>
 
                     {/* ── STICKY FOOTER ─────────────────────────────────────────── */}
-                    <View style={[styles.stickyFooter, { borderTopColor: border }]}>
+                    <View style={[styles.stickyFooter, { backgroundColor: skeuo.chrome, borderTopColor: border }]}>
                         <View>
                             <Text style={[styles.footerScoreLabel, { color: textSub }]}>Updated Score</Text>
                             <Text style={[styles.footerScoreValue, { color: textMain }]}>
@@ -1040,9 +1045,9 @@ export function LowConfidenceReviewModal({
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.saveReviewBtn, { backgroundColor: accentColor }]}
+                            style={[styles.saveReviewBtn, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 13 })]}
                             onPress={handleApplyChanges}
-                            activeOpacity={0.8}
+                            activeOpacity={0.85}
                         >
                             <Text style={styles.saveReviewBtnText}>Save Review</Text>
                         </TouchableOpacity>

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { TeacherRegistrationProfile } from "../lib/teacherRegistration";
 import type { WebVerificationPhotoFiles } from "../lib/teacherRegistrationUpload";
+import { showConfirm } from "./CustomAlertModal";
 import styles from "./TeacherRegistrationWeb.module.css";
 
 export interface TeacherVerificationStep2WebProps {
@@ -354,12 +355,16 @@ export function TeacherVerificationStep2Web({
       <button
         type="button"
         className={styles.secondaryLinkBtn}
-        onClick={() => {
-          if (
-            window.confirm(
-              "Cancel registration? Your Step 1 details will be discarded and not saved, so you can register again with the same email."
-            )
-          ) {
+        onClick={async () => {
+          const confirmed = await showConfirm({
+            title: "Cancel Registration?",
+            message:
+              "Your Step 1 details will be discarded and not saved, so you can register again with the same email.",
+            confirmText: "Discard & Cancel",
+            cancelText: "Keep Editing",
+            isDestructive: true,
+          });
+          if (confirmed) {
             onSignOut();
           }
         }}

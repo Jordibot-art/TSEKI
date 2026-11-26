@@ -1,25 +1,28 @@
 /* ═══════════════════════════════════════════════════════════════
-   OTP Page Styles (Matching Two-Factor Verification Screen)
+   TSEKI Admin Portal — OTP Page (Modern Tactile Skeuomorphism)
    ═══════════════════════════════════════════════════════════════ */
 
 .otp-page {
   display: flex;
   min-height: 100vh;
   width: 100%;
-  background: white;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  background: var(--skeuo-canvas-bg);
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
-/* ── Left Brand Panel ──────────────────────────────────────── */
+/* ── Left Brand Panel (Anodized Orange Chassis) ────────────── */
 .otp-brand-panel {
   flex: 0 0 46%;
-  background: linear-gradient(135deg, #ff6b00 0%, #ea580c 50%, #c2410c 100%);
+  background: linear-gradient(155deg, #FF7B1A 0%, #EA580C 52%, #B93C08 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow: hidden;
-  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.05);
+  border-right: 1px solid rgba(124, 45, 18, 0.45);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.2),
+    8px 0 30px -6px rgba(28, 25, 23, 0.25);
 }
 
 .brand-content {
@@ -32,28 +35,38 @@
 
 .mascot-container {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
   margin-bottom: 24px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-bottom: 3px solid rgba(124, 45, 18, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 16px 36px -8px rgba(124, 45, 18, 0.48);
 }
 
 .mascot-image {
-  width: 190px;
+  width: 178px;
   height: auto;
-  border-radius: var(--radius-xl);
-  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.22));
+  border-radius: 18px;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.24));
   animation: float 4s ease-in-out infinite;
 }
 
 .mascot-glow {
   position: absolute;
-  inset: -20px;
+  inset: -24px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, transparent 70%);
   pointer-events: none;
 }
 
 .brand-text {
-  color: white;
+  color: #FFFFFF;
 }
 
 .brand-title {
@@ -65,28 +78,32 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+  text-shadow: 0 2px 6px rgba(124, 45, 18, 0.35);
 }
 
 .brand-badge {
   display: inline-flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.24);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.16) 100%);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-bottom: 2px solid rgba(124, 45, 18, 0.35);
+  color: #FFFFFF;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 1.2px;
-  padding: 4px 10px;
+  padding: 4px 11px;
   border-radius: 9999px;
   text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 8px rgba(124, 45, 18, 0.25);
 }
 
 .brand-subtitle {
   font-size: 15px;
-  opacity: 0.92;
-  font-weight: 400;
+  opacity: 0.94;
+  font-weight: 500;
   letter-spacing: 0.2px;
+  text-shadow: 0 1px 3px rgba(124, 45, 18, 0.25);
 }
 
 .brand-bg-shapes {
@@ -98,7 +115,8 @@
 .bg-circle {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .bg-circle-1 {
@@ -120,19 +138,19 @@
   height: 200px;
   bottom: 25%;
   left: 10%;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
 }
 
-/* ── Right Panel: Form ─────────────────────────────────────── */
+/* ── Right Panel: Form (Brushed Aluminum + Raised Plaque) ──── */
 .otp-form-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  padding: 36px 40px;
+  padding: 32px 40px;
   position: relative;
-  background: #ffffff;
+  background: var(--skeuo-canvas-bg);
 }
 
 .otp-top-actions {
@@ -147,114 +165,189 @@
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  font-weight: 600;
-  color: #64748b;
-  padding: 6px 10px;
-  border-radius: 8px;
-  transition: all 0.15s ease;
+  font-weight: 700;
+  color: #44403C;
+  padding: 8px 13px;
+  border-radius: 10px;
+  background: var(--skeuo-neutral-btn);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-top-color: #FFFFFF;
+  border-bottom: 2.5px solid var(--skeuo-plaque-lip);
+  box-shadow: var(--shadow-xs);
+  transition: transform 0.12s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .otp-back-link:hover {
-  color: #0f172a;
-  background: #f1f5f9;
+  color: #EA580C;
+  background: var(--skeuo-neutral-btn-hover);
+}
+
+.otp-back-link:active {
+  transform: translateY(1.5px);
+  border-bottom-width: 1px;
 }
 
 .theme-toggle-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: #f1f5f9;
-  color: #334155;
-  border: 1px solid #e2e8f0;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--skeuo-neutral-btn);
+  color: #44403C;
+  border: 1px solid var(--skeuo-plaque-border);
+  border-top-color: #FFFFFF;
+  border-bottom: 2.5px solid var(--skeuo-plaque-lip);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.12s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .theme-toggle-btn:hover {
-  background: #e2e8f0;
-  transform: translateY(-1px);
+  background: var(--skeuo-neutral-btn-hover);
+  color: #EA580C;
+}
+
+.theme-toggle-btn:active {
+  transform: translateY(1.5px);
+  border-bottom-width: 1px;
 }
 
 .otp-form-container {
   width: 100%;
-  max-width: 420px;
+  max-width: 458px;
   margin: auto 0;
-  animation: fadeIn 0.6s ease-out;
+  padding: 32px 30px 28px;
+  border-radius: 22px;
+  background: var(--skeuo-surface-bg);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 3px solid var(--skeuo-plaque-lip);
+  box-shadow: var(--skeuo-plaque-shadow);
+  animation: fadeIn 0.5s ease-out;
 }
 
 .otp-header {
-  margin-bottom: 22px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--skeuo-groove-dark);
+  box-shadow: 0 1px 0 var(--skeuo-groove-light);
 }
 
 .otp-title {
-  font-size: 30px;
+  font-size: 27px;
   font-weight: 800;
-  color: #0f172a;
+  color: #1C1917;
   letter-spacing: -0.6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .otp-description {
-  font-size: 14px;
-  color: #64748b;
+  font-size: 13.5px;
+  color: #57534E;
   line-height: 1.5;
 }
 
 .otp-description strong {
-  color: #1e293b;
-  font-weight: 600;
+  color: #1C1917;
+  font-weight: 700;
 }
 
-/* Green Notice Banner */
-.otp-info-banner {
+/* Unified Skeuomorphic Notice, Warning, Success & Error Plaques */
+.otp-info-banner,
+.otp-warning-banner,
+.otp-success-alert,
+.otp-error-alert {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  color: #065f46;
+  gap: 11px;
+  padding: 13px 16px 13px 19px;
+  border-radius: 12px;
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.5;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
+  overflow: hidden;
+  border-width: 1px;
+  border-style: solid;
+  border-bottom-width: 2px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 2px 6px rgba(28, 25, 23, 0.08),
+    0 8px 18px -6px rgba(28, 25, 23, 0.12);
   animation: fadeInDown 0.3s ease-out;
 }
 
+.otp-info-banner::before,
+.otp-warning-banner::before,
+.otp-success-alert::before,
+.otp-error-alert::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.otp-info-banner,
+.otp-success-alert {
+  background: var(--banner-success-bg);
+  border-color: var(--banner-success-border);
+  color: var(--banner-success-text);
+}
+
+.otp-info-banner::before,
+.otp-success-alert::before {
+  background: var(--led-success);
+  box-shadow: 1px 0 8px rgba(16, 185, 129, 0.55);
+}
+
+.otp-success-alert,
+.otp-error-alert {
+  align-items: center;
+}
+
+.otp-error-alert {
+  background: var(--banner-error-bg);
+  border-color: var(--banner-error-border);
+  color: var(--banner-error-text);
+}
+
+.otp-error-alert::before {
+  background: var(--led-error);
+  box-shadow: 1px 0 8px rgba(239, 68, 68, 0.55);
+}
+
 .banner-icon {
-  color: #059669;
+  color: var(--led-success);
   flex-shrink: 0;
   margin-top: 2px;
 }
 
-/* Amber Warning Banner when Gmail SMTP is not yet configured */
 .otp-warning-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 10px;
-  color: #92400e;
-  font-size: 13px;
-  line-height: 1.5;
-  margin-bottom: 20px;
-  animation: fadeInDown 0.3s ease-out;
+  background: var(--banner-warning-bg);
+  border-color: var(--banner-warning-border);
+  color: var(--banner-warning-text);
+}
+
+.otp-warning-banner::before {
+  background: var(--led-warning);
+  box-shadow: 1px 0 8px rgba(245, 158, 11, 0.55);
 }
 
 .otp-warning-banner code {
-  background: rgba(146, 64, 14, 0.1);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 12px;
+  background: rgba(146, 64, 14, 0.14);
+  border: 1px solid rgba(146, 64, 14, 0.22);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .warning-banner-icon {
-  color: #d97706;
+  color: var(--led-warning);
   flex-shrink: 0;
   margin-top: 2px;
 }
@@ -267,51 +360,21 @@
 
 .demo-hint {
   font-size: 12.5px;
-  color: #065f46;
+  color: #065F46;
 }
 
 .demo-hint strong {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
   letter-spacing: 2px;
 }
 
-/* Success / Error Alerts */
-.otp-success-alert {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 8px;
-  color: #065f46;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 18px;
-  animation: fadeInDown 0.3s ease-out;
-}
-
-.otp-error-alert {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  color: #b91c1c;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 18px;
-  animation: fadeInDown 0.3s ease-out;
-}
-
 .error-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: #ef4444;
+  background: var(--led-error);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.65);
   flex-shrink: 0;
 }
 
@@ -330,8 +393,8 @@
 
 .otp-field-label {
   font-size: 11px;
-  font-weight: 700;
-  color: #475569;
+  font-weight: 800;
+  color: #57534E;
   text-transform: uppercase;
   letter-spacing: 0.8px;
 }
@@ -345,35 +408,38 @@
 .otp-key-icon {
   position: absolute;
   left: 14px;
-  color: #94a3b8;
+  color: #EA580C;
   pointer-events: none;
   transition: color 0.2s ease;
 }
 
 .otp-code-input {
   width: 100%;
-  min-height: 48px;
+  min-height: 52px;
   padding: 13px 14px 13px 44px;
-  border: 2px solid #ea580c;
-  border-radius: 10px;
-  font-size: max(1rem, 16px);
-  font-weight: 600;
-  color: #0f172a;
-  background: #ffffff;
+  border: 1.5px solid #EA580C;
+  border-radius: 12px;
+  font-family: var(--font-mono);
+  font-size: max(1rem, 18px);
+  font-weight: 700;
+  color: #1C1917;
+  background: var(--skeuo-well-bg);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+  box-shadow: inset 0 2px 4px rgba(28, 25, 23, 0.12), var(--skeuo-focus-ring);
   transition: all 0.2s ease;
-  letter-spacing: 3px;
+  letter-spacing: 4px;
 }
 
 .otp-code-input::placeholder {
-  color: #94a3b8;
-  font-weight: 400;
+  color: #8C857B;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
   letter-spacing: normal;
 }
 
 .otp-input-wrapper:focus-within .otp-key-icon {
-  color: #ea580c;
+  color: #EA580C;
 }
 
 /* Resend Row */
@@ -386,47 +452,55 @@
 }
 
 .resend-text {
-  color: #64748b;
+  color: #57534E;
 }
 
 .resend-countdown {
-  color: #94a3b8;
-  font-weight: 500;
+  color: #78716C;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .resend-button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #ea580c;
-  font-weight: 600;
+  color: #EA580C;
+  font-weight: 700;
   font-size: 13px;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
+  padding: 4px 8px;
+  border-radius: 7px;
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .resend-button:hover:not(:disabled) {
-  color: #c2410c;
-  background: #fff7ed;
+  color: #C2410C;
+  background: rgba(234, 88, 12, 0.1);
 }
 
-/* Verify Button */
+/* Tactile 3D Verify Button */
 .otp-verify-button {
   width: 100%;
-  min-height: 48px;
+  min-height: 50px;
   padding: 14px 24px;
-  background: #1e293b;
-  color: #ffffff;
+  background: var(--skeuo-orange-btn);
+  color: #FFFFFF;
   font-size: 15px;
-  font-weight: 600;
-  border-radius: 10px;
-  border: none;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border-radius: 12px;
+  border: 1px solid #B84208;
+  border-top-color: #FDA86A;
+  border-bottom: 3px solid #9A3412;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 4px 12px rgba(234, 88, 12, 0.32);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.12s ease;
   margin-top: 6px;
   display: flex;
   align-items: center;
@@ -434,18 +508,16 @@
 }
 
 .otp-verify-button:hover:not(:disabled) {
-  background: #0f172a;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
-  transform: translateY(-1px);
+  background: var(--skeuo-orange-btn-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 6px 16px rgba(234, 88, 12, 0.38);
 }
 
 .otp-verify-button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.otp-verify-button:focus-visible {
-  outline: 2px solid #ea580c;
-  outline-offset: 2px;
+  transform: translateY(1.5px);
+  border-bottom-width: 1px;
+  box-shadow: inset 0 2px 5px rgba(124, 45, 18, 0.45);
 }
 
 .otp-verify-button:disabled {
@@ -477,84 +549,80 @@
 }
 
 .otp-copyright {
-  margin-top: 48px;
+  margin-top: 32px;
   text-align: center;
   font-size: 12px;
-  color: #94a3b8;
+  font-weight: 600;
+  color: #78716C;
 }
 
 /* ── Dark Mode ─────────────────────────────────────────────── */
-.otp-page.dark {
-  background: #0f172a;
+:is(.dark .otp-page, .otp-page.dark) {
+  background: var(--skeuo-canvas-bg);
+  color-scheme: dark;
 }
 
-.otp-page.dark .otp-form-panel {
-  background: #0f172a;
+:is(.dark .otp-page, .otp-page.dark) .otp-form-panel {
+  background: var(--skeuo-canvas-bg);
 }
 
-.otp-page.dark .otp-back-link {
-  color: #94a3b8;
+:is(.dark .otp-page, .otp-page.dark) .otp-back-link,
+:is(.dark .otp-page, .otp-page.dark) .theme-toggle-btn {
+  background: var(--skeuo-neutral-btn);
+  color: #F4F2ED;
+  border-color: #3C4250;
+  border-top-color: #4C5365;
+  border-bottom-color: #0D0F13;
 }
 
-.otp-page.dark .otp-back-link:hover {
-  color: #f8fafc;
-  background: #1e293b;
+:is(.dark .otp-page, .otp-page.dark) .otp-back-link:hover,
+:is(.dark .otp-page, .otp-page.dark) .theme-toggle-btn:hover {
+  background: var(--skeuo-neutral-btn-hover);
+  color: #FB923C;
 }
 
-.otp-page.dark .theme-toggle-btn {
-  background: #1e293b;
-  color: #f8fafc;
-  border-color: #334155;
+:is(.dark .otp-page, .otp-page.dark) .otp-title {
+  color: #F4F2ED;
 }
 
-.otp-page.dark .otp-title {
-  color: #f8fafc;
+:is(.dark .otp-page, .otp-page.dark) .otp-description {
+  color: #A3A8B4;
 }
 
-.otp-page.dark .otp-description {
-  color: #94a3b8;
+:is(.dark .otp-page, .otp-page.dark) .otp-description strong {
+  color: #F4F2ED;
 }
 
-.otp-page.dark .otp-description strong {
-  color: #e2e8f0;
+:is(.dark .otp-page, .otp-page.dark) .otp-info-banner,
+:is(.dark .otp-page, .otp-page.dark) .otp-warning-banner,
+:is(.dark .otp-page, .otp-page.dark) .otp-success-alert,
+:is(.dark .otp-page, .otp-page.dark) .otp-error-alert {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 20px -4px rgba(0, 0, 0, 0.45);
 }
 
-.otp-page.dark .otp-info-banner {
-  background: rgba(6, 95, 70, 0.2);
-  border-color: #065f46;
-  color: #34d399;
+:is(.dark .otp-page, .otp-page.dark) .demo-hint {
+  color: #86EFAC;
 }
 
-.otp-page.dark .otp-warning-banner {
-  background: rgba(146, 64, 14, 0.22);
-  border-color: #b45309;
-  color: #fcd34d;
+:is(.dark .otp-page, .otp-page.dark) .otp-field-label {
+  color: #A3A8B4;
 }
 
-.otp-page.dark .demo-hint {
-  color: #6ee7b7;
+:is(.dark .otp-page, .otp-page.dark) .otp-code-input {
+  background: var(--skeuo-well-bg);
+  color: #F4F2ED;
+  border-color: #FF6B00;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.65), var(--skeuo-focus-ring);
 }
 
-.otp-page.dark .otp-field-label {
-  color: #94a3b8;
+:is(.dark .otp-page, .otp-page.dark) .resend-text {
+  color: #A3A8B4;
 }
 
-.otp-page.dark .otp-code-input {
-  background: #1e293b;
-  color: #f8fafc;
-  border-color: #ea580c;
-}
-
-.otp-page.dark .otp-verify-button {
-  background: #ea580c;
-}
-
-.otp-page.dark .otp-verify-button:hover:not(:disabled) {
-  background: #c2410c;
-}
-
-.otp-page.dark .otp-copyright {
-  color: #64748b;
+:is(.dark .otp-page, .otp-page.dark) .otp-copyright {
+  color: #6F7685;
 }
 
 /* ── Responsive ────────────────────────────────────────────── */
@@ -566,10 +634,12 @@
   .otp-brand-panel {
     flex: 0 0 auto;
     padding: 36px 20px;
+    border-right: none;
+    border-bottom: 2px solid rgba(124, 45, 18, 0.45);
   }
 
   .mascot-image {
-    width: 135px;
+    width: 132px;
   }
 
   .brand-title {
@@ -577,10 +647,14 @@
   }
 
   .otp-form-panel {
-    padding: 24px 20px 36px;
+    padding: 24px 18px 36px;
+  }
+
+  .otp-form-container {
+    padding: 26px 22px;
   }
 
   .otp-title {
-    font-size: 24px;
+    font-size: 23px;
   }
 }

@@ -16,6 +16,13 @@ import {
   DifficultyLevel,
   QuestionAnalysisSummary,
 } from "../lib/questionAnalysis";
+import { SkeuoBanner } from "./SkeuoBanner";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+} from "./skeuoTheme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -43,11 +50,12 @@ export function ItemAnalysisModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedQNum, setExpandedQNum] = useState<number | null>(null);
 
-  const bg = darkMode ? "#111827" : "#FFFFFF";
-  const cardBg = darkMode ? "#1F2937" : "#F8FAFC";
-  const border = darkMode ? "#374151" : "#E2E8F0";
-  const textMain = darkMode ? "#F9FAFB" : "#0F172A";
-  const textSub = darkMode ? "#9CA3AF" : "#64748B";
+  const skeuo = getSkeuoPalette(darkMode, accentColor);
+  const bg = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const border = skeuo.border;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
 
   // Filtered questions
   const filteredQuestions = useMemo(() => {
@@ -79,10 +87,10 @@ export function ItemAnalysisModal({
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={[styles.root, { backgroundColor: bg }]}>
         {/* ── Header ── */}
-        <View style={[styles.header, { borderBottomColor: border }]}>
+        <View style={[styles.header, { backgroundColor: skeuo.chrome, borderBottomColor: border }]}>
           <View style={{ flex: 1 }}>
             <View style={styles.titleBadgeRow}>
-              <View style={[styles.headerPill, { backgroundColor: accentColor + "18" }]}>
+              <View style={[styles.headerPill, skeuoWellStyle(skeuo, 8), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
                 <Ionicons name="bar-chart-outline" size={13} color={accentColor} />
                 <Text style={[styles.headerPillText, { color: accentColor }]}>ITEM ANALYSIS</Text>
               </View>
@@ -95,7 +103,7 @@ export function ItemAnalysisModal({
             </Text>
           </View>
 
-          <TouchableOpacity style={[styles.closeBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]} onPress={onClose} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.closeBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 18 })]} onPress={onClose} activeOpacity={0.75}>
             <Ionicons name="close" size={20} color={textMain} />
           </TouchableOpacity>
         </View>
@@ -104,7 +112,7 @@ export function ItemAnalysisModal({
           {/* ── Summary KPI Cards ── */}
           <View style={styles.kpiRow}>
             {/* Avg Difficulty */}
-            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={[styles.kpiCard, skeuoCardStyle(skeuo, 14)]}>
               <Text style={[styles.kpiLabel, { color: textSub }]}>Avg Difficulty (p)</Text>
               <Text style={[styles.kpiValue, { color: accentColor }]}>
                 {averageDifficultyIndex.toFixed(2)}
@@ -115,7 +123,7 @@ export function ItemAnalysisModal({
             </View>
 
             {/* Class Average */}
-            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={[styles.kpiCard, skeuoCardStyle(skeuo, 14)]}>
               <Text style={[styles.kpiLabel, { color: textSub }]}>Class Average</Text>
               <Text style={[styles.kpiValue, { color: classAverageScore >= 75 ? "#10B981" : classAverageScore <= 50 ? "#EF4444" : "#F59E0B" }]}>
                 {classAverageScore}%
@@ -124,7 +132,7 @@ export function ItemAnalysisModal({
             </View>
 
             {/* Questions Flagged */}
-            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={[styles.kpiCard, skeuoCardStyle(skeuo, 14)]}>
               <Text style={[styles.kpiLabel, { color: textSub }]}>Hard Items (p&lt;0.25)</Text>
               <Text style={[styles.kpiValue, { color: difficultyBreakdown.difficultCount > 0 ? "#EF4444" : "#10B981" }]}>
                 {difficultyBreakdown.difficultCount}
@@ -135,24 +143,20 @@ export function ItemAnalysisModal({
             </View>
           </View>
 
-          {/* ── Pedagogical Synthesis Banner ── */}
+          {/* ── Pedagogical Synthesis Plaque ── */}
           {overallRecommendation ? (
-            <View style={[styles.adviceBanner, { backgroundColor: darkMode ? "#1E1B4B" : "#EEF2FF", borderColor: "#6366F140" }]}>
-              <Ionicons name="bulb-outline" size={20} color="#6366F1" style={{ marginTop: 2 }} />
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={[styles.adviceTitle, { color: darkMode ? "#C7D2FE" : "#3730A3" }]}>
-                  Tseki Diagnostic Recommendation
-                </Text>
-                <Text style={[styles.adviceText, { color: darkMode ? "#E0E7FF" : "#4338CA" }]}>
-                  {overallRecommendation}
-                </Text>
-              </View>
-            </View>
+            <SkeuoBanner
+              variant="info"
+              icon="bulb-outline"
+              title="Tseki Diagnostic Recommendation"
+              message={overallRecommendation}
+              style={{ marginBottom: 16 }}
+            />
           ) : null}
 
           {/* ── Filter / Search Bar ── */}
           <View style={styles.filterSection}>
-            <View style={[styles.searchBox, { backgroundColor: cardBg, borderColor: border }]}>
+            <View style={[styles.searchBox, skeuoWellStyle(skeuo, 12)]}>
               <Ionicons name="search" size={16} color={textSub} />
               <TextInput
                 style={[styles.searchInput, { color: textMain }]}
@@ -173,8 +177,9 @@ export function ItemAnalysisModal({
               <TouchableOpacity
                 style={[
                   styles.filterPill,
-                  filterLevel === "ALL" && { backgroundColor: accentColor, borderColor: accentColor },
-                  filterLevel !== "ALL" && { backgroundColor: cardBg, borderColor: border },
+                  filterLevel === "ALL"
+                    ? skeuoButtonStyle(skeuo, { fill: accentColor, radius: 10 })
+                    : skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
                 onPress={() => setFilterLevel("ALL")}
               >
@@ -186,12 +191,13 @@ export function ItemAnalysisModal({
               <TouchableOpacity
                 style={[
                   styles.filterPill,
-                  filterLevel === "Difficult" && { backgroundColor: "#EF4444", borderColor: "#EF4444" },
-                  filterLevel !== "Difficult" && { backgroundColor: cardBg, borderColor: border },
+                  filterLevel === "Difficult"
+                    ? skeuoButtonStyle(skeuo, { fill: "#DC2626", highlight: "#F87171", lip: "#991B1B", radius: 10 })
+                    : skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
                 onPress={() => setFilterLevel("Difficult")}
               >
-                <View style={[styles.dot, { backgroundColor: "#EF4444" }]} />
+                <View style={[styles.dot, { backgroundColor: filterLevel === "Difficult" ? "#FFF" : "#EF4444" }]} />
                 <Text style={[styles.filterPillText, filterLevel === "Difficult" ? { color: "#FFF" } : { color: textMain }]}>
                   Difficult ({difficultyBreakdown.difficultCount})
                 </Text>
@@ -200,12 +206,13 @@ export function ItemAnalysisModal({
               <TouchableOpacity
                 style={[
                   styles.filterPill,
-                  filterLevel === "Moderate" && { backgroundColor: "#2563EB", borderColor: "#2563EB" },
-                  filterLevel !== "Moderate" && { backgroundColor: cardBg, borderColor: border },
+                  filterLevel === "Moderate"
+                    ? skeuoButtonStyle(skeuo, { fill: "#2563EB", highlight: "#60A5FA", lip: "#1E40AF", radius: 10 })
+                    : skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
                 onPress={() => setFilterLevel("Moderate")}
               >
-                <View style={[styles.dot, { backgroundColor: "#2563EB" }]} />
+                <View style={[styles.dot, { backgroundColor: filterLevel === "Moderate" ? "#FFF" : "#2563EB" }]} />
                 <Text style={[styles.filterPillText, filterLevel === "Moderate" ? { color: "#FFF" } : { color: textMain }]}>
                   Moderate ({difficultyBreakdown.moderateCount})
                 </Text>
@@ -214,12 +221,13 @@ export function ItemAnalysisModal({
               <TouchableOpacity
                 style={[
                   styles.filterPill,
-                  filterLevel === "Easy" && { backgroundColor: "#10B981", borderColor: "#10B981" },
-                  filterLevel !== "Easy" && { backgroundColor: cardBg, borderColor: border },
+                  filterLevel === "Easy"
+                    ? skeuoButtonStyle(skeuo, { fill: "#059669", highlight: "#34D399", lip: "#065F46", radius: 10 })
+                    : skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
                 onPress={() => setFilterLevel("Easy")}
               >
-                <View style={[styles.dot, { backgroundColor: "#10B981" }]} />
+                <View style={[styles.dot, { backgroundColor: filterLevel === "Easy" ? "#FFF" : "#10B981" }]} />
                 <Text style={[styles.filterPillText, filterLevel === "Easy" ? { color: "#FFF" } : { color: textMain }]}>
                   Easy ({difficultyBreakdown.easyCount})
                 </Text>
@@ -230,7 +238,7 @@ export function ItemAnalysisModal({
           {/* ── Question Cards List ── */}
           <View style={styles.questionsList}>
             {filteredQuestions.length === 0 ? (
-              <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: border }]}>
+              <View style={[styles.emptyCard, skeuoCardStyle(skeuo, 15)]}>
                 <Ionicons name="search-outline" size={32} color={textSub} />
                 <Text style={[styles.emptyText, { color: textMain }]}>No questions match your filter.</Text>
               </View>
@@ -241,13 +249,13 @@ export function ItemAnalysisModal({
                 const isModerate = q.difficultyLevel === "Moderate";
                 const levelColor = isDifficult ? "#EF4444" : isModerate ? "#2563EB" : "#10B981";
                 const levelBg = isDifficult
-                  ? darkMode ? "#450A0A" : "#FEF2F2"
+                  ? darkMode ? "#2E1417" : "#FBECEB"
                   : isModerate
-                  ? darkMode ? "#1E3A8A40" : "#EFF6FF"
-                  : darkMode ? "#064E3B40" : "#ECFDF5";
+                  ? darkMode ? "#13213B" : "#EAF1FD"
+                  : darkMode ? "#112921" : "#E8F6EF";
 
                 return (
-                  <View key={q.questionNumber} style={[styles.itemCard, { backgroundColor: cardBg, borderColor: border }]}>
+                  <View key={q.questionNumber} style={[styles.itemCard, skeuoCardStyle(skeuo, 15)]}>
                     {/* Header Row */}
                     <TouchableOpacity
                       style={styles.itemHeader}

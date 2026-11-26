@@ -7,7 +7,6 @@ import {
   Square,
   X,
   Download,
-  Info,
 } from "lucide-react";
 import {
   abortableDelay,
@@ -19,6 +18,7 @@ import {
 } from "../lib/printEngine";
 import { showAlert } from "./CustomAlertModal";
 import { PdfExportingAnimation } from "./PdfExportingAnimation";
+import { SkeuoToast } from "./SkeuoToast";
 import styles from "./ExportPdfModal.module.css";
 
 export interface ExportPdfModalProps {
@@ -260,9 +260,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             </div>
 
             {cancelledNotice && (
-              <div className={styles.cancelledBanner} role="status">
-                <Info size={15} />
-                <span>Export cancelled. You can adjust options or export again.</span>
+              <div style={{ marginBottom: 14 }}>
+                <SkeuoToast
+                  message="Export cancelled. You can adjust options or export again."
+                  variant="warning"
+                  inline
+                />
               </div>
             )}
 

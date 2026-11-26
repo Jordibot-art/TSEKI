@@ -22,6 +22,16 @@ import { useTheme } from "../context/ThemeContext";
 import { AssessmentInspectorModal } from "../components/AssessmentInspectorModal";
 import { PdfExportingAnimation } from "../components/PdfExportingAnimation";
 import { PublishingQuizAnimation } from "../components/PublishingQuizAnimation";
+import { SkeuoToast } from "../components/SkeuoToast";
+import {
+  getSemanticTokens,
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoGrooveStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "../components/skeuoTheme";
 import {
   SmoothBottomSheetModal,
   SmoothCenterModal,
@@ -567,14 +577,15 @@ export default function SettingsScreen() {
   }
 
 
-  // ── Dynamic colors ─────────────────────────────────────────────────────────
-  const bg = darkMode ? "#111827" : "#F9FAFB";
-  const card = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-  const border = darkMode ? "#374151" : "#E5E7EB";
-  const inputBg = darkMode ? "#374151" : "#F9FAFB";
-  const inputText = darkMode ? "#F9FAFB" : "#1F2937";
+  // ── Dynamic skeuomorphic colors ────────────────────────────────────────────
+  const skeuo = getSkeuoPalette(darkMode, themeColor || ORANGE);
+  const bg = skeuo.canvas;
+  const card = skeuo.surface;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
+  const border = skeuo.border;
+  const inputBg = skeuo.well;
+  const inputText = skeuo.textPrimary;
 
   if (loadingUser) {
     return (
@@ -587,13 +598,16 @@ export default function SettingsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { backgroundColor: card, borderBottomColor: darkMode ? border : "#F3F4F6" }]}>
+      <View style={[styles.header, { backgroundColor: skeuo.chrome, borderBottomColor: skeuo.bevelBottom }]}>
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
+          onPress={() => {
+            triggerSkeuoHaptic("light");
+            router.back();
+          }}
+          activeOpacity={0.75}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: darkMode ? "#374151" : ORANGE_LIGHT }]}>
+          <View style={[styles.backIconCircle, skeuoButtonStyle(skeuo, { neutral: true, radius: 17 })]}>
             <Ionicons name="chevron-back" size={18} color={ORANGE} />
           </View>
         </TouchableOpacity>
@@ -607,9 +621,9 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Profile Card ── */}
-        <View style={[styles.profileCard, { backgroundColor: card, borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-          <View style={[styles.avatarCircle, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
-            <Text style={[styles.avatarText, { color: darkMode ? "#F8FAFC" : "#334155" }]}>{initials}</Text>
+        <View style={[styles.profileCard, skeuoCardStyle(skeuo, 16)]}>
+          <View style={[styles.avatarCircle, skeuoWellStyle(skeuo, 22)]}>
+            <Text style={[styles.avatarText, { color: textMain }]}>{initials}</Text>
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -617,7 +631,7 @@ export default function SettingsScreen() {
               <Ionicons name="checkmark-circle" size={15} color="#0D9488" />
             </View>
             <Text
-              style={[styles.profileEmail, { color: "#64748B" }]}
+              style={[styles.profileEmail, { color: textSub }]}
               numberOfLines={1}
             >
               {email}
@@ -626,30 +640,30 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Account ── */}
-        <Text style={styles.sectionLabel}>Account</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+        <Text style={[styles.sectionLabel, { color: skeuo.textMuted }]}>ACCOUNT</Text>
+        <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
           <SettingsRow
             icon="person-outline"
             label="Edit Display Name"
             textMain={textMain}
             textSub={textSub}
-            iconColor={darkMode ? "#94A3B8" : "#475569"}
+            iconColor={textSub}
             onPress={() => { setDraftName(fullName); setEditVisible(true); }}
           />
-          <View style={[styles.divider, { backgroundColor: border }]} />
+          <View style={[styles.divider, { backgroundColor: skeuo.grooveDark }]} />
           <SettingsRow
             icon="lock-closed-outline"
             label="Change Password"
             textMain={textMain}
             textSub={textSub}
-            iconColor={darkMode ? "#94A3B8" : "#475569"}
+            iconColor={textSub}
             onPress={() => { setNewPw(""); setConfirmPw(""); setPwVisible(true); }}
           />
         </View>
 
         {/* ── Assessments (Drafts & Archive) ── */}
-        <Text style={styles.sectionLabel}>Assessments</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+        <Text style={[styles.sectionLabel, { color: skeuo.textMuted }]}>ASSESSMENTS</Text>
+        <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
           {/* Draft Assessments */}
           <TouchableOpacity
             style={styles.rowBase}
@@ -692,11 +706,11 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Roster Alerts ── */}
-        <Text style={styles.sectionLabel}>Roster Alerts</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+        <Text style={[styles.sectionLabel, { color: skeuo.textMuted }]}>ROSTER ALERTS</Text>
+        <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
           <View style={styles.alertThresholdBlock}>
             <View style={styles.alertThresholdHeader}>
-              <Ionicons name="notifications-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+              <Ionicons name="notifications-outline" size={18} color={textSub} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.rowLabel, { color: textMain }]}>At-Risk Alert Threshold</Text>
                 <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
@@ -712,17 +726,15 @@ export default function SettingsScreen() {
                     key={preset}
                     style={[
                       styles.alertThresholdChip,
-                      {
-                        backgroundColor: active
-                          ? "#EA580C"
-                          : darkMode
-                            ? "#111827"
-                            : "#F8FAFC",
-                        borderColor: active ? "#EA580C" : border,
-                      },
+                      active
+                        ? skeuoButtonStyle(skeuo, { fill: "#EA580C", radius: 9 })
+                        : skeuoWellStyle(skeuo, 9),
                     ]}
                     activeOpacity={0.8}
-                    onPress={() => handleUpdateAlertPrefs({ atRiskThreshold: preset })}
+                    onPress={() => {
+                      triggerSkeuoHaptic("selection");
+                      handleUpdateAlertPrefs({ atRiskThreshold: preset });
+                    }}
                   >
                     <Text
                       style={[
@@ -738,18 +750,19 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <View style={[styles.divider, { backgroundColor: border }]} />
+          <View style={[styles.divider, { backgroundColor: skeuo.grooveDark }]} />
 
           <TouchableOpacity
             style={styles.rowBase}
             activeOpacity={0.8}
-            onPress={() =>
+            onPress={() => {
+              triggerSkeuoHaptic("selection");
               handleUpdateAlertPrefs({
                 enableScoreDropAlerts: !alertPrefs.enableScoreDropAlerts,
-              })
-            }
+              });
+            }}
           >
-            <Ionicons name="trending-down-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+            <Ionicons name="trending-down-outline" size={18} color={textSub} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: textMain }]}>Sudden Score Drop Alerts</Text>
               <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
@@ -760,7 +773,9 @@ export default function SettingsScreen() {
               style={[
                 styles.customSwitchTrack,
                 {
-                  backgroundColor: alertPrefs.enableScoreDropAlerts ? themeColor : "#CBD5E1",
+                  backgroundColor: alertPrefs.enableScoreDropAlerts ? themeColor : skeuo.wellDeep,
+                  borderColor: alertPrefs.enableScoreDropAlerts ? skeuo.accentLip : skeuo.wellBorderTop,
+                  borderBottomColor: alertPrefs.enableScoreDropAlerts ? skeuo.accentHighlight : skeuo.wellBorderBottom,
                   alignItems: alertPrefs.enableScoreDropAlerts ? "flex-end" : "flex-start",
                 },
               ]}
@@ -771,17 +786,18 @@ export default function SettingsScreen() {
 
           {alertPrefs.atRiskThreshold < PASSING_GRADE - 1 && (
             <>
-              <View style={[styles.divider, { backgroundColor: border }]} />
+              <View style={[styles.divider, { backgroundColor: skeuo.grooveDark }]} />
               <TouchableOpacity
                 style={styles.rowBase}
                 activeOpacity={0.8}
-                onPress={() =>
+                onPress={() => {
+                  triggerSkeuoHaptic("selection");
                   handleUpdateAlertPrefs({
                     includeNearPassing: !alertPrefs.includeNearPassing,
-                  })
-                }
+                  });
+                }}
               >
-                <Ionicons name="flag-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+                <Ionicons name="flag-outline" size={18} color={textSub} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.rowLabel, { color: textMain }]}>Near-Passing Watchlist</Text>
                   <Text style={{ fontSize: 12, color: textSub, marginTop: 1 }}>
@@ -792,7 +808,9 @@ export default function SettingsScreen() {
                   style={[
                     styles.customSwitchTrack,
                     {
-                      backgroundColor: alertPrefs.includeNearPassing ? themeColor : "#CBD5E1",
+                      backgroundColor: alertPrefs.includeNearPassing ? themeColor : skeuo.wellDeep,
+                      borderColor: alertPrefs.includeNearPassing ? skeuo.accentLip : skeuo.wellBorderTop,
+                      borderBottomColor: alertPrefs.includeNearPassing ? skeuo.accentHighlight : skeuo.wellBorderBottom,
                       alignItems: alertPrefs.includeNearPassing ? "flex-end" : "flex-start",
                     },
                   ]}
@@ -803,35 +821,40 @@ export default function SettingsScreen() {
             </>
           )}
 
-          <View style={[styles.divider, { backgroundColor: border }]} />
+          <View style={[styles.divider, { backgroundColor: skeuo.grooveDark }]} />
 
           <TouchableOpacity
             style={styles.rowBase}
             activeOpacity={0.7}
             onPress={handleResetDismissedAlerts}
           >
-            <Ionicons name="refresh-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+            <Ionicons name="refresh-outline" size={18} color={textSub} />
             <Text style={[styles.rowLabel, { color: textMain }]}>Restore Dismissed Alerts</Text>
             <Ionicons name="chevron-forward" size={18} color={textSub} />
           </TouchableOpacity>
         </View>
 
         {/* ── Appearance ── */}
-        <Text style={styles.sectionLabel}>Appearance</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+        <Text style={[styles.sectionLabel, { color: skeuo.textMuted }]}>APPEARANCE</Text>
+        <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
           {/* Dark Mode */}
           <TouchableOpacity
             style={styles.rowBase}
             activeOpacity={0.8}
-            onPress={() => setDarkMode(!darkMode)}
+            onPress={() => {
+              triggerSkeuoHaptic("selection");
+              setDarkMode(!darkMode);
+            }}
           >
-            <Ionicons name="moon-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
+            <Ionicons name="moon-outline" size={18} color={textSub} />
             <Text style={[styles.rowLabel, { color: textMain }]}>Dark Mode</Text>
             <View
               style={[
                 styles.customSwitchTrack,
                 {
-                  backgroundColor: darkMode ? themeColor : "#CBD5E1",
+                  backgroundColor: darkMode ? themeColor : skeuo.wellDeep,
+                  borderColor: darkMode ? skeuo.accentLip : skeuo.wellBorderTop,
+                  borderBottomColor: darkMode ? skeuo.accentHighlight : skeuo.wellBorderBottom,
                   alignItems: darkMode ? "flex-end" : "flex-start",
                 },
               ]}
@@ -842,15 +865,15 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Session ── */}
-        <Text style={styles.sectionLabel}>Session</Text>
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+        <Text style={[styles.sectionLabel, { color: skeuo.textMuted }]}>SESSION</Text>
+        <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
           <TouchableOpacity style={styles.rowBase} onPress={handleLogout} activeOpacity={0.7}>
             <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-            <Text style={[styles.rowLabel, { color: "#EF4444", fontWeight: "600" }]}>Log Out</Text>
+            <Text style={[styles.rowLabel, { color: "#EF4444", fontWeight: "700" }]}>Log Out</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={[styles.versionText, { color: textSub }]}>Tseki v1.0.0</Text>
+        <Text style={[styles.versionText, { color: skeuo.textMuted }]}>Tseki v1.0.0</Text>
       </ScrollView>
 
       {/* ── Edit Name Modal ── */}
@@ -880,35 +903,41 @@ export default function SettingsScreen() {
               ]}
             >
               {/* Centered Drag Pill */}
-              <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
+              <View style={[styles.dragPill, { backgroundColor: skeuo.borderStrong }]} />
 
               {/* Sheet Header */}
               <View style={styles.sheetHeader}>
                 <Text style={[styles.sheetTitle, { color: textMain }]}>Edit display name</Text>
                 <TouchableOpacity
-                  style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                  style={[styles.closeIconBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
                   onPress={() => setEditVisible(false)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
+                  <Ionicons name="close" size={16} color={textSub} />
                 </TouchableOpacity>
               </View>
 
               {/* Form Content */}
-              <Text style={[styles.inputLabel, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+              <Text style={[styles.inputLabel, { color: textMain }]}>
                 Display name
               </Text>
               <TextInput
                 style={[
                   styles.formInput,
+                  skeuoWellStyle(skeuo, 11),
                   {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
                     color: textMain,
-                    borderColor: nameFocused ? "#EA580C" : (darkMode ? "#334155" : "#CBD5E1"),
+                  },
+                  nameFocused && {
+                    borderWidth: 1.5,
+                    borderTopColor: "#EA580C",
+                    borderLeftColor: "#EA580C",
+                    borderRightColor: "#EA580C",
+                    borderBottomColor: "#EA580C",
                   },
                 ]}
                 placeholder="Your full name"
-                placeholderTextColor={textSub}
+                placeholderTextColor={skeuo.textMuted}
                 value={draftName}
                 onChangeText={setDraftName}
                 onFocus={() => setNameFocused(true)}
@@ -921,15 +950,12 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.cancelBtnCompact,
-                    {
-                      backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                      borderColor: darkMode ? "#334155" : "#CBD5E1",
-                    },
+                    skeuoButtonStyle(skeuo, { neutral: true, radius: 11 }),
                   ]}
                   onPress={() => setEditVisible(false)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
-                  <Text style={[styles.cancelBtnTextCompact, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                  <Text style={[styles.cancelBtnTextCompact, { color: textMain }]}>
                     Cancel
                   </Text>
                 </TouchableOpacity>
@@ -937,12 +963,15 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.saveBtnCompact,
+                    skeuoButtonStyle(skeuo, { fill: "#EA580C", radius: 11 }),
                     {
-                      backgroundColor: "#EA580C",
-                      opacity: (!draftName.trim() || savingName) ? 0.6 : 1,
+                      opacity: (!draftName.trim() || savingName) ? 0.55 : 1,
                     },
                   ]}
-                  onPress={handleSaveName}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    handleSaveName();
+                  }}
                   disabled={!draftName.trim() || savingName}
                   activeOpacity={0.8}
                 >
@@ -980,42 +1009,48 @@ export default function SettingsScreen() {
                 styles.bottomSheet,
                 {
                   backgroundColor: card,
+                  borderTopWidth: 1.5,
+                  borderTopColor: skeuo.bevelTop,
                   paddingBottom: Math.max(insets.bottom, 16) + 16,
                 },
               ]}
             >
               {/* Centered Drag Pill */}
-              <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
+              <View style={[styles.dragPill, { backgroundColor: skeuo.borderStrong }]} />
 
               {/* Sheet Header */}
               <View style={styles.sheetHeader}>
                 <Text style={[styles.sheetTitle, { color: textMain }]}>Change password</Text>
                 <TouchableOpacity
-                  style={[styles.closeIconBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+                  style={[styles.closeIconBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
                   onPress={() => setPwVisible(false)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="close" size={18} color={darkMode ? "#94A3B8" : "#64748B"} />
+                  <Ionicons name="close" size={16} color={textSub} />
                 </TouchableOpacity>
               </View>
 
               {/* New Password */}
-              <Text style={[styles.inputLabel, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+              <Text style={[styles.inputLabel, { color: textMain }]}>
                 New password
               </Text>
               <View
                 style={[
                   styles.formPwRow,
-                  {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                    borderColor: newPwFocused ? "#EA580C" : (darkMode ? "#334155" : "#CBD5E1"),
+                  skeuoWellStyle(skeuo, 11),
+                  newPwFocused && {
+                    borderWidth: 1.5,
+                    borderTopColor: "#EA580C",
+                    borderLeftColor: "#EA580C",
+                    borderRightColor: "#EA580C",
+                    borderBottomColor: "#EA580C",
                   },
                 ]}
               >
                 <TextInput
                   style={[styles.formPwInput, { color: textMain }]}
                   placeholder="At least 6 characters"
-                  placeholderTextColor={textSub}
+                  placeholderTextColor={skeuo.textMuted}
                   secureTextEntry={!showNewPw}
                   value={newPw}
                   onChangeText={setNewPw}
@@ -1029,28 +1064,32 @@ export default function SettingsScreen() {
                   <Ionicons
                     name={showNewPw ? "eye-off-outline" : "eye-outline"}
                     size={18}
-                    color="#64748B"
+                    color={textSub}
                   />
                 </TouchableOpacity>
               </View>
 
               {/* Confirm Password */}
-              <Text style={[styles.inputLabel, { color: darkMode ? "#CBD5E1" : "#334155", marginTop: 14 }]}>
+              <Text style={[styles.inputLabel, { color: textMain, marginTop: 14 }]}>
                 Confirm new password
               </Text>
               <View
                 style={[
                   styles.formPwRow,
-                  {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                    borderColor: confirmPwFocused ? "#EA580C" : (darkMode ? "#334155" : "#CBD5E1"),
+                  skeuoWellStyle(skeuo, 11),
+                  confirmPwFocused && {
+                    borderWidth: 1.5,
+                    borderTopColor: "#EA580C",
+                    borderLeftColor: "#EA580C",
+                    borderRightColor: "#EA580C",
+                    borderBottomColor: "#EA580C",
                   },
                 ]}
               >
                 <TextInput
                   style={[styles.formPwInput, { color: textMain }]}
                   placeholder="Repeat new password"
-                  placeholderTextColor={textSub}
+                  placeholderTextColor={skeuo.textMuted}
                   secureTextEntry={!showConfirmPw}
                   value={confirmPw}
                   onChangeText={setConfirmPw}
@@ -1064,7 +1103,7 @@ export default function SettingsScreen() {
                   <Ionicons
                     name={showConfirmPw ? "eye-off-outline" : "eye-outline"}
                     size={18}
-                    color="#64748B"
+                    color={textSub}
                   />
                 </TouchableOpacity>
               </View>
@@ -1074,15 +1113,12 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.cancelBtnCompact,
-                    {
-                      backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                      borderColor: darkMode ? "#334155" : "#CBD5E1",
-                    },
+                    skeuoButtonStyle(skeuo, { neutral: true, radius: 11 }),
                   ]}
                   onPress={() => setPwVisible(false)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
-                  <Text style={[styles.cancelBtnTextCompact, { color: darkMode ? "#CBD5E1" : "#334155" }]}>
+                  <Text style={[styles.cancelBtnTextCompact, { color: textMain }]}>
                     Cancel
                   </Text>
                 </TouchableOpacity>
@@ -1090,12 +1126,15 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.saveBtnCompact,
+                    skeuoButtonStyle(skeuo, { fill: "#EA580C", radius: 11 }),
                     {
-                      backgroundColor: "#EA580C",
-                      opacity: (!newPw || !confirmPw || savingPw) ? 0.6 : 1,
+                      opacity: (!newPw || !confirmPw || savingPw) ? 0.55 : 1,
                     },
                   ]}
-                  onPress={handleChangePassword}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    handleChangePassword();
+                  }}
                   disabled={!newPw || !confirmPw || savingPw}
                   activeOpacity={0.8}
                 >
@@ -1116,6 +1155,8 @@ export default function SettingsScreen() {
         visible={assessmentModalVisible}
         animationType="slide"
         presentationStyle="pageSheet"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => {
           if (exportingPdf) {
             handleCancelExport();
@@ -1126,7 +1167,16 @@ export default function SettingsScreen() {
       >
         <View style={[styles.hubContainer, { backgroundColor: bg }]}>
           {/* Hub Header */}
-          <View style={[styles.hubHeader, { backgroundColor: card, borderBottomColor: border }]}>
+          <View
+            style={[
+              styles.hubHeader,
+              {
+                backgroundColor: skeuo.chrome,
+                borderBottomColor: skeuo.bevelBottom,
+                paddingTop: Math.max(insets.top + 14, 48),
+              },
+            ]}
+          >
             <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
               <Text style={[styles.hubHeaderTitle, { color: textMain }]}>Assessments Repository</Text>
               <Text style={[styles.hubHeaderSub, { color: textSub }]}>
@@ -1134,32 +1184,38 @@ export default function SettingsScreen() {
               </Text>
             </View>
             <TouchableOpacity
-              style={[styles.hubCloseBtn, { backgroundColor: border }]}
-              onPress={() => setAssessmentModalVisible(false)}
+              style={[styles.hubCloseBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 17 })]}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                setAssessmentModalVisible(false);
+              }}
               accessibilityLabel="Close repository"
             >
-              <Ionicons name="close" size={20} color={textMain} />
+              <Ionicons name="close" size={18} color={textMain} />
             </TouchableOpacity>
           </View>
 
           {/* Segmented Switcher */}
-          <View style={[styles.tabSegmentWrap, { backgroundColor: darkMode ? "#1F2937" : "#F3F4F6" }]}>
+          <View style={[styles.tabSegmentWrap, skeuoWellStyle(skeuo, 12)]}>
             <TouchableOpacity
               style={[
                 styles.tabSegmentBtn,
                 assessmentTab === "DRAFT" && [
                   styles.tabSegmentBtnActive,
-                  { backgroundColor: card },
+                  skeuoCardStyle(skeuo, 9),
                 ],
               ]}
-              onPress={() => setAssessmentTab("DRAFT")}
+              onPress={() => {
+                triggerSkeuoHaptic("selection");
+                setAssessmentTab("DRAFT");
+              }}
               activeOpacity={0.8}
             >
               <Text
                 style={[
                   styles.tabSegmentText,
-                  { color: assessmentTab === "DRAFT" ? textMain : textSub },
-                  assessmentTab === "DRAFT" && { fontWeight: "700" },
+                  { color: assessmentTab === "DRAFT" ? ORANGE : textSub },
+                  assessmentTab === "DRAFT" && { fontWeight: "800" },
                 ]}
               >
                 Drafts
@@ -1167,18 +1223,19 @@ export default function SettingsScreen() {
               <View
                 style={[
                   styles.segmentCountPill,
-                  {
-                    backgroundColor:
-                      assessmentTab === "DRAFT"
-                        ? darkMode ? "#374151" : "#F3F4F6"
-                        : "transparent",
-                  },
+                  assessmentTab === "DRAFT"
+                    ? {
+                        backgroundColor: skeuo.accentSoft,
+                        borderWidth: 1,
+                        borderColor: skeuo.accentSoftBorder,
+                      }
+                    : { backgroundColor: "transparent" },
                 ]}
               >
                 <Text
                   style={[
                     styles.segmentCountText,
-                    { color: assessmentTab === "DRAFT" ? textMain : textSub },
+                    { color: assessmentTab === "DRAFT" ? ORANGE : textSub },
                   ]}
                 >
                   {drafts.length}
@@ -1191,17 +1248,20 @@ export default function SettingsScreen() {
                 styles.tabSegmentBtn,
                 assessmentTab === "ARCHIVE" && [
                   styles.tabSegmentBtnActive,
-                  { backgroundColor: card },
+                  skeuoCardStyle(skeuo, 9),
                 ],
               ]}
-              onPress={() => setAssessmentTab("ARCHIVE")}
+              onPress={() => {
+                triggerSkeuoHaptic("selection");
+                setAssessmentTab("ARCHIVE");
+              }}
               activeOpacity={0.8}
             >
               <Text
                 style={[
                   styles.tabSegmentText,
-                  { color: assessmentTab === "ARCHIVE" ? textMain : textSub },
-                  assessmentTab === "ARCHIVE" && { fontWeight: "700" },
+                  { color: assessmentTab === "ARCHIVE" ? ORANGE : textSub },
+                  assessmentTab === "ARCHIVE" && { fontWeight: "800" },
                 ]}
               >
                 Archive
@@ -1209,18 +1269,19 @@ export default function SettingsScreen() {
               <View
                 style={[
                   styles.segmentCountPill,
-                  {
-                    backgroundColor:
-                      assessmentTab === "ARCHIVE"
-                        ? darkMode ? "#374151" : "#F3F4F6"
-                        : "transparent",
-                  },
+                  assessmentTab === "ARCHIVE"
+                    ? {
+                        backgroundColor: skeuo.accentSoft,
+                        borderWidth: 1,
+                        borderColor: skeuo.accentSoftBorder,
+                      }
+                    : { backgroundColor: "transparent" },
                 ]}
               >
                 <Text
                   style={[
                     styles.segmentCountText,
-                    { color: assessmentTab === "ARCHIVE" ? textMain : textSub },
+                    { color: assessmentTab === "ARCHIVE" ? ORANGE : textSub },
                   ]}
                 >
                   {archived.length}
@@ -1232,7 +1293,10 @@ export default function SettingsScreen() {
           {/* List Content */}
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={styles.hubScrollContent}
+            contentContainerStyle={[
+              styles.hubScrollContent,
+              { paddingBottom: Math.max(insets.bottom + 28, 40) },
+            ]}
             showsVerticalScrollIndicator={false}
           >
             {loadingAssessments ? (
@@ -1244,7 +1308,7 @@ export default function SettingsScreen() {
               // ── Drafts List ──
               drafts.length === 0 ? (
                 <View style={styles.hubEmptyWrap}>
-                  <View style={[styles.emptyIconWrap, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                  <View style={[styles.emptyIconWrap, skeuoWellStyle(skeuo, 28)]}>
                     <Ionicons name="document-text-outline" size={28} color={textSub} />
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Draft Assessments</Text>
@@ -1260,17 +1324,19 @@ export default function SettingsScreen() {
                     year: "numeric",
                   });
                   const timeInfo = getDraftTimeRemaining(draft);
+                  const statusSem = getSemanticTokens(timeInfo.isExpiringSoon ? "error" : "warning", darkMode);
+                  const errSem = getSemanticTokens("error", darkMode);
 
                   return (
-                    <View key={draft.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
+                    <View key={draft.id} style={[styles.assessmentCard, skeuoCardStyle(skeuo, 16)]}>
                       <View style={styles.cardTopRow}>
                         <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
                           <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
                             {draft.quizTitle}
                           </Text>
                           <View style={styles.classroomBadgeRow}>
-                            <Ionicons name="school-outline" size={13} color="#2563EB" />
-                            <Text style={[styles.classroomBadgeText, { color: "#2563EB" }]} numberOfLines={1}>
+                            <Ionicons name="school-outline" size={13} color={darkMode ? "#60A5FA" : "#2563EB"} />
+                            <Text style={[styles.classroomBadgeText, { color: darkMode ? "#60A5FA" : "#2563EB" }]} numberOfLines={1}>
                               {draft.classTitle || "Classroom"}
                             </Text>
                             <Text style={[styles.metaDotSeparator, { color: textSub }]}>·</Text>
@@ -1281,7 +1347,7 @@ export default function SettingsScreen() {
                                 styles.dateText,
                                 {
                                   color: timeInfo.isExpiringSoon ? "#DC2626" : textSub,
-                                  fontWeight: timeInfo.isExpiringSoon ? "600" : "500",
+                                  fontWeight: timeInfo.isExpiringSoon ? "700" : "500",
                                 },
                               ]}
                             >
@@ -1292,22 +1358,18 @@ export default function SettingsScreen() {
                         <View
                           style={[
                             styles.draftStatusIconWrap,
+                            skeuoWellStyle(skeuo, 10),
                             {
-                              backgroundColor: timeInfo.isExpiringSoon
-                                ? darkMode
-                                  ? "rgba(220, 38, 38, 0.18)"
-                                  : "#FEE2E2"
-                                : darkMode
-                                  ? "rgba(245, 158, 11, 0.18)"
-                                  : "#FEF3C7",
+                              backgroundColor: statusSem.socketBg,
+                              borderColor: statusSem.socketBorder,
                             },
                           ]}
                           accessibilityLabel={`Draft expires in ${timeInfo.text}`}
                         >
                           <Ionicons
                             name="time-outline"
-                            size={17}
-                            color={timeInfo.isExpiringSoon ? "#DC2626" : "#D97706"}
+                            size={16}
+                            color={statusSem.plaqueText}
                           />
                         </View>
                       </View>
@@ -1318,12 +1380,17 @@ export default function SettingsScreen() {
                         </Text>
                       </View>
 
-                      <View style={[styles.cardActionsDivider, { backgroundColor: border }]} />
+                      <View style={[skeuoGrooveStyle(skeuo), { marginVertical: 13 }]} />
 
                       <View style={styles.cardActionsRow}>
                         <TouchableOpacity
-                          style={[styles.inspectBtn, { borderColor: border }]}
+                          style={[
+                            styles.inspectBtn,
+                            skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
+                          ]}
+                          activeOpacity={0.8}
                           onPress={() => {
+                            triggerSkeuoHaptic("light");
                             setInspectedQuiz(draft);
                             setInspectModalVisible(true);
                           }}
@@ -1333,18 +1400,43 @@ export default function SettingsScreen() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.exportPdfBtn, { backgroundColor: "#1E293B" }]}
-                          onPress={() => handlePublishDraft(draft)}
+                          style={[
+                            styles.exportPdfBtn,
+                            skeuoButtonStyle(skeuo, {
+                              fill: ORANGE,
+                              highlight: "#FB923C",
+                              lip: "#9A3412",
+                              radius: 10,
+                            }),
+                          ]}
+                          activeOpacity={0.85}
+                          onPress={() => {
+                            triggerSkeuoHaptic("medium");
+                            handlePublishDraft(draft);
+                          }}
                         >
-                          <Ionicons name="send-outline" size={15} color="#FFFFFF" />
+                          <Ionicons name="send-outline" size={14} color="#FFFFFF" />
                           <Text style={styles.exportPdfText} numberOfLines={1}>Publish</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.deleteBtn, { borderColor: darkMode ? "rgba(239, 68, 68, 0.3)" : "#FEE2E2" }]}
-                          onPress={() => handleDeleteDraft(draft)}
+                          style={[
+                            styles.deleteBtn,
+                            skeuoButtonStyle(skeuo, {
+                              fill: errSem.plaqueBg,
+                              highlight: darkMode ? errSem.plaqueBorder : "#FFFFFF",
+                              lip: errSem.plaqueBorder,
+                              radius: 10,
+                            }),
+                          ]}
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            triggerSkeuoHaptic("light");
+                            handleDeleteDraft(draft);
+                          }}
+                          accessibilityLabel="Delete draft"
                         >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                          <Ionicons name="trash-outline" size={16} color={errSem.plaqueText} />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1355,7 +1447,7 @@ export default function SettingsScreen() {
               // ── Archive List ──
               archived.length === 0 ? (
                 <View style={styles.hubEmptyWrap}>
-                  <View style={[styles.emptyIconWrap, { backgroundColor: darkMode ? "#374151" : "#F3F4F6" }]}>
+                  <View style={[styles.emptyIconWrap, skeuoWellStyle(skeuo, 28)]}>
                     <Ionicons name="archive-outline" size={28} color={textSub} />
                   </View>
                   <Text style={[styles.hubEmptyTitle, { color: textMain }]}>No Archived Assessments</Text>
@@ -1370,17 +1462,19 @@ export default function SettingsScreen() {
                     day: "numeric",
                     year: "numeric",
                   });
+                  const okSem = getSemanticTokens("success", darkMode);
+                  const errSem = getSemanticTokens("error", darkMode);
 
                   return (
-                    <View key={quiz.id} style={[styles.assessmentCard, { backgroundColor: card, borderColor: border }]}>
+                    <View key={quiz.id} style={[styles.assessmentCard, skeuoCardStyle(skeuo, 16)]}>
                       <View style={styles.cardTopRow}>
                         <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
                           <Text style={[styles.quizTitle, { color: textMain }]} numberOfLines={2}>
                             {quiz.quizTitle}
                           </Text>
                           <View style={styles.classroomBadgeRow}>
-                            <Ionicons name="school-outline" size={13} color="#2563EB" />
-                            <Text style={[styles.classroomBadgeText, { color: "#2563EB" }]} numberOfLines={1}>
+                            <Ionicons name="school-outline" size={13} color={darkMode ? "#60A5FA" : "#2563EB"} />
+                            <Text style={[styles.classroomBadgeText, { color: darkMode ? "#60A5FA" : "#2563EB" }]} numberOfLines={1}>
                               {quiz.classTitle || "Classroom"}
                             </Text>
                             <Text style={[styles.metaDotSeparator, { color: textSub }]}>·</Text>
@@ -1390,11 +1484,15 @@ export default function SettingsScreen() {
                         <View
                           style={[
                             styles.cloudIconWrap,
-                            { backgroundColor: darkMode ? "rgba(5, 150, 105, 0.18)" : "#ECFDF5" },
+                            skeuoWellStyle(skeuo, 10),
+                            {
+                              backgroundColor: okSem.socketBg,
+                              borderColor: okSem.socketBorder,
+                            },
                           ]}
                           accessibilityLabel="Synced to cloud"
                         >
-                          <Ionicons name="cloud-done-outline" size={17} color="#059669" />
+                          <Ionicons name="cloud-done-outline" size={16} color={okSem.plaqueText} />
                         </View>
                       </View>
 
@@ -1404,12 +1502,17 @@ export default function SettingsScreen() {
                         </Text>
                       </View>
 
-                      <View style={[styles.cardActionsDivider, { backgroundColor: border }]} />
+                      <View style={[skeuoGrooveStyle(skeuo), { marginVertical: 13 }]} />
 
                       <View style={styles.cardActionsRow}>
                         <TouchableOpacity
-                          style={[styles.inspectBtn, { borderColor: border }]}
+                          style={[
+                            styles.inspectBtn,
+                            skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
+                          ]}
+                          activeOpacity={0.8}
                           onPress={() => {
+                            triggerSkeuoHaptic("light");
                             setInspectedQuiz(quiz);
                             setInspectModalVisible(true);
                           }}
@@ -1419,21 +1522,44 @@ export default function SettingsScreen() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.exportPdfBtn, { backgroundColor: "#1E293B" }]}
+                          style={[
+                            styles.exportPdfBtn,
+                            skeuoButtonStyle(skeuo, {
+                              fill: darkMode ? "#2E3440" : "#242220",
+                              highlight: darkMode ? "#4F5769" : "#4A4540",
+                              lip: "#0C0A09",
+                              radius: 10,
+                            }),
+                          ]}
+                          activeOpacity={0.85}
                           onPress={() => {
+                            triggerSkeuoHaptic("light");
                             setSelectedExportQuiz(quiz);
                             setExportModalVisible(true);
                           }}
                         >
-                          <Ionicons name="print-outline" size={15} color="#FFFFFF" />
+                          <Ionicons name="print-outline" size={15} color="#FAF8F5" />
                           <Text style={styles.exportPdfText} numberOfLines={1}>Export PDF</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.deleteBtn, { borderColor: darkMode ? "rgba(239, 68, 68, 0.3)" : "#FEE2E2" }]}
-                          onPress={() => handleDeleteArchive(quiz)}
+                          style={[
+                            styles.deleteBtn,
+                            skeuoButtonStyle(skeuo, {
+                              fill: errSem.plaqueBg,
+                              highlight: darkMode ? errSem.plaqueBorder : "#FFFFFF",
+                              lip: errSem.plaqueBorder,
+                              radius: 10,
+                            }),
+                          ]}
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            triggerSkeuoHaptic("light");
+                            handleDeleteArchive(quiz);
+                          }}
+                          accessibilityLabel="Delete archived assessment"
                         >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                          <Ionicons name="trash-outline" size={16} color={errSem.plaqueText} />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1448,10 +1574,7 @@ export default function SettingsScreen() {
             visible={Boolean(publishingDraft && !inspectModalVisible)}
             cardStyle={[
               styles.loadingCard,
-              {
-                backgroundColor: darkMode ? card : "#FFFFFF",
-                borderColor: darkMode ? border : "#E2E8F0",
-              },
+              skeuoCardStyle(skeuo, 22),
             ]}
           >
             <PublishingQuizAnimation
@@ -1465,10 +1588,7 @@ export default function SettingsScreen() {
             visible={Boolean(exportingPdf && !exportModalVisible && !inspectModalVisible)}
             cardStyle={[
               styles.loadingCard,
-              {
-                backgroundColor: darkMode ? card : "#FFFFFF",
-                borderColor: darkMode ? border : "#E2E8F0",
-              },
+              skeuoCardStyle(skeuo, 22),
             ]}
           >
             <PdfExportingAnimation
@@ -1481,12 +1601,9 @@ export default function SettingsScreen() {
             />
           </SmoothInlineOverlay>
 
-          {/* Floating Export Status Toast inside Assessments Repository */}
+          {/* Floating Unified Skeuomorphic Export Status Toast inside Assessments Repository */}
           {exportToastMessage && (
-            <View pointerEvents="none" style={styles.exportToastBanner}>
-              <Ionicons name="close-circle" size={17} color="#F87171" />
-              <Text style={styles.exportToastText}>{exportToastMessage}</Text>
-            </View>
+            <SkeuoToast message={exportToastMessage} />
           )}
         </View>
       </Modal>
@@ -1522,9 +1639,18 @@ export default function SettingsScreen() {
           if (!exportingPdf) setExportModalVisible(false);
         }}
         dismissOnBackdropPress={!exportingPdf}
-        sheetStyle={[styles.exportSheet, { backgroundColor: card }]}
+        backdropColor={skeuo.backdrop}
+        sheetStyle={[
+          styles.exportSheet,
+          {
+            backgroundColor: card,
+            borderTopWidth: 1.5,
+            borderTopColor: skeuo.bevelTop,
+            paddingBottom: Math.max(insets.bottom + 18, 32),
+          },
+        ]}
       >
-            <View style={styles.dragPill} />
+            <View style={[styles.dragPill, { backgroundColor: skeuo.borderStrong }]} />
             <View style={styles.exportSheetHeaderRow}>
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text style={[styles.exportSheetTitle, { color: textMain }]}>Export Paper Sheet Layout</Text>
@@ -1533,47 +1659,43 @@ export default function SettingsScreen() {
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setExportModalVisible(false)}
-                style={styles.closeIconBtn}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  setExportModalVisible(false);
+                }}
+                style={[styles.closeIconBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="close" size={20} color={textSub} />
+                <Ionicons name="close" size={16} color={textMain} />
               </TouchableOpacity>
             </View>
 
             {/* Anti-Cheating Version Selector (Set A / B / C) */}
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <Text style={{ fontSize: 14, fontWeight: "500", color: darkMode ? "#E2E8F0" : "#334155" }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: textMain }}>
                 Test version
               </Text>
-              <View style={[styles.segmentedTrack, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
+              <View style={[styles.segmentedTrack, skeuoWellStyle(skeuo, 10)]}>
                 {(["A", "B", "C"] as const).map((ver) => {
                   const isActive = exportVersion === ver;
                   return (
                     <TouchableOpacity
                       key={ver}
-                      onPress={() => setExportVersion(ver)}
-                      activeOpacity={0.7}
+                      onPress={() => {
+                        triggerSkeuoHaptic("selection");
+                        setExportVersion(ver);
+                      }}
+                      activeOpacity={0.75}
                       style={[
                         styles.exportSegmentBtn,
-                        isActive && [
-                          styles.exportSegmentBtnActive,
-                          {
-                            backgroundColor: darkMode ? "#334155" : "#FFFFFF",
-                            borderColor: darkMode ? "#475569" : "#CBD5E1",
-                          },
-                        ],
+                        isActive && skeuoCardStyle(skeuo, 7),
                       ]}
                     >
                       <Text
                         style={{
                           fontSize: 12.5,
-                          color: isActive
-                            ? darkMode
-                              ? "#F8FAFC"
-                              : "#0F172A"
-                            : "#64748B",
-                          fontWeight: isActive ? "700" : "500",
+                          color: isActive ? ORANGE : textSub,
+                          fontWeight: isActive ? "800" : "600",
                         }}
                       >
                         Set {ver}
@@ -1586,20 +1708,22 @@ export default function SettingsScreen() {
 
             {/* Force Separate Answer Sheet Toggle */}
             <TouchableOpacity
-              onPress={() => setForceSeparateMode((prev) => !prev)}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingVertical: 9,
-                paddingHorizontal: 12,
-                borderRadius: 10,
-                backgroundColor: inputBg,
-                borderWidth: 1,
-                borderColor: border,
-                marginBottom: 12,
+              onPress={() => {
+                triggerSkeuoHaptic("selection");
+                setForceSeparateMode((prev) => !prev);
               }}
-              activeOpacity={0.7}
+              style={[
+                skeuoWellStyle(skeuo, 11),
+                {
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  marginBottom: 12,
+                },
+              ]}
+              activeOpacity={0.75}
             >
               <Text style={{ fontSize: 12.5, fontWeight: "600", color: textMain, flex: 1 }}>
                 Always use separate Question Booklet + Answer Sheet
@@ -1607,77 +1731,86 @@ export default function SettingsScreen() {
               <Ionicons
                 name={forceSeparateMode ? "checkbox" : "square-outline"}
                 size={20}
-                color={forceSeparateMode ? themeColor : textSub}
+                color={forceSeparateMode ? ORANGE : textSub}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.exportOptionBtn, { backgroundColor: darkMode ? "#111827" : "#F9FAFB", borderColor: border }]}
-              onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, false, "short")}
-              activeOpacity={0.7}
+              style={[styles.exportOptionBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                if (selectedExportQuiz) handleExportPaper(selectedExportQuiz, false, "short");
+              }}
+              activeOpacity={0.78}
               disabled={exportingPdf}
             >
-              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-                <Ionicons name="document-text-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+              <View style={[styles.neutralOptionIcon, skeuoWellStyle(skeuo, 10)]}>
+                <Ionicons name="document-text-outline" size={18} color={textMain} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
                   <Text style={[styles.exportOptionTitle, { color: textMain }]}>Short Bond Paper</Text>
-                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
-                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>{'8.5" × 11"'}</Text>
+                  <View style={[styles.dimBadge, skeuoWellStyle(skeuo, 6)]}>
+                    <Text style={[styles.dimBadgeText, { color: textSub }]}>{'8.5" × 11"'}</Text>
                   </View>
                 </View>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
                   {`1 single sheet (Letter size) • Set ${exportVersion} scannable layout for 1-shot camera scanning`}
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={18} color="#94A3B8" />
+              <Ionicons name="download-outline" size={18} color={textSub} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.exportOptionBtn, { backgroundColor: darkMode ? "#111827" : "#F9FAFB", borderColor: border }]}
-              onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, false, "long")}
-              activeOpacity={0.7}
+              style={[styles.exportOptionBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                if (selectedExportQuiz) handleExportPaper(selectedExportQuiz, false, "long");
+              }}
+              activeOpacity={0.78}
               disabled={exportingPdf}
             >
-              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-                <Ionicons name="document-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+              <View style={[styles.neutralOptionIcon, skeuoWellStyle(skeuo, 10)]}>
+                <Ionicons name="document-outline" size={18} color={textMain} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
                   <Text style={[styles.exportOptionTitle, { color: textMain }]}>Long Bond Paper</Text>
-                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
-                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>{'8.5" × 13"'}</Text>
+                  <View style={[styles.dimBadge, skeuoWellStyle(skeuo, 6)]}>
+                    <Text style={[styles.dimBadgeText, { color: textSub }]}>{'8.5" × 13"'}</Text>
                   </View>
                 </View>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
                   {`1 single sheet (Philippine Folio) • Fits all questions with Set ${exportVersion} spacing`}
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={18} color="#94A3B8" />
+              <Ionicons name="download-outline" size={18} color={textSub} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.exportOptionBtn, { backgroundColor: darkMode ? "#111827" : "#F9FAFB", borderColor: border }]}
-              onPress={() => selectedExportQuiz && handleExportPaper(selectedExportQuiz, true, "short")}
-              activeOpacity={0.7}
+              style={[styles.exportOptionBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 14 })]}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                if (selectedExportQuiz) handleExportPaper(selectedExportQuiz, true, "short");
+              }}
+              activeOpacity={0.78}
               disabled={exportingPdf}
             >
-              <View style={[styles.neutralOptionIcon, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-                <Ionicons name="checkmark-done-outline" size={18} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+              <View style={[styles.neutralOptionIcon, skeuoWellStyle(skeuo, 10)]}>
+                <Ionicons name="checkmark-done-outline" size={18} color={textMain} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 }}>
                   <Text style={[styles.exportOptionTitle, { color: textMain }]}>Teacher Answer Key</Text>
-                  <View style={[styles.dimBadge, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
-                    <Text style={[styles.dimBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>PDF</Text>
+                  <View style={[styles.dimBadge, skeuoWellStyle(skeuo, 6)]}>
+                    <Text style={[styles.dimBadgeText, { color: textSub }]}>PDF</Text>
                   </View>
                 </View>
                 <Text style={[styles.exportOptionSub, { color: textSub }]}>
                   {`1 single sheet with correct answers pre-printed in boxes for Set ${exportVersion}`}
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={18} color="#94A3B8" />
+              <Ionicons name="download-outline" size={18} color={textSub} />
             </TouchableOpacity>
       </SmoothBottomSheetModal>
 
@@ -1704,10 +1837,7 @@ export default function SettingsScreen() {
       </SmoothCenterModal>
 
       {exportToastMessage && !assessmentModalVisible && (
-        <View pointerEvents="none" style={styles.exportToastBanner}>
-          <Ionicons name="close-circle" size={17} color="#F87171" />
-          <Text style={styles.exportToastText}>{exportToastMessage}</Text>
-        </View>
+        <SkeuoToast message={exportToastMessage} />
       )}
     </View>
   );
@@ -1765,35 +1895,36 @@ const styles = StyleSheet.create({
   profileName: { fontSize: 16, fontWeight: "700", color: "#0F172A", marginBottom: 2 },
   profileEmail: { fontSize: 13, color: "#64748B" },
 
-  sectionLabel: { fontSize: 12, fontWeight: "600", color: "#64748B", marginBottom: 8, marginLeft: 4 },
+  sectionLabel: { fontSize: 11.5, fontWeight: "700", letterSpacing: 0.7, color: "#78716C", marginBottom: 8, marginLeft: 4 },
 
   card: {
-    borderRadius: 14, marginBottom: 22, borderWidth: 1, overflow: "hidden",
-    shadowColor: "#0F172A", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
+    borderRadius: 16, marginBottom: 22, overflow: "hidden",
   },
   divider: { height: 1, marginLeft: 46 },
 
   rowBase: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
   iconWrap: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  rowLabel: { flex: 1, fontSize: 15, fontWeight: "500" },
+  rowLabel: { flex: 1, fontSize: 15, fontWeight: "600" },
   customSwitchTrack: {
-    width: 44,
-    height: 24,
-    borderRadius: 12,
+    width: 46,
+    height: 26,
+    borderRadius: 13,
     padding: 2,
+    borderWidth: 1,
     justifyContent: "center",
   },
   customSwitchThumb: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FAF8F5",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.9)",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
   },
 
   versionText: { textAlign: "center", fontSize: 12, marginTop: 8 },
@@ -1938,16 +2069,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderBottomWidth: 2,
+    borderColor: "transparent",
     gap: 6,
   },
-  tabSegmentBtnActive: {
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-  },
+  tabSegmentBtnActive: {},
   tabSegmentText: { fontSize: 13.5, fontWeight: "600" },
   segmentCountPill: {
     paddingHorizontal: 6,
@@ -1982,19 +2110,17 @@ const styles = StyleSheet.create({
   classroomBadgeText: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
   metaDotSeparator: { fontSize: 12.5, fontWeight: "600" },
   cloudIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#ECFDF5",
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   draftStatusIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#FEF3C7",
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -2009,30 +2135,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
+    height: 40,
     gap: 6,
   },
-  inspectBtnText: { fontSize: 13, fontWeight: "600" },
+  inspectBtnText: { fontSize: 13, fontWeight: "700" },
   exportPdfBtn: {
     flex: 1.4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    height: 38,
-    borderRadius: 10,
+    height: 40,
     gap: 6,
   },
-  exportPdfText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700", paddingHorizontal: 2 },
+  exportPdfText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700", paddingHorizontal: 2 },
   deleteBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FEE2E222",
     flexShrink: 0,
   },
 

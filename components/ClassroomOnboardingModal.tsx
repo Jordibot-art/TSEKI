@@ -25,6 +25,12 @@ import {
   formatStudentFullName,
   normalizeStudentRecord,
 } from "../lib/classListParserService";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+} from "./skeuoTheme";
 
 export interface ClassroomOnboardingModalProps {
   visible: boolean;
@@ -83,13 +89,14 @@ export function ClassroomOnboardingModal({
   const [email, setEmail] = useState("");
   const [addedCount, setAddedCount] = useState(0);
 
-  const bg = darkMode ? "#18181B" : "#FFFFFF";
-  const cardBg = darkMode ? "#27272A" : "#F4F4F5";
-  const textPrimary = darkMode ? "#FAFAFA" : "#09090B";
-  const textSecondary = darkMode ? "#A1A1AA" : "#71717A";
-  const borderColor = darkMode ? "#3F3F46" : "#E4E4E7";
-  const inputBg = darkMode ? "#18181B" : "#FFFFFF";
-  const accentColor = classroom?.color || "#F97316";
+  const accentColor = classroom?.color || "#EA580C";
+  const skeuo = getSkeuoPalette(darkMode, accentColor);
+  const bg = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const textPrimary = skeuo.textPrimary;
+  const textSecondary = skeuo.textSecondary;
+  const borderColor = skeuo.border;
+  const inputBg = skeuo.well;
 
   function handleReset() {
     setMode("MENU");
@@ -404,19 +411,19 @@ export function ClassroomOnboardingModal({
       onRequestClose={handleModalClose}
     >
       <KeyboardAvoidingView
-        style={styles.overlay}
+        style={[styles.overlay, { backgroundColor: skeuo.backdrop }]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={[styles.container, { backgroundColor: bg }]}>
+        <View style={[styles.container, skeuoCardStyle(skeuo, 24), { backgroundColor: bg }]}>
           {/* Header */}
-          <View style={[styles.headerRow, { borderBottomColor: borderColor }]}>
+          <View style={[styles.headerRow, { backgroundColor: skeuo.chrome, borderBottomColor: borderColor }]}>
             <View style={{ flex: 1 }}>
               <View style={styles.badgeRow}>
                 <View style={[styles.accentPill, { backgroundColor: accentColor }]}>
                   <Text style={styles.accentPillText}>NEW CLASSROOM</Text>
                 </View>
                 {addedCount > 0 && (
-                  <View style={[styles.countPill, { backgroundColor: "#10B981" }]}>
+                  <View style={[styles.countPill, { backgroundColor: "#059669" }]}>
                     <Text style={styles.countPillText}>{addedCount} enrolled</Text>
                   </View>
                 )}
@@ -430,7 +437,7 @@ export function ClassroomOnboardingModal({
 
             <TouchableOpacity
               onPress={handleModalClose}
-              style={[styles.closeButton, { backgroundColor: cardBg }]}
+              style={[styles.closeButton, skeuoButtonStyle(skeuo, { neutral: true, radius: 18 })]}
               accessibilityLabel="Close onboarding modal"
             >
               <Ionicons name="close" size={20} color={textPrimary} />
@@ -446,12 +453,12 @@ export function ClassroomOnboardingModal({
 
                 {/* Action 1: Download Excel Template */}
                 <TouchableOpacity
-                  style={[styles.actionCard, { backgroundColor: cardBg, borderColor }]}
+                  style={[styles.actionCard, skeuoCardStyle(skeuo, 15)]}
                   onPress={handleDownloadTemplate}
                   disabled={downloadingTemplate}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
-                  <View style={[styles.iconCircle, { backgroundColor: "#3B82F6" + "1A" }]}>
+                  <View style={[styles.iconCircle, skeuoWellStyle(skeuo, 12), { backgroundColor: "#3B82F61A" }]}>
                     {downloadingTemplate ? (
                       <ActivityIndicator size="small" color="#3B82F6" />
                     ) : (
@@ -471,12 +478,12 @@ export function ClassroomOnboardingModal({
 
                 {/* Action 2: Import Excel */}
                 <TouchableOpacity
-                  style={[styles.actionCard, { backgroundColor: cardBg, borderColor }]}
+                  style={[styles.actionCard, skeuoCardStyle(skeuo, 15)]}
                   onPress={handleImportExcel}
                   disabled={importingExcel}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
-                  <View style={[styles.iconCircle, { backgroundColor: "#10B981" + "1A" }]}>
+                  <View style={[styles.iconCircle, skeuoWellStyle(skeuo, 12), { backgroundColor: "#10B9811A" }]}>
                     {importingExcel ? (
                       <ActivityIndicator size="small" color="#10B981" />
                     ) : (
@@ -553,12 +560,12 @@ export function ClassroomOnboardingModal({
 
                 {/* Action 4: Manually Add Student */}
                 <TouchableOpacity
-                  style={[styles.actionCard, { backgroundColor: cardBg, borderColor }]}
+                  style={[styles.actionCard, skeuoCardStyle(skeuo, 15)]}
                   onPress={() => setMode("MANUAL_ADD")}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
-                  <View style={[styles.iconCircle, { backgroundColor: "#F97316" + "1A" }]}>
-                    <Ionicons name="person-add-outline" size={24} color="#F97316" />
+                  <View style={[styles.iconCircle, skeuoWellStyle(skeuo, 12), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
+                    <Ionicons name="person-add-outline" size={24} color="#EA580C" />
                   </View>
                   <View style={styles.cardContent}>
                     <Text style={[styles.cardTitle, { color: textPrimary }]}>
@@ -590,10 +597,7 @@ export function ClassroomOnboardingModal({
                 <View style={styles.inputGroup}>
                   <Text style={[styles.inputLabel, { color: textPrimary }]}>Last Name *</Text>
                   <TextInput
-                    style={[
-                      styles.input,
-                      { backgroundColor: inputBg, color: textPrimary, borderColor },
-                    ]}
+                    style={[styles.input, skeuoWellStyle(skeuo, 12), { color: textPrimary }]}
                     placeholder="e.g. Abellanosa"
                     placeholderTextColor={textSecondary}
                     value={lastName}
@@ -605,10 +609,7 @@ export function ClassroomOnboardingModal({
                 <View style={styles.inputGroup}>
                   <Text style={[styles.inputLabel, { color: textPrimary }]}>First Name *</Text>
                   <TextInput
-                    style={[
-                      styles.input,
-                      { backgroundColor: inputBg, color: textPrimary, borderColor },
-                    ]}
+                    style={[styles.input, skeuoWellStyle(skeuo, 12), { color: textPrimary }]}
                     placeholder="e.g. Reymark"
                     placeholderTextColor={textSecondary}
                     value={firstName}
@@ -622,10 +623,7 @@ export function ClassroomOnboardingModal({
                     Middle Name / Initial (Optional)
                   </Text>
                   <TextInput
-                    style={[
-                      styles.input,
-                      { backgroundColor: inputBg, color: textPrimary, borderColor },
-                    ]}
+                    style={[styles.input, skeuoWellStyle(skeuo, 12), { color: textPrimary }]}
                     placeholder="e.g. B."
                     placeholderTextColor={textSecondary}
                     value={middleName}
@@ -639,10 +637,7 @@ export function ClassroomOnboardingModal({
                     Email Address (Optional)
                   </Text>
                   <TextInput
-                    style={[
-                      styles.input,
-                      { backgroundColor: inputBg, color: textPrimary, borderColor },
-                    ]}
+                    style={[styles.input, skeuoWellStyle(skeuo, 12), { color: textPrimary }]}
                     placeholder="e.g. student@school.edu"
                     placeholderTextColor={textSecondary}
                     value={email}
@@ -653,7 +648,7 @@ export function ClassroomOnboardingModal({
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.saveStudentButton, { backgroundColor: accentColor }]}
+                  style={[styles.saveStudentButton, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 13 })]}
                   onPress={handleSaveManualStudent}
                   disabled={savingManual}
                 >
@@ -671,9 +666,9 @@ export function ClassroomOnboardingModal({
           </ScrollView>
 
           {/* Bottom Action Footer */}
-          <View style={[styles.footerRow, { borderTopColor: borderColor }]}>
+          <View style={[styles.footerRow, { backgroundColor: skeuo.chrome, borderTopColor: borderColor }]}>
             <TouchableOpacity
-              style={[styles.doneButton, { backgroundColor: accentColor }]}
+              style={[styles.doneButton, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 13 })]}
               onPress={() => {
                 handleModalClose();
                 if (onEnterClassroom && classroom) {

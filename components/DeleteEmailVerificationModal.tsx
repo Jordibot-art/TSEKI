@@ -24,6 +24,13 @@ import {
     sendDeleteVerificationOtp,
     verifyDeleteOtpCode,
 } from "../lib/deleteVerificationService";
+import {
+    getSkeuoPalette,
+    skeuoButtonStyle,
+    skeuoCardStyle,
+    skeuoGrooveStyle,
+    skeuoWellStyle,
+} from "./skeuoTheme";
 
 export interface DeleteEmailVerificationModalProps {
     visible: boolean;
@@ -183,14 +190,13 @@ export function DeleteEmailVerificationModal({
         }
     }
 
-    const sheetBg = darkMode ? "#111827" : "#FFFFFF";
-    const fieldBg = darkMode ? "#1E293B" : "#F8FAFC";
-    const border = darkMode ? "#334155" : "#E2E8F0";
-    const subtleDivider = darkMode ? "#1F2937" : "#F1F5F9";
-    const textMain = darkMode ? "#F8FAFC" : "#0F172A";
-    const textSub = darkMode ? "#94A3B8" : "#64748B";
-    const disabledBtnBg = darkMode ? "#1E293B" : "#E2E8F0";
-    const disabledBtnText = darkMode ? "#64748B" : "#94A3B8";
+    const skeuo = getSkeuoPalette(darkMode, BRAND_ORANGE);
+    const sheetBg = skeuo.surface;
+    const fieldBg = skeuo.well;
+    const border = skeuo.border;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
+    const disabledBtnText = skeuo.textMuted;
 
     const actionVerb = entityType === "classroom" ? "Delete" : "Remove";
     const submitLabel = confirmActionLabel || `Confirm ${actionVerb}`;
@@ -208,12 +214,13 @@ export function DeleteEmailVerificationModal({
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
             >
                 <TouchableWithoutFeedback onPress={() => !busy && onClose()}>
-                    <View style={styles.backdrop} />
+                    <View style={[styles.backdrop, { backgroundColor: skeuo.backdrop }]} />
                 </TouchableWithoutFeedback>
 
                 <View
                     style={[
                         styles.sheet,
+                        skeuoCardStyle(skeuo, 24),
                         {
                             backgroundColor: sheetBg,
                             paddingBottom: Math.max(insets.bottom, 18),
@@ -224,7 +231,7 @@ export function DeleteEmailVerificationModal({
                     <View
                         style={[
                             styles.dragHandle,
-                            { backgroundColor: darkMode ? "#334155" : "#CBD5E1" },
+                            { backgroundColor: skeuo.borderStrong },
                         ]}
                     />
 
@@ -234,7 +241,7 @@ export function DeleteEmailVerificationModal({
                             <TouchableOpacity
                                 style={[
                                     styles.navIconBtn,
-                                    { backgroundColor: fieldBg, borderColor: border },
+                                    skeuoButtonStyle(skeuo, { neutral: true, radius: 16 }),
                                 ]}
                                 onPress={() => {
                                     if (!busy) {
@@ -254,7 +261,7 @@ export function DeleteEmailVerificationModal({
                         <TouchableOpacity
                             style={[
                                 styles.navIconBtn,
-                                { backgroundColor: fieldBg, borderColor: border },
+                                skeuoButtonStyle(skeuo, { neutral: true, radius: 16 }),
                             ]}
                             onPress={() => !busy && onClose()}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -272,7 +279,7 @@ export function DeleteEmailVerificationModal({
                                 {description}
                             </Text>
 
-                            <View style={[styles.divider, { backgroundColor: subtleDivider }]} />
+                            <View style={[skeuoGrooveStyle(skeuo), { marginVertical: 14 }]} />
 
                             <Text style={[styles.microLabel, { color: textSub }]}>
                                 LOGIN EMAIL VERIFICATION
@@ -303,7 +310,7 @@ export function DeleteEmailVerificationModal({
                                 <TouchableOpacity
                                     style={[
                                         styles.secondaryBtn,
-                                        { borderColor: border, backgroundColor: sheetBg },
+                                        skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
                                     ]}
                                     onPress={onClose}
                                     disabled={busy}
@@ -317,14 +324,9 @@ export function DeleteEmailVerificationModal({
                                 <TouchableOpacity
                                     style={[
                                         styles.primaryBtn,
-                                        {
-                                            backgroundColor:
-                                                !accountEmail || loadingEmail
-                                                    ? disabledBtnBg
-                                                    : darkMode
-                                                    ? "#F8FAFC"
-                                                    : "#0F172A",
-                                        },
+                                        !accountEmail || loadingEmail
+                                            ? [skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }), { opacity: 0.6 }]
+                                            : skeuoButtonStyle(skeuo, { fill: BRAND_ORANGE, radius: 12 }),
                                     ]}
                                     onPress={() => handleSendCode(false)}
                                     disabled={!accountEmail || loadingEmail || busy}
@@ -334,12 +336,12 @@ export function DeleteEmailVerificationModal({
                                         <View style={styles.loadingInline}>
                                             <ActivityIndicator
                                                 size="small"
-                                                color={darkMode ? "#0F172A" : "#FFFFFF"}
+                                                color="#FFFFFF"
                                             />
                                             <Text
                                                 style={[
                                                     styles.primaryBtnText,
-                                                    { color: darkMode ? "#0F172A" : "#FFFFFF" },
+                                                    { color: "#FFFFFF" },
                                                 ]}
                                             >
                                                 Sending...
@@ -353,8 +355,6 @@ export function DeleteEmailVerificationModal({
                                                     color:
                                                         !accountEmail || loadingEmail
                                                             ? disabledBtnText
-                                                            : darkMode
-                                                            ? "#0F172A"
                                                             : "#FFFFFF",
                                                 },
                                             ]}
@@ -421,18 +421,15 @@ export function DeleteEmailVerificationModal({
                                                     key={idx}
                                                     style={[
                                                         styles.otpCell,
+                                                        skeuoWellStyle(skeuo, 12),
                                                         {
-                                                            backgroundColor: isFilled
-                                                                ? sheetBg
-                                                                : fieldBg,
+                                                            backgroundColor: isFilled ? sheetBg : fieldBg,
                                                             borderColor: isCurrent
                                                                 ? BRAND_ORANGE
                                                                 : isFilled
-                                                                ? darkMode
-                                                                    ? "#94A3B8"
-                                                                    : "#0F172A"
+                                                                ? skeuo.borderStrong
                                                                 : border,
-                                                            borderWidth: isCurrent ? 1.8 : 1.2,
+                                                            borderWidth: isCurrent ? 2 : 1.2,
                                                         },
                                                     ]}
                                                 >
@@ -457,11 +454,8 @@ export function DeleteEmailVerificationModal({
                                     <TextInput
                                         style={[
                                             styles.linkInput,
-                                            {
-                                                backgroundColor: fieldBg,
-                                                borderColor: border,
-                                                color: textMain,
-                                            },
+                                            skeuoWellStyle(skeuo, 12),
+                                            { color: textMain },
                                         ]}
                                         value={linkInput}
                                         onChangeText={(t) => {
@@ -519,7 +513,7 @@ export function DeleteEmailVerificationModal({
                                 <TouchableOpacity
                                     style={[
                                         styles.secondaryBtn,
-                                        { borderColor: border, backgroundColor: sheetBg },
+                                        skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
                                     ]}
                                     onPress={onClose}
                                     disabled={busy}
@@ -533,11 +527,14 @@ export function DeleteEmailVerificationModal({
                                 <TouchableOpacity
                                     style={[
                                         styles.primaryBtn,
-                                        {
-                                            backgroundColor: canSubmitVerification
-                                                ? "#DC2626"
-                                                : disabledBtnBg,
-                                        },
+                                        canSubmitVerification
+                                            ? skeuoButtonStyle(skeuo, {
+                                                  fill: "#DC2626",
+                                                  highlight: "#F87171",
+                                                  lip: "#991B1B",
+                                                  radius: 12,
+                                              })
+                                            : [skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }), { opacity: 0.6 }],
                                     ]}
                                     onPress={handleVerifyAndDelete}
                                     disabled={!canSubmitVerification || busy}

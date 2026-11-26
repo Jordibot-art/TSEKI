@@ -9,6 +9,7 @@ import {
     Image,
     ActivityIndicator,
     Alert,
+    Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +19,13 @@ import { LowConfidenceReviewModal } from "./LowConfidenceReviewModal";
 import { SmoothBottomSheetModal } from "./SmoothModalTransition";
 import { GradingResultItem, isItemUnresolvedFlag } from "../lib/gradingService";
 import { LayoutJSON } from "../lib/printEngine/types";
+import {
+    getSemanticTokens,
+    getSkeuoPalette,
+    skeuoButtonStyle,
+    skeuoCardStyle,
+    triggerSkeuoHaptic,
+} from "./skeuoTheme";
 
 export interface BatchReviewDashboardProps {
     visible: boolean;
@@ -70,12 +78,13 @@ export function BatchReviewDashboard({
     // Committing state
     const [isSaving, setIsSaving] = useState<boolean>(false);
 
-    // Colors
-    const bg = darkMode ? "#111827" : "#F9FAFB";
-    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-    const textMain = darkMode ? "#F9FAFB" : "#111827";
-    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-    const border = darkMode ? "#374151" : "#E5E7EB";
+    // Skeuomorphic Palette Colors
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
+    const bg = skeuo.canvas;
+    const cardBg = skeuo.surface;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
+    const border = skeuo.border;
 
     // ── Computed Stats ─────────────────────────────────────────────────────────
     const stats = useMemo(() => {
@@ -269,7 +278,7 @@ export function BatchReviewDashboard({
                         activeOpacity={1}
                         onPress={() => setAssignPickerItemId(null)}
                     >
-                        <View style={[styles.assignSheet, { backgroundColor: cardBg }]}>
+                        <View style={[styles.assignSheet, skeuoCardStyle(skeuo, 18), { backgroundColor: cardBg }]}>
                             <Text style={[styles.assignTitle, { color: textMain }]}>Assign to Enrolled Student</Text>
                             <ScrollView style={{ maxHeight: 320 }}>
                                 {roster.map((s) => (
@@ -300,17 +309,17 @@ export function BatchReviewDashboard({
                 if (!isSaving) onClose();
             }}
             dismissOnBackdropPress={!isSaving}
-            backdropColor="rgba(15, 23, 42, 0.48)"
+            backdropColor={skeuo.backdrop}
             sheetStyle={[styles.sheetContainer, { backgroundColor: bg }]}
             overlayChildren={subModals}
         >
             {/* Centered Drag Pill */}
-            <View style={[styles.dragPill, { backgroundColor: darkMode ? "#475569" : "#CBD5E1" }]} />
+            <View style={[styles.dragPill, { backgroundColor: skeuo.borderStrong }]} />
 
                     {/* Header */}
-                    <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: border }]}>
-                        <TouchableOpacity style={styles.closeBtn} onPress={onClose} disabled={isSaving}>
-                            <Ionicons name="close" size={22} color={textMain} />
+                    <View style={[styles.header, { backgroundColor: skeuo.chrome, borderBottomColor: border }]}>
+                        <TouchableOpacity style={[styles.closeBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]} onPress={onClose} disabled={isSaving}>
+                            <Ionicons name="close" size={20} color={textMain} />
                         </TouchableOpacity>
                         <View style={styles.headerTitles}>
                             <Text style={[styles.mainTitle, { color: textMain }]} numberOfLines={1}>
@@ -321,7 +330,7 @@ export function BatchReviewDashboard({
                             </Text>
                         </View>
                         <TouchableOpacity
-                            style={[styles.scanMoreBtn, { borderColor: border }]}
+                            style={[styles.scanMoreBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 10 })]}
                             onPress={onScanMore}
                             disabled={isSaving}
                         >
@@ -332,25 +341,25 @@ export function BatchReviewDashboard({
 
                     {/* 4-Column KPI Strip */}
                     <View style={styles.statsContainer}>
-                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                            <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                        <View style={[styles.statBox, skeuoCardStyle(skeuo, 13)]}>
+                            <Text style={[styles.statValue, { color: textMain }]}>
                                 {stats.total}
                             </Text>
                             <Text style={[styles.statLabel, { color: textSub }]}>Scanned</Text>
                         </View>
-                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                            <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                        <View style={[styles.statBox, skeuoCardStyle(skeuo, 13)]}>
+                            <Text style={[styles.statValue, { color: textMain }]}>
                                 {stats.gradedCount > 0 ? `${stats.average}%` : "—"}
                             </Text>
                             <Text style={[styles.statLabel, { color: textSub }]}>Class Avg</Text>
                         </View>
-                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
-                            <Text style={[styles.statValue, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                        <View style={[styles.statBox, skeuoCardStyle(skeuo, 13)]}>
+                            <Text style={[styles.statValue, { color: textMain }]}>
                                 {stats.gradedCount > 0 ? `${stats.passRate}%` : "—"}
                             </Text>
                             <Text style={[styles.statLabel, { color: textSub }]}>Pass Rate</Text>
                         </View>
-                        <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                        <View style={[styles.statBox, skeuoCardStyle(skeuo, 13)]}>
                             <Text
                                 style={[
                                     styles.statValue,
@@ -358,9 +367,7 @@ export function BatchReviewDashboard({
                                         color:
                                             stats.needsReviewCount > 0
                                                 ? "#D97706"
-                                                : darkMode
-                                                ? "#F8FAFC"
-                                                : "#0F172A",
+                                                : textMain,
                                     },
                                 ]}
                             >
@@ -600,43 +607,76 @@ export function BatchReviewDashboard({
                                             </View>
                                         </View>
 
-                                        {/* Combined Compact Alert Banner Inside Student Card */}
-                                        {alertParts.length > 0 && (
-                                            <View
-                                                style={[
-                                                    styles.compactCardBanner,
-                                                    {
-                                                        backgroundColor: darkMode ? "#78350F25" : "#FFFBEB",
-                                                        borderColor: darkMode ? "#92400E" : "#FDE68A",
-                                                    },
-                                                ]}
-                                            >
-                                                <Ionicons name="alert-circle" size={15} color="#D97706" />
-                                                <Text
+                                        {/* Combined Compact Skeuomorphic Alert Plaque Inside Student Card */}
+                                        {alertParts.length > 0 && (() => {
+                                            const skeuo = getSkeuoPalette(darkMode);
+                                            const warnSem = getSemanticTokens("warning", darkMode);
+                                            const okSem = getSemanticTokens("success", darkMode);
+                                            return (
+                                                <View
                                                     style={[
-                                                        styles.compactCardBannerText,
-                                                        { color: darkMode ? "#FDE68A" : "#B45309" },
+                                                        styles.compactCardBanner,
+                                                        {
+                                                            backgroundColor: warnSem.plaqueBg,
+                                                            borderTopColor: darkMode ? warnSem.plaqueBorder : skeuo.bevelTop,
+                                                            borderLeftColor: warnSem.plaqueBorder,
+                                                            borderRightColor: warnSem.plaqueBorder,
+                                                            borderBottomColor: warnSem.plaqueBorder,
+                                                        },
                                                     ]}
-                                                    numberOfLines={1}
                                                 >
-                                                    {alertParts.join(" · ")}
-                                                </Text>
-                                                {item.flaggedCount === 0 && hasPhotoWarning && Boolean(item.matchedStudentId) && (
-                                                    <TouchableOpacity
-                                                        style={styles.approveAnywayBtn}
-                                                        onPress={() =>
-                                                            onUpdateItem(item.id, {
-                                                                status: "ready",
-                                                                isApproved: true,
-                                                            })
-                                                        }
-                                                        activeOpacity={0.8}
+                                                    <View
+                                                        style={[
+                                                            styles.compactBannerLedStrip,
+                                                            { backgroundColor: warnSem.ledBar },
+                                                        ]}
+                                                    />
+                                                    <View
+                                                        style={[
+                                                            styles.compactBannerSocket,
+                                                            {
+                                                                backgroundColor: warnSem.socketBg,
+                                                                borderColor: warnSem.socketBorder,
+                                                            },
+                                                        ]}
                                                     >
-                                                        <Text style={styles.approveAnywayBtnText}>Approve</Text>
-                                                    </TouchableOpacity>
-                                                )}
-                                            </View>
-                                        )}
+                                                        <Ionicons name="alert-circle" size={13} color={warnSem.plaqueText} />
+                                                    </View>
+                                                    <Text
+                                                        style={[
+                                                            styles.compactCardBannerText,
+                                                            { color: warnSem.plaqueText },
+                                                        ]}
+                                                        numberOfLines={1}
+                                                    >
+                                                        {alertParts.join(" · ")}
+                                                    </Text>
+                                                    {item.flaggedCount === 0 && hasPhotoWarning && Boolean(item.matchedStudentId) && (
+                                                        <Pressable
+                                                            style={({ pressed }) => [
+                                                                styles.approveAnywayBtn,
+                                                                skeuoButtonStyle(skeuo, {
+                                                                    fill: okSem.fill,
+                                                                    highlight: okSem.highlight,
+                                                                    lip: okSem.lip,
+                                                                    pressed,
+                                                                    radius: 7,
+                                                                }),
+                                                            ]}
+                                                            onPress={() => {
+                                                                triggerSkeuoHaptic("selection");
+                                                                onUpdateItem(item.id, {
+                                                                    status: "ready",
+                                                                    isApproved: true,
+                                                                });
+                                                            }}
+                                                        >
+                                                            <Text style={styles.approveAnywayBtnText}>Approve</Text>
+                                                        </Pressable>
+                                                    )}
+                                                </View>
+                                            );
+                                        })()}
 
                                         {/* Single Action Row */}
                                         {item.gradingResult && (
@@ -700,7 +740,7 @@ export function BatchReviewDashboard({
                         style={[
                             styles.bottomBar,
                             {
-                                backgroundColor: cardBg,
+                                backgroundColor: skeuo.chrome,
                                 borderTopColor: border,
                                 paddingBottom: Math.max(insets.bottom, 14),
                             },
@@ -720,7 +760,12 @@ export function BatchReviewDashboard({
                         <TouchableOpacity
                             style={[
                                 styles.commitBtn,
-                                { backgroundColor: "#16A34A" },
+                                skeuoButtonStyle(skeuo, {
+                                    fill: "#059669",
+                                    highlight: "#34D399",
+                                    lip: "#065F46",
+                                    radius: 13,
+                                }),
                                 (stats.readyCount === 0 || isSaving) && styles.commitBtnDisabled,
                             ]}
                             onPress={handleCommit}
@@ -1002,11 +1047,30 @@ const styles = StyleSheet.create({
     compactCardBanner: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 6,
-        paddingHorizontal: 10,
+        gap: 7,
+        paddingLeft: 12,
+        paddingRight: 9,
         paddingVertical: 7,
-        borderRadius: 8,
+        borderRadius: 10,
         borderWidth: 1,
+        borderBottomWidth: 2,
+        overflow: "hidden",
+    },
+    compactBannerLedStrip: {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 3.5,
+    },
+    compactBannerSocket: {
+        width: 22,
+        height: 22,
+        borderRadius: 6,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
     },
     compactCardBannerText: {
         flex: 1,
@@ -1014,10 +1078,8 @@ const styles = StyleSheet.create({
         fontWeight: "600",
     },
     approveAnywayBtn: {
-        backgroundColor: "#16A34A",
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 5,
+        paddingHorizontal: 9,
+        paddingVertical: 4,
     },
     approveAnywayBtnText: {
         color: "#FFFFFF",

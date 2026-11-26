@@ -29,6 +29,13 @@ import {
 } from "../components/auth/AuthInput";
 import { TeacherRegistrationStep1 } from "../components/auth/TeacherRegistrationStep1";
 import { TeacherVerificationStep2 } from "../components/auth/TeacherVerificationStep2";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "../components/skeuoTheme";
 import { useTheme } from "../context/ThemeContext";
 import {
   cancelIncompleteTeacherRegistration,
@@ -73,6 +80,7 @@ export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const { darkMode } = useTheme();
   const theme = getAuthTheme(darkMode);
+  const skeuo = getSkeuoPalette(darkMode, ORANGE);
 
   // Navigation State
   const [currentView, setCurrentView] = useState<AuthView>("welcome");
@@ -587,7 +595,7 @@ export default function AuthScreen() {
         style={[
           styles.safeRoot,
           styles.centeredLoading,
-          { backgroundColor: theme.bgSurface },
+          { backgroundColor: skeuo.canvas },
         ]}
         edges={["top", "bottom", "left", "right"]}
       >
@@ -616,7 +624,7 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.safeRoot, { backgroundColor: theme.bgSurface }]}
+      style={[styles.safeRoot, { backgroundColor: skeuo.canvas }]}
       edges={["top", "left", "right"]}
     >
       <StatusBar style={darkMode ? "light" : "dark"} />
@@ -630,12 +638,12 @@ export default function AuthScreen() {
            ══════════════════════════════════════════════════════ */}
         {currentView === "welcome" && (
           <View
-            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+            style={[styles.flex1, { backgroundColor: skeuo.canvas }]}
           >
             {/* Minimal Top Brand Header */}
             <View style={styles.welcomeHeader}>
               <View style={styles.brandRow}>
-                <View style={styles.brandMarkCircle}>
+                <View style={[styles.brandMarkCircle, { backgroundColor: skeuo.surface }]}>
                   <View style={styles.brandMarkInnerDot} />
                 </View>
                 <Text
@@ -676,7 +684,7 @@ export default function AuthScreen() {
               style={[
                 styles.welcomeFooter,
                 {
-                  backgroundColor: theme.bgSurface,
+                  backgroundColor: skeuo.canvas,
                   paddingBottom: Math.max(insets.bottom, 20),
                 },
               ]}
@@ -685,10 +693,12 @@ export default function AuthScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.primaryBtn,
-                    { backgroundColor: theme.accent },
-                    pressed && styles.btnPressed,
+                    skeuoButtonStyle(skeuo, { pressed, radius: 13 }),
                   ]}
-                  onPress={() => setCurrentView("login")}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    setCurrentView("login");
+                  }}
                 >
                   <Text style={styles.primaryBtnText}>Sign In</Text>
                 </Pressable>
@@ -696,13 +706,12 @@ export default function AuthScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.secondaryBtn,
-                    {
-                      backgroundColor: theme.bgSurface,
-                      borderColor: theme.borderInput,
-                    },
-                    pressed && styles.btnPressed,
+                    skeuoButtonStyle(skeuo, { neutral: true, pressed, radius: 13 }),
                   ]}
-                  onPress={() => setCurrentView("register")}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    setCurrentView("register");
+                  }}
                 >
                   <Text
                     style={[
@@ -723,23 +732,26 @@ export default function AuthScreen() {
            ══════════════════════════════════════════════════════ */}
         {currentView === "login" && (
           <View
-            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+            style={[styles.flex1, { backgroundColor: skeuo.canvas }]}
           >
             {/* Fixed Opaque Header (Outside ScrollView) */}
             <View
               style={[
                 styles.fixedHeader,
                 {
-                  backgroundColor: theme.bgSurface,
-                  borderBottomColor: theme.borderHairline,
+                  backgroundColor: skeuo.chrome,
+                  borderBottomColor: skeuo.bevelBottom,
                 },
               ]}
             >
               <View style={styles.fixedHeaderInner}>
                 <TouchableOpacity
-                  style={styles.backBtn}
+                  style={[
+                    styles.backBtn,
+                    skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
+                  ]}
                   onPress={handleHeaderBack}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   accessibilityLabel="Go back"
                 >
@@ -831,14 +843,13 @@ export default function AuthScreen() {
                       <View
                         style={[
                           styles.checkbox,
-                          {
-                            backgroundColor: rememberMe
-                              ? theme.accent
-                              : theme.bgSurface,
-                            borderColor: rememberMe
-                              ? theme.accent
-                              : theme.borderInput,
-                          },
+                          rememberMe
+                            ? {
+                                backgroundColor: skeuo.accent,
+                                borderColor: skeuo.accentLip,
+                                borderTopColor: skeuo.accentHighlight,
+                              }
+                            : skeuoWellStyle(skeuo, 5),
                         ]}
                       >
                         {rememberMe && (
@@ -878,11 +889,13 @@ export default function AuthScreen() {
                   <Pressable
                     style={({ pressed }) => [
                       styles.primaryBtn,
-                      { backgroundColor: theme.accent },
-                      pressed && styles.btnPressed,
+                      skeuoButtonStyle(skeuo, { pressed, radius: 13 }),
                       loading && styles.btnDisabled,
                     ]}
-                    onPress={handleLogin}
+                    onPress={() => {
+                      triggerSkeuoHaptic("light");
+                      handleLogin();
+                    }}
                     disabled={loading}
                   >
                     {loading ? (
@@ -956,20 +969,23 @@ export default function AuthScreen() {
            ══════════════════════════════════════════════════════ */}
         {currentView === "otp" && (
           <View
-            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+            style={[styles.flex1, { backgroundColor: skeuo.canvas }]}
           >
             {/* Fixed Opaque Header + 3px Progress Bar */}
             <View
               style={[
                 styles.otpHeader,
-                { backgroundColor: theme.bgSurface },
+                { backgroundColor: skeuo.chrome },
               ]}
             >
               <View style={styles.fixedHeaderInner}>
                 <TouchableOpacity
-                  style={styles.backBtn}
+                  style={[
+                    styles.backBtn,
+                    skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
+                  ]}
                   onPress={handleHeaderBack}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   accessibilityLabel="Go back"
                 >
@@ -988,7 +1004,7 @@ export default function AuthScreen() {
               <View
                 style={[
                   styles.progressTrack,
-                  { backgroundColor: theme.bgSubtle },
+                  { backgroundColor: skeuo.well },
                 ]}
               >
                 <View
@@ -1068,14 +1084,16 @@ export default function AuthScreen() {
                           key={idx}
                           style={[
                             styles.otpCellBox,
-                            {
+                            skeuoWellStyle(skeuo, 12),
+                            (isCurrent || isFilled) && {
                               backgroundColor: isCurrent
                                 ? theme.accentBg
-                                : theme.bgSurface,
-                              borderColor:
-                                isCurrent || isFilled
-                                  ? theme.accent
-                                  : theme.borderInput,
+                                : skeuo.well,
+                              borderWidth: 1.5,
+                              borderTopColor: theme.accent,
+                              borderLeftColor: theme.accent,
+                              borderRightColor: theme.accent,
+                              borderBottomColor: theme.accent,
                             },
                           ]}
                         >
@@ -1104,11 +1122,13 @@ export default function AuthScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.primaryBtn,
-                    { backgroundColor: theme.accent },
-                    pressed && styles.btnPressed,
+                    skeuoButtonStyle(skeuo, { pressed, radius: 13 }),
                     loading && styles.btnDisabled,
                   ]}
-                  onPress={handleVerifyOtp}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    handleVerifyOtp();
+                  }}
                   disabled={loading}
                 >
                   {loading ? (
@@ -1219,7 +1239,7 @@ export default function AuthScreen() {
            ══════════════════════════════════════════════════════ */}
         {currentView === "pending_approval" && (
           <View
-            style={[styles.flex1, { backgroundColor: theme.bgSurface }]}
+            style={[styles.flex1, { backgroundColor: skeuo.canvas }]}
           >
             <ScrollView
               style={styles.flex1}
@@ -1231,7 +1251,11 @@ export default function AuthScreen() {
                 <View
                   style={[
                     styles.statusIconCircle,
-                    { backgroundColor: theme.successBg },
+                    {
+                      backgroundColor: theme.successBg,
+                      borderWidth: 1.5,
+                      borderColor: theme.successBorder,
+                    },
                   ]}
                 >
                   <Ionicons
@@ -1270,10 +1294,7 @@ export default function AuthScreen() {
                   <View
                     style={[
                       styles.specTable,
-                      {
-                        backgroundColor: theme.bgPage,
-                        borderColor: theme.border,
-                      },
+                      skeuoCardStyle(skeuo, 14),
                     ]}
                   >
                     {summaryRows.map((row, idx) => (
@@ -1283,7 +1304,7 @@ export default function AuthScreen() {
                           styles.specRow,
                           idx > 0 && {
                             borderTopWidth: 1,
-                            borderTopColor: theme.border,
+                            borderTopColor: skeuo.grooveDark,
                           },
                         ]}
                       >
@@ -1320,8 +1341,8 @@ export default function AuthScreen() {
               style={[
                 styles.stickyFooter,
                 {
-                  backgroundColor: theme.bgSurface,
-                  borderTopColor: theme.border,
+                  backgroundColor: skeuo.chrome,
+                  borderTopColor: skeuo.bevelTop,
                   paddingBottom: Math.max(insets.bottom, 16),
                 },
               ]}
@@ -1330,10 +1351,12 @@ export default function AuthScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.primaryBtn,
-                    { backgroundColor: theme.accent },
-                    pressed && styles.btnPressed,
+                    skeuoButtonStyle(skeuo, { pressed, radius: 13 }),
                   ]}
-                  onPress={() => setCurrentView("login")}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    setCurrentView("login");
+                  }}
                 >
                   <Text style={styles.primaryBtnText}>Back to Sign In</Text>
                 </Pressable>
@@ -1350,7 +1373,7 @@ export default function AuthScreen() {
         animationType="fade"
         onRequestClose={() => setForgotModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={[styles.modalOverlay, { backgroundColor: skeuo.backdrop }]}>
           <Pressable
             style={StyleSheet.absoluteFillObject}
             onPress={() => setForgotModalVisible(false)}
@@ -1358,10 +1381,7 @@ export default function AuthScreen() {
           <View
             style={[
               styles.modalCard,
-              {
-                backgroundColor: theme.bgSurface,
-                borderColor: theme.border,
-              },
+              skeuoCardStyle(skeuo, 20),
             ]}
           >
             <View style={styles.modalHeaderRow}>
@@ -1369,10 +1389,14 @@ export default function AuthScreen() {
                 Reset password
               </Text>
               <Pressable
+                style={({ pressed }) => [
+                  styles.modalCloseSquare,
+                  skeuoButtonStyle(skeuo, { neutral: true, pressed, radius: 9 }),
+                ]}
                 onPress={() => setForgotModalVisible(false)}
                 hitSlop={10}
               >
-                <Ionicons name="close" size={22} color={theme.textMuted} />
+                <Ionicons name="close" size={18} color={theme.textSecondary} />
               </Pressable>
             </View>
 
@@ -1397,11 +1421,13 @@ export default function AuthScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
-                { backgroundColor: theme.accent },
-                pressed && styles.btnPressed,
+                skeuoButtonStyle(skeuo, { pressed, radius: 13 }),
                 forgotLoading && styles.btnDisabled,
               ]}
-              onPress={handleForgotPasswordSubmit}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                handleForgotPasswordSubmit();
+              }}
               disabled={forgotLoading}
             >
               {forgotLoading ? (
@@ -1577,7 +1603,7 @@ const styles = StyleSheet.create({
   welcomeFooter: {
     width: "100%",
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 14,
   },
   footerInner: {
     width: "100%",
@@ -1596,7 +1622,7 @@ const styles = StyleSheet.create({
   loginCenterStage: {
     flex: 1,
     justifyContent: "center",
-    paddingVertical: 24,
+    paddingVertical: 20,
   },
   loginBottomLogo: {
     alignItems: "center",
@@ -1612,7 +1638,7 @@ const styles = StyleSheet.create({
   authScrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 28,
+    paddingTop: 24,
   },
   formColumn: {
     width: "100%",
@@ -1846,6 +1872,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: "700",
+  },
+  modalCloseSquare: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalSubtitle: {
     fontSize: 13.5,

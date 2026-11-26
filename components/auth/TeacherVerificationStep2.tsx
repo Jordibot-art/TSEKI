@@ -17,6 +17,13 @@ import { useTheme } from "../../context/ThemeContext";
 import type { VerificationPhotoSet } from "../../lib/teacherVerificationUpload";
 import type { TeacherRegistrationProfile } from "../../shared/teacherRegistration";
 import { formatSubjectsSummaryDisplay, getAuthTheme } from "./AuthInput";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "../skeuoTheme";
 
 export interface TeacherVerificationStep2Props {
   profile: TeacherRegistrationProfile;
@@ -40,6 +47,7 @@ export function TeacherVerificationStep2({
   const { darkMode } = useTheme();
   const insets = useSafeAreaInsets();
   const theme = getAuthTheme(darkMode);
+  const skeuo = getSkeuoPalette(darkMode, theme.accent);
 
   const [idFrontUri, setIdFrontUri] = useState<string | null>(null);
   const [idBackUri, setIdBackUri] = useState<string | null>(null);
@@ -153,9 +161,11 @@ export function TeacherVerificationStep2({
       <View
         style={[
           styles.photoCard,
-          {
-            backgroundColor: theme.bgSurface,
-            borderColor: isUploaded ? theme.success : theme.border,
+          skeuoCardStyle(skeuo, 15),
+          isUploaded && {
+            borderLeftColor: theme.success,
+            borderRightColor: theme.success,
+            borderBottomColor: theme.success,
           },
         ]}
       >
@@ -240,12 +250,12 @@ export function TeacherVerificationStep2({
               <TouchableOpacity
                 style={[
                   styles.retakeBtn,
-                  {
-                    backgroundColor: theme.bgSurface,
-                    borderColor: theme.borderInput,
-                  },
+                  skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
-                onPress={() => captureWithCamera(slot)}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  captureWithCamera(slot);
+                }}
                 activeOpacity={0.75}
                 disabled={submitting}
               >
@@ -263,12 +273,12 @@ export function TeacherVerificationStep2({
               <TouchableOpacity
                 style={[
                   styles.retakeBtn,
-                  {
-                    backgroundColor: theme.bgSurface,
-                    borderColor: theme.borderInput,
-                  },
+                  skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
-                onPress={() => pickFromGallery(slot)}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  pickFromGallery(slot);
+                }}
                 activeOpacity={0.75}
                 disabled={submitting}
               >
@@ -290,22 +300,22 @@ export function TeacherVerificationStep2({
             <TouchableOpacity
               style={[
                 styles.cameraActionBtn,
-                {
-                  backgroundColor: theme.accentBg,
-                  borderColor: theme.accent,
-                },
+                skeuoButtonStyle(skeuo, { fill: theme.accent, radius: 10 }),
               ]}
-              onPress={() => captureWithCamera(slot)}
-              activeOpacity={0.8}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                captureWithCamera(slot);
+              }}
+              activeOpacity={0.82}
               disabled={submitting}
             >
               <Ionicons
                 name="camera-outline"
                 size={17}
-                color={theme.accent}
+                color="#FFFFFF"
               />
               <Text
-                style={[styles.cameraActionText, { color: theme.accentText }]}
+                style={[styles.cameraActionText, { color: "#FFFFFF" }]}
                 numberOfLines={1}
               >
                 {primaryCameraLabel}
@@ -315,13 +325,13 @@ export function TeacherVerificationStep2({
             <TouchableOpacity
               style={[
                 styles.galleryActionBtn,
-                {
-                  backgroundColor: theme.bgSurface,
-                  borderColor: theme.borderInput,
-                },
+                skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
               ]}
-              onPress={() => pickFromGallery(slot)}
-              activeOpacity={0.75}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                pickFromGallery(slot);
+              }}
+              activeOpacity={0.78}
               disabled={submitting}
             >
               <Ionicons
@@ -346,16 +356,20 @@ export function TeacherVerificationStep2({
   }
 
   return (
-    <View style={[styles.screenRoot, { backgroundColor: theme.bgPage }]}>
+    <View style={[styles.screenRoot, { backgroundColor: skeuo.canvas }]}>
       {/* ── Fixed Opaque Top Header + 3px Progress Bar (Outside ScrollView) ── */}
       <View
-        style={[styles.fixedHeader, { backgroundColor: theme.bgSurface }]}
+        style={[styles.fixedHeader, { backgroundColor: skeuo.chrome }]}
       >
         <View style={styles.fixedHeaderInner}>
           <View
             style={[
               styles.verifiedIndicator,
-              { backgroundColor: theme.successBg },
+              {
+                backgroundColor: theme.successBg,
+                borderWidth: 1,
+                borderColor: theme.successBorder,
+              },
             ]}
           >
             <Ionicons
@@ -374,7 +388,7 @@ export function TeacherVerificationStep2({
           </Text>
         </View>
         <View
-          style={[styles.progressTrack, { backgroundColor: theme.bgSubtle }]}
+          style={[styles.progressTrack, { backgroundColor: skeuo.well }]}
         >
           <View
             style={[
@@ -391,7 +405,7 @@ export function TeacherVerificationStep2({
 
       {/* ── Scrollable Body ── */}
       <ScrollView
-        style={[styles.scrollView, { backgroundColor: theme.bgPage }]}
+        style={[styles.scrollView, { backgroundColor: skeuo.canvas }]}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -411,7 +425,7 @@ export function TeacherVerificationStep2({
           <View
             style={[
               styles.teacherStrip,
-              { backgroundColor: theme.bgSubtle },
+              skeuoWellStyle(skeuo, 12),
             ]}
           >
             <View style={styles.teacherStripTop}>
@@ -514,8 +528,8 @@ export function TeacherVerificationStep2({
         style={[
           styles.stickyFooter,
           {
-            backgroundColor: theme.bgSurface,
-            borderTopColor: theme.border,
+            backgroundColor: skeuo.chrome,
+            borderTopColor: skeuo.bevelTop,
             paddingBottom: Math.max(insets.bottom, 12),
           },
         ]}
@@ -529,15 +543,14 @@ export function TeacherVerificationStep2({
           <Pressable
             style={({ pressed }) => [
               styles.submitBtn,
-              {
-                backgroundColor:
-                  readyToSubmit || submitting
-                    ? theme.accent
-                    : theme.btnDisabledBg,
-              },
-              pressed && readyToSubmit && styles.btnPressed,
+              readyToSubmit || submitting
+                ? skeuoButtonStyle(skeuo, { fill: theme.accent, pressed, radius: 13 })
+                : skeuoWellStyle(skeuo, 13),
             ]}
-            onPress={handleSubmit}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              handleSubmit();
+            }}
             disabled={!readyToSubmit || cancelling}
           >
             {submitting ? (

@@ -10,6 +10,12 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
+import {
+    getSkeuoPalette,
+    skeuoButtonStyle,
+    skeuoCardStyle,
+    skeuoWellStyle,
+} from "./skeuoTheme";
 
 export interface PhotoGuidanceModalProps {
     visible: boolean;
@@ -26,24 +32,25 @@ export function PhotoGuidanceModal({
 
     if (!visible) return null;
 
-    const bg = darkMode ? "#1F2937" : "#FFFFFF";
-    const textMain = darkMode ? "#F9FAFB" : "#111827";
-    const textSub = darkMode ? "#9CA3AF" : "#4B5563";
-    const cardBg = darkMode ? "#374151" : "#F9FAFB";
-    const border = darkMode ? "#4B5563" : "#E5E7EB";
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
+    const bg = skeuo.surface;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
+    const cardBg = skeuo.well;
+    const border = skeuo.border;
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <View style={styles.overlay}>
+            <View style={[styles.overlay, { backgroundColor: skeuo.backdrop }]}>
                 <TouchableWithoutFeedback onPress={onClose}>
                     <View style={StyleSheet.absoluteFillObject} />
                 </TouchableWithoutFeedback>
 
-                <View style={[styles.card, { backgroundColor: bg }]}>
+                <View style={[styles.card, skeuoCardStyle(skeuo, 22), { backgroundColor: bg }]}>
                     {/* Header */}
-                    <View style={styles.header}>
+                    <View style={[styles.header, { backgroundColor: skeuo.chrome, borderBottomColor: border }]}>
                         <View style={styles.headerLeft}>
-                            <View style={[styles.headerIconBg, { backgroundColor: accentColor + "20" }]}>
+                            <View style={[styles.headerIconBg, skeuoWellStyle(skeuo, 10), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
                                 <Ionicons name="camera" size={20} color={accentColor} />
                             </View>
                             <View>
@@ -51,14 +58,14 @@ export function PhotoGuidanceModal({
                                 <Text style={[styles.subtitle, { color: textSub }]}>3 rules for 100% accurate AI grading</Text>
                             </View>
                         </View>
-                        <TouchableOpacity style={[styles.closeBtn, { backgroundColor: cardBg }]} onPress={onClose}>
+                        <TouchableOpacity style={[styles.closeBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]} onPress={onClose}>
                             <Ionicons name="close" size={20} color={textSub} />
                         </TouchableOpacity>
                     </View>
 
                     <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
                         {/* Rule 1: Lighting */}
-                        <View style={[styles.ruleCard, { backgroundColor: cardBg, borderColor: border }]}>
+                        <View style={[styles.ruleCard, skeuoWellStyle(skeuo, 14)]}>
                             <View style={styles.ruleHeader}>
                                 <View style={[styles.ruleBadge, { backgroundColor: "#FBBF2425" }]}>
                                     <Ionicons name="sunny" size={18} color="#D97706" />
@@ -94,7 +101,7 @@ export function PhotoGuidanceModal({
                         </View>
 
                         {/* Rule 2: Sharp Focus & Steady Camera */}
-                        <View style={[styles.ruleCard, { backgroundColor: cardBg, borderColor: border }]}>
+                        <View style={[styles.ruleCard, skeuoWellStyle(skeuo, 14)]}>
                             <View style={styles.ruleHeader}>
                                 <View style={[styles.ruleBadge, { backgroundColor: "#3B82F625" }]}>
                                     <Ionicons name="sparkles" size={18} color="#2563EB" />
@@ -130,7 +137,7 @@ export function PhotoGuidanceModal({
                         </View>
 
                         {/* Rule 3: 4 Corner Markers */}
-                        <View style={[styles.ruleCard, { backgroundColor: cardBg, borderColor: border }]}>
+                        <View style={[styles.ruleCard, skeuoWellStyle(skeuo, 14)]}>
                             <View style={styles.ruleHeader}>
                                 <View style={[styles.ruleBadge, { backgroundColor: "#10B98125" }]}>
                                     <Ionicons name="contract-outline" size={18} color="#059669" />
@@ -167,11 +174,11 @@ export function PhotoGuidanceModal({
                     </ScrollView>
 
                     {/* Bottom CTA */}
-                    <View style={styles.footer}>
+                    <View style={[styles.footer, { backgroundColor: skeuo.chrome, borderTopColor: border }]}>
                         <TouchableOpacity
-                            style={[styles.gotItBtn, { backgroundColor: accentColor }]}
+                            style={[styles.gotItBtn, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 13 })]}
                             onPress={onClose}
-                            activeOpacity={0.8}
+                            activeOpacity={0.85}
                         >
                             <Ionicons name="checkmark-outline" size={18} color="#FFFFFF" />
                             <Text style={styles.gotItBtnText}>Got It, Let&apos;s Scan!</Text>

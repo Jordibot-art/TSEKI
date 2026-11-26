@@ -12,6 +12,7 @@ import {
     ActivityIndicator,
     Animated,
     Easing,
+    Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -22,6 +23,12 @@ import { BatchSheetItem } from "../lib/batchGradingQueue";
 import { AUTO_DETECT_ASSESSMENT, matchAssessmentByQr } from "../lib/assessmentDetector";
 import type { StoredQuiz } from "../lib/quizStore";
 import { PhotoGuidanceModal } from "./PhotoGuidanceModal";
+import {
+    getSemanticTokens,
+    getSkeuoPalette,
+    skeuoButtonStyle,
+    triggerSkeuoHaptic,
+} from "./skeuoTheme";
 import {
     cropCapturedSheetToReticle,
     evaluateLiveHoverQuality,
@@ -673,53 +680,87 @@ export function BatchScannerModal({
                             </View>
                         </TouchableOpacity>
 
-                        {/* ── Post-Capture Batch Photo Quality Warning Banner (Batch Mode) ── */}
-                        {activeQualityAlert && (
-                            <View style={styles.qualityAlertBanner}>
-                                <View style={styles.qualityAlertHeader}>
-                                    <View style={styles.qualityAlertTitleRow}>
-                                        <Ionicons name="warning" size={16} color="#F59E0B" />
-                                        <Text style={styles.qualityAlertTitle} numberOfLines={1}>
-                                            Photo Quality Alert: {activeQualityAlert.studentLabel}
-                                        </Text>
-                                    </View>
-                                    <TouchableOpacity
-                                        onPress={() => setActiveQualityAlert(null)}
-                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    >
-                                        <Ionicons name="close-circle" size={18} color="#9CA3AF" />
-                                    </TouchableOpacity>
-                                </View>
-                                {activeQualityAlert.warnings.map((w, idx) => (
-                                    <Text key={idx} style={styles.qualityAlertItem}>
-                                        • {w}
-                                    </Text>
-                                ))}
-                                <View style={styles.qualityAlertActions}>
-                                    {activeQualityAlert.itemId && onRemoveSheet && (
-                                        <TouchableOpacity
-                                            style={styles.qualityAlertRetakeBtn}
+                        {/* ── Post-Capture Batch Photo Quality Warning Plaque (Batch Mode) ── */}
+                        {activeQualityAlert && (() => {
+                            const darkPalette = getSkeuoPalette(true);
+                            const warnSem = getSemanticTokens("warning", true);
+                            const errSem = getSemanticTokens("error", true);
+                            return (
+                                <View style={styles.qualityAlertBanner}>
+                                    <View style={[styles.qualityAlertLedStrip, { backgroundColor: warnSem.ledBar, shadowColor: warnSem.led }]} />
+                                    <View style={styles.qualityAlertHeader}>
+                                        <View style={styles.qualityAlertTitleRow}>
+                                            <View style={styles.qualityAlertIconSocket}>
+                                                <Ionicons name="warning" size={14} color={warnSem.highlight} />
+                                            </View>
+                                            <Text style={styles.qualityAlertTitle} numberOfLines={1}>
+                                                Photo Quality Alert: {activeQualityAlert.studentLabel}
+                                            </Text>
+                                        </View>
+                                        <Pressable
                                             onPress={() => {
-                                                const idToRemove = activeQualityAlert.itemId!;
+                                                triggerSkeuoHaptic("light");
                                                 setActiveQualityAlert(null);
-                                                onRemoveSheet(idToRemove);
                                             }}
-                                            activeOpacity={0.8}
+                                            style={({ pressed }) => [
+                                                styles.qualityAlertCloseBtn,
+                                                pressed && { opacity: 0.7 },
+                                            ]}
+                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            accessibilityLabel="Dismiss photo quality alert"
                                         >
-                                            <Ionicons name="refresh" size={13} color="#FFFFFF" />
-                                            <Text style={styles.qualityAlertRetakeText}>Discard & Retake</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                    <TouchableOpacity
-                                        style={styles.qualityAlertDismissBtn}
-                                        onPress={() => setActiveQualityAlert(null)}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Text style={styles.qualityAlertDismissText}>Dismiss</Text>
-                                    </TouchableOpacity>
+                                            <Ionicons name="close" size={14} color="#CBD5E1" />
+                                        </Pressable>
+                                    </View>
+                                    {activeQualityAlert.warnings.map((w, idx) => (
+                                        <Text key={idx} style={styles.qualityAlertItem}>
+                                            • {w}
+                                        </Text>
+                                    ))}
+                                    <View style={styles.qualityAlertActions}>
+                                        {activeQualityAlert.itemId && onRemoveSheet && (
+                                            <Pressable
+                                                style={({ pressed }) => [
+                                                    styles.qualityAlertRetakeBtn,
+                                                    skeuoButtonStyle(darkPalette, {
+                                                        fill: errSem.fill,
+                                                        highlight: errSem.highlight,
+                                                        lip: errSem.lip,
+                                                        pressed,
+                                                        radius: 9,
+                                                    }),
+                                                ]}
+                                                onPress={() => {
+                                                    triggerSkeuoHaptic("medium");
+                                                    const idToRemove = activeQualityAlert.itemId!;
+                                                    setActiveQualityAlert(null);
+                                                    onRemoveSheet(idToRemove);
+                                                }}
+                                            >
+                                                <Ionicons name="refresh" size={13} color="#FFFFFF" />
+                                                <Text style={styles.qualityAlertRetakeText}>Discard & Retake</Text>
+                                            </Pressable>
+                                        )}
+                                        <Pressable
+                                            style={({ pressed }) => [
+                                                styles.qualityAlertDismissBtn,
+                                                skeuoButtonStyle(darkPalette, {
+                                                    neutral: true,
+                                                    pressed,
+                                                    radius: 9,
+                                                }),
+                                            ]}
+                                            onPress={() => {
+                                                triggerSkeuoHaptic("light");
+                                                setActiveQualityAlert(null);
+                                            }}
+                                        >
+                                            <Text style={styles.qualityAlertDismissText}>Dismiss</Text>
+                                        </Pressable>
+                                    </View>
                                 </View>
-                            </View>
-                        )}
+                            );
+                        })()}
 
                         {/* ── Interactive Tap-to-Focus Viewfinder Touch Layer ── */}
                         <TouchableWithoutFeedback onPress={handleTouchToFocus}>
@@ -934,9 +975,18 @@ export function BatchScannerModal({
                             <View style={styles.shutterBar}>
                                 {/* Photo Library Import */}
                                 <TouchableOpacity
-                                    style={styles.galleryBtn}
+                                    style={[
+                                        styles.galleryBtn,
+                                        {
+                                            backgroundColor: "rgba(30, 34, 42, 0.88)",
+                                            borderWidth: 1,
+                                            borderTopColor: "rgba(255, 255, 255, 0.22)",
+                                            borderBottomColor: "rgba(0, 0, 0, 0.7)",
+                                            borderBottomWidth: 3,
+                                        },
+                                    ]}
                                     onPress={handlePickFromGallery}
-                                    activeOpacity={0.7}
+                                    activeOpacity={0.75}
                                 >
                                     <Ionicons name="images" size={24} color="#ffffff" />
                                     <Text style={styles.galleryBtnLabel}>Album</Text>
@@ -944,12 +994,34 @@ export function BatchScannerModal({
 
                                 {/* Snap Shutter Button */}
                                 <TouchableOpacity
-                                    style={styles.shutterRing}
+                                    style={[
+                                        styles.shutterRing,
+                                        {
+                                            borderColor: "rgba(255, 255, 255, 0.85)",
+                                            backgroundColor: "rgba(18, 20, 24, 0.65)",
+                                            shadowColor: "#000000",
+                                            shadowOffset: { width: 0, height: 4 },
+                                            shadowOpacity: 0.5,
+                                            shadowRadius: 8,
+                                            elevation: 8,
+                                        },
+                                    ]}
                                     onPress={handleSnap}
                                     activeOpacity={0.8}
                                     disabled={isCapturing}
                                 >
-                                    <View style={[styles.shutterInner, { backgroundColor: accentColor }]}>
+                                    <View
+                                        style={[
+                                            styles.shutterInner,
+                                            {
+                                                backgroundColor: accentColor,
+                                                borderTopWidth: 2,
+                                                borderTopColor: "rgba(255, 255, 255, 0.45)",
+                                                borderBottomWidth: 3,
+                                                borderBottomColor: "rgba(0, 0, 0, 0.35)",
+                                            },
+                                        ]}
+                                    >
                                         {isCapturing ? (
                                             <ActivityIndicator size="small" color="#ffffff" />
                                         ) : (
@@ -961,7 +1033,16 @@ export function BatchScannerModal({
                                 {/* Single Mode: Tips Button | Batch Mode: Review Button */}
                                 {isSingle ? (
                                     <TouchableOpacity
-                                        style={styles.singleTipsBtn}
+                                        style={[
+                                            styles.singleTipsBtn,
+                                            {
+                                                backgroundColor: "rgba(30, 34, 42, 0.88)",
+                                                borderWidth: 1,
+                                                borderTopColor: "rgba(255, 255, 255, 0.22)",
+                                                borderBottomColor: "rgba(0, 0, 0, 0.7)",
+                                                borderBottomWidth: 3,
+                                            },
+                                        ]}
                                         onPress={() => setGuidanceOpen(true)}
                                         activeOpacity={0.75}
                                     >
@@ -972,11 +1053,17 @@ export function BatchScannerModal({
                                     <TouchableOpacity
                                         style={[
                                             styles.finishBtn,
+                                            {
+                                                borderTopWidth: 1,
+                                                borderTopColor: "rgba(255, 255, 255, 0.3)",
+                                                borderBottomWidth: 3,
+                                                borderBottomColor: "rgba(0, 0, 0, 0.45)",
+                                            },
                                             totalCaptured === 0 && styles.finishBtnDisabled,
                                         ]}
                                         onPress={onFinishAndReview}
                                         disabled={totalCaptured === 0}
-                                        activeOpacity={0.8}
+                                        activeOpacity={0.85}
                                     >
                                         {inProgressCount > 0 && (
                                             <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 2 }} />
@@ -1260,40 +1347,81 @@ const styles = StyleSheet.create({
         top: 136,
         left: 16,
         right: 16,
-        backgroundColor: "rgba(17, 24, 39, 0.96)",
+        backgroundColor: "rgba(24, 27, 34, 0.96)",
         borderRadius: 14,
-        padding: 12,
-        borderWidth: 1.5,
-        borderColor: "#F59E0B",
+        paddingVertical: 12,
+        paddingRight: 13,
+        paddingLeft: 16,
+        borderWidth: 1,
+        borderTopColor: "#5C431C",
+        borderLeftColor: "#6C4A15",
+        borderRightColor: "#6C4A15",
+        borderBottomColor: "#0B0D10",
+        borderBottomWidth: 3,
+        overflow: "hidden",
         zIndex: 25,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.48,
+        shadowRadius: 14,
+        elevation: 10,
+    },
+    qualityAlertLedStrip: {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 4,
+        shadowOffset: { width: 1, height: 0 },
+        shadowOpacity: 0.7,
+        shadowRadius: 5,
     },
     qualityAlertHeader: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        marginBottom: 6,
+        marginBottom: 7,
     },
     qualityAlertTitleRow: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 6,
+        gap: 8,
         flex: 1,
         marginRight: 8,
     },
+    qualityAlertIconSocket: {
+        width: 24,
+        height: 24,
+        borderRadius: 7,
+        backgroundColor: "#201708",
+        borderWidth: 1,
+        borderTopColor: "#0B0D10",
+        borderLeftColor: "#0B0D10",
+        borderRightColor: "#80581A",
+        borderBottomColor: "#80581A",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    qualityAlertCloseBtn: {
+        width: 26,
+        height: 26,
+        borderRadius: 8,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
     qualityAlertTitle: {
-        color: "#FBBF24",
+        color: "#FCD34D",
         fontSize: 13,
         fontWeight: "800",
         flex: 1,
     },
     qualityAlertItem: {
-        color: "#F3F4F6",
+        color: "#E7E5E4",
         fontSize: 11.5,
-        lineHeight: 16,
+        lineHeight: 16.5,
         marginTop: 2,
     },
     qualityAlertActions: {
@@ -1307,10 +1435,8 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 5,
-        backgroundColor: "#EF4444",
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 8,
+        paddingVertical: 7,
+        paddingHorizontal: 11,
     },
     qualityAlertRetakeText: {
         color: "#FFFFFF",
@@ -1318,15 +1444,13 @@ const styles = StyleSheet.create({
         fontWeight: "700",
     },
     qualityAlertDismissBtn: {
-        backgroundColor: "rgba(255,255,255,0.12)",
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 8,
+        paddingVertical: 7,
+        paddingHorizontal: 11,
     },
     qualityAlertDismissText: {
-        color: "#E5E7EB",
+        color: "#F4F2ED",
         fontSize: 11.5,
-        fontWeight: "600",
+        fontWeight: "700",
     },
     focusRing: {
         position: "absolute",

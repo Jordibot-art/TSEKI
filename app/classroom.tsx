@@ -34,6 +34,13 @@ import {
 } from "../components/SmoothModalTransition";
 import TrackerTab from "../components/TrackerTab";
 import { StudentFormModal } from "../components/classroom/StudentFormModal";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "../components/skeuoTheme";
 import { useTheme } from "../context/ThemeContext";
 import {
   AlertPreferences,
@@ -1389,15 +1396,16 @@ export default function ClassroomScreen() {
   const cardColor = color || ORANGE;
   const { darkMode } = useTheme();
 
-  // ── Dynamic theme colors ──────────────────────────────────────────────────
-  const bg = darkMode ? "#111827" : "#F9FAFB";
-  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-  const border = darkMode ? "#374151" : "#E5E7EB";
-  const subBorder = darkMode ? "#374151" : "#F3F4F6";
-  const inputBg = darkMode ? "#374151" : "#F9FAFB";
-  const btnSecondaryBg = darkMode ? "#374151" : "#F3F4F6";
+  // ── Dynamic skeuomorphic theme colors ─────────────────────────────────────
+  const skeuo = getSkeuoPalette(darkMode, cardColor);
+  const bg = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
+  const border = skeuo.border;
+  const subBorder = skeuo.grooveDark;
+  const inputBg = skeuo.well;
+  const btnSecondaryBg = skeuo.btnNeutralBg;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const subtitleParts: string[] = [];
@@ -1426,13 +1434,16 @@ export default function ClassroomScreen() {
   return (
     <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Top App Bar ── */}
-      <View style={[styles.topBar, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
+      <View style={[styles.topBar, { backgroundColor: skeuo.chrome, borderBottomColor: skeuo.bevelBottom }]}>
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
+          onPress={() => {
+            triggerSkeuoHaptic("light");
+            router.back();
+          }}
+          activeOpacity={0.75}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}>
+          <View style={[styles.backIconCircle, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}>
             <Ionicons name="chevron-back" size={18} color={textMain} />
           </View>
           <Text style={[styles.backText, { color: textMain }]}>Classrooms</Text>
@@ -1445,25 +1456,19 @@ export default function ClassroomScreen() {
           <TouchableOpacity
             style={[
               styles.notifDot,
-              {
-                backgroundColor:
-                  classroomUnreadCount > 0
-                    ? darkMode
-                      ? "#431407"
-                      : "#FFF7ED"
-                    : darkMode
-                      ? "#374151"
-                      : "#F8FAFC",
-                borderColor:
-                  classroomUnreadCount > 0
-                    ? darkMode
-                      ? "#7C2D12"
-                      : "#FED7AA"
-                    : border,
-                borderWidth: 1,
+              skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
+              classroomUnreadCount > 0 && {
+                backgroundColor: skeuo.accentSoft,
+                borderTopColor: darkMode ? "#7C3A16" : "#FFFFFF",
+                borderLeftColor: skeuo.accentSoftBorder,
+                borderRightColor: skeuo.accentSoftBorder,
+                borderBottomColor: darkMode ? "#3A1909" : "#D9A47F",
               },
             ]}
-            onPress={handleOpenNotifModal}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              handleOpenNotifModal();
+            }}
             activeOpacity={0.8}
             accessibilityLabel={
               classroomUnreadCount > 0
@@ -1480,7 +1485,7 @@ export default function ClassroomScreen() {
               <View
                 style={[
                   styles.topBarBadge,
-                  { borderColor: darkMode ? "#1F2937" : "#FFFFFF" },
+                  { borderColor: skeuo.chrome },
                 ]}
               >
                 <Text style={styles.topBarBadgeText}>
@@ -1491,15 +1496,18 @@ export default function ClassroomScreen() {
               <View
                 style={[
                   styles.topBarSubtleDot,
-                  { borderColor: darkMode ? "#1F2937" : "#FFFFFF" },
+                  { borderColor: skeuo.chrome },
                 ]}
               />
             ) : null}
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.topBarActionBtn, { backgroundColor: darkMode ? "#374151" : "#F8FAFC", borderColor: border, borderWidth: 1 }]}
-            onPress={() => setClassMenuVisible(true)}
+            style={[styles.topBarActionBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 12 })]}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              setClassMenuVisible(true);
+            }}
             activeOpacity={0.8}
             accessibilityLabel="More classroom options"
           >
@@ -1514,16 +1522,15 @@ export default function ClassroomScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ── Class Banner (Full on Record, Compact on Utility Tabs) ── */}
+        {/* ── Class Banner (Consistent size across all tabs) ── */}
         <View
           style={[
             styles.banner,
-            activeTab !== "Record" && styles.bannerCompact,
             { backgroundColor: cardColor },
           ]}
         >
           <View style={styles.bannerStripe} />
-          <Text style={[styles.bannerTitle, activeTab !== "Record" && styles.bannerTitleCompact]}>
+          <Text style={styles.bannerTitle}>
             {classroomTitle || title}
           </Text>
           {bannerSubtitleLine ? (
@@ -1533,35 +1540,43 @@ export default function ClassroomScreen() {
           ) : null}
         </View>
 
-        {/* ── Underline Tab Bar ── */}
-        <View style={[styles.tabBar, { backgroundColor: cardBg, borderBottomColor: darkMode ? "#334155" : "#E2E8F0" }]}>
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[
-                  styles.tab,
-                  isActive && [
-                    styles.tabActive,
-                    { borderBottomColor: darkMode ? "#F8FAFC" : "#0F172A" },
-                  ],
-                ]}
-                onPress={() => setActiveTab(tab)}
-                activeOpacity={0.75}
-              >
-                <Text
+        {/* ── Recessed Hardware Segmented Tab Bar ── */}
+        <View style={[styles.tabBar, { backgroundColor: skeuo.chrome, borderBottomColor: skeuo.bevelBottom }]}>
+          <View style={[styles.tabTrackInner, skeuoWellStyle(skeuo, 12)]}>
+            {tabs.map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
                   style={[
-                    styles.tabText,
-                    { color: isActive ? (darkMode ? "#F8FAFC" : "#0F172A") : "#64748B" },
-                    isActive && styles.tabTextActive,
+                    styles.tab,
+                    isActive && [
+                      styles.tabActive,
+                      skeuoCardStyle(skeuo, 9),
+                    ],
                   ]}
+                  onPress={() => {
+                    triggerSkeuoHaptic("selection");
+                    setActiveTab(tab);
+                  }}
+                  activeOpacity={0.78}
                 >
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+                  <Text
+                    style={[
+                      styles.tabText,
+                      { color: isActive ? cardColor : skeuo.textSecondary },
+                      isActive && styles.tabTextActive,
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                  >
+                    {tab}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         {/* ── Tab Content ── */}
@@ -1569,20 +1584,20 @@ export default function ClassroomScreen() {
         {activeTab === "Record" && (
           <>
             {/* ── Action Toolbar ── */}
-            <View style={[styles.actionRow, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
+            <View style={[styles.actionRow, { backgroundColor: skeuo.tray, borderBottomColor: skeuo.grooveDark }]}>
               <TouchableOpacity
                 style={[
                   styles.secondaryToolbarBtn,
-                  {
-                    backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
-                    borderColor: darkMode ? "#475569" : "#CBD5E1",
-                  },
+                  skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
                 activeOpacity={0.8}
-                onPress={handleImportRecord}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  handleImportRecord();
+                }}
               >
-                <Ionicons name="cloud-upload-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
-                <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                <Ionicons name="cloud-upload-outline" size={16} color={textMain} />
+                <Text style={[styles.secondaryToolbarBtnText, { color: textMain }]}>
                   Import
                 </Text>
               </TouchableOpacity>
@@ -1590,25 +1605,13 @@ export default function ClassroomScreen() {
               <TouchableOpacity
                 style={[
                   styles.secondaryToolbarBtn,
-                  {
-                    backgroundColor: isExporting
-                      ? darkMode
-                        ? "rgba(239, 68, 68, 0.14)"
-                        : "#FEF2F2"
-                      : darkMode
-                        ? "#1F2937"
-                        : "#FFFFFF",
-                    borderColor: isExporting
-                      ? darkMode
-                        ? "rgba(248, 113, 113, 0.4)"
-                        : "#FECACA"
-                      : darkMode
-                        ? "#475569"
-                        : "#CBD5E1",
-                  },
+                  isExporting
+                    ? skeuoButtonStyle(skeuo, { fill: "#DC2626", highlight: "#F87171", lip: "#991B1B", radius: 10 })
+                    : skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
                 ]}
                 activeOpacity={0.8}
                 onPress={() => {
+                  triggerSkeuoHaptic("light");
                   if (isExporting) {
                     handleCancelClassroomExport();
                   } else {
@@ -1619,8 +1622,8 @@ export default function ClassroomScreen() {
               >
                 {isExporting ? (
                   <>
-                    <ActivityIndicator size="small" color={darkMode ? "#FCA5A5" : "#DC2626"} />
-                    <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#FCA5A5" : "#DC2626" }]}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <Text style={[styles.secondaryToolbarBtnText, { color: "#FFFFFF" }]}>
                       Cancel Export
                     </Text>
                   </>
@@ -1629,9 +1632,9 @@ export default function ClassroomScreen() {
                     <Ionicons
                       name="download-outline"
                       size={16}
-                      color={darkMode ? "#F8FAFC" : "#0F172A"}
+                      color={textMain}
                     />
-                    <Text style={[styles.secondaryToolbarBtnText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                    <Text style={[styles.secondaryToolbarBtnText, { color: textMain }]}>
                       Export Excel
                     </Text>
                   </>
@@ -1639,8 +1642,11 @@ export default function ClassroomScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.primaryToolbarBtn, { backgroundColor: cardColor }]}
-                onPress={openAddModal}
+                style={[styles.primaryToolbarBtn, skeuoButtonStyle(skeuo, { fill: cardColor, radius: 10 })]}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  openAddModal();
+                }}
                 activeOpacity={0.85}
               >
                 <Ionicons name="add" size={17} color="#FFFFFF" />
@@ -1695,54 +1701,6 @@ export default function ClassroomScreen() {
         )}
 
         {activeTab === "Tracker" && (
-          <>
-            <View style={[styles.actionRow, { backgroundColor: cardBg, borderBottomColor: subBorder }]}>
-              <TouchableOpacity
-                style={[
-                  styles.secondaryToolbarBtn,
-                  {
-                    flex: 1,
-                    backgroundColor: isExporting
-                      ? darkMode
-                        ? "rgba(239, 68, 68, 0.14)"
-                        : "#FEF2F2"
-                      : darkMode
-                        ? "#1F2937"
-                        : "#FFFFFF",
-                    borderColor: isExporting
-                      ? darkMode
-                        ? "rgba(248, 113, 113, 0.4)"
-                        : "#FECACA"
-                      : darkMode
-                        ? "#475569"
-                        : "#CBD5E1",
-                  },
-                ]}
-                activeOpacity={0.8}
-                onPress={() => {
-                  if (isExporting) {
-                    handleCancelClassroomExport();
-                  } else {
-                    handleExportQuizScores(false);
-                  }
-                }}
-                accessibilityLabel={isExporting ? "Cancel quiz scores export" : "Export Quiz Scores"}
-              >
-                {isExporting ? (
-                  <ActivityIndicator size="small" color={darkMode ? "#FCA5A5" : "#DC2626"} />
-                ) : (
-                  <Ionicons name="grid-outline" size={16} color={darkMode ? "#F8FAFC" : "#0F172A"} />
-                )}
-                <Text
-                  style={[
-                    styles.secondaryToolbarBtnText,
-                    { color: isExporting ? (darkMode ? "#FCA5A5" : "#DC2626") : darkMode ? "#F8FAFC" : "#0F172A" },
-                  ]}
-                >
-                  {isExporting ? "Cancel Export" : "Export Quiz Scores (.xlsx)"}
-                </Text>
-              </TouchableOpacity>
-            </View>
           <TrackerTab
             classroomId={id as string}
             classTitle={(classroomTitle || title) as string}
@@ -1760,18 +1718,17 @@ export default function ClassroomScreen() {
               setActiveTab("Grader");
             }}
           />
-          </>
         )}
 
         {activeTab === "Record" && (
           <>
             {/* ── Search Bar ── */}
-            <View style={[styles.searchBar, { backgroundColor: cardBg, borderColor: darkMode ? border : "#E2E8F0" }]}>
-              <Ionicons name="search-outline" size={17} color="#64748B" />
+            <View style={[styles.searchBar, skeuoWellStyle(skeuo, 12)]}>
+              <Ionicons name="search-outline" size={17} color={skeuo.textMuted} />
               <TextInput
                 style={[styles.searchInput, { color: textMain }]}
                 placeholder="Search students by name or email..."
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={skeuo.textMuted}
                 value={search}
                 onChangeText={setSearch}
               />
@@ -1822,28 +1779,28 @@ export default function ClassroomScreen() {
                     key={student.id}
                     style={[
                       styles.studentRow,
-                      {
-                        backgroundColor: cardBg,
-                        borderColor: darkMode ? "#334155" : "#E5E7EB",
-                      },
+                      skeuoCardStyle(skeuo, 14),
                     ]}
-                    onPress={() => setSelectedProfile(student)}
-                    activeOpacity={0.75}
+                    onPress={() => {
+                      triggerSkeuoHaptic("light");
+                      setSelectedProfile(student);
+                    }}
+                    activeOpacity={0.78}
                   >
-                    {/* 36px Neutral Avatar */}
+                    {/* 36px Recessed Socket Avatar */}
                     {avatarUri ? (
                       <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
                     ) : (
                       <View
                         style={[
                           styles.avatar,
-                          { backgroundColor: darkMode ? "#334155" : "#F1F5F9" },
+                          skeuoWellStyle(skeuo, 18),
                         ]}
                       >
                         <Text
                           style={[
                             styles.avatarText,
-                            { color: darkMode ? "#E2E8F0" : "#334155" },
+                            { color: textMain },
                           ]}
                         >
                           {getInitials(student.full_name)}
@@ -1853,10 +1810,10 @@ export default function ClassroomScreen() {
 
                     {/* Left Info: Full Student Name + Email */}
                     <View style={styles.studentInfo}>
-                      <Text style={[styles.studentName, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                      <Text style={[styles.studentName, { color: textMain }]}>
                         {student.full_name}
                       </Text>
-                      <Text style={[styles.studentEmail, { color: "#64748B" }]} numberOfLines={1}>
+                      <Text style={[styles.studentEmail, { color: textSub }]} numberOfLines={1}>
                         {student.email || "No email"}
                       </Text>
                     </View>
@@ -2102,11 +2059,11 @@ export default function ClassroomScreen() {
 
                   {/* Stats Row */}
                   <View style={styles.profileStatsRow}>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                    <View style={[styles.statBox, skeuoCardStyle(skeuo, 14)]}>
                       <Text style={[styles.statBoxLabel, { color: textSub }]}>AVERAGE</Text>
                       <Text style={[styles.statBoxValue, { color: textMain }]}>{profileAvg}%</Text>
                     </View>
-                    <View style={[styles.statBox, { backgroundColor: cardBg, borderColor: border }]}>
+                    <View style={[styles.statBox, skeuoCardStyle(skeuo, 14)]}>
                       <Text style={[styles.statBoxLabel, { color: textSub }]}>STATUS</Text>
                       {isTopPerformer ? (
                         <View style={[styles.statusPill, { backgroundColor: darkMode ? "#064E3B" : "#F0FDF4" }]}>
@@ -3465,9 +3422,6 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     overflow: "hidden",
   },
-  bannerCompact: {
-    paddingVertical: 12,
-  },
   bannerStripe: {
     position: "absolute",
     right: -30,
@@ -3483,9 +3437,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     letterSpacing: -0.3,
   },
-  bannerTitleCompact: {
-    fontSize: 17,
-  },
   bannerSubtitleText: {
     fontSize: 13,
     color: "rgba(255, 255, 255, 0.85)",
@@ -3494,40 +3445,49 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  /* ── Tabs (True Underline Tab Bar) ── */
+  /* ── Tabs (Recessed Hardware Segmented Tab Bar) ── */
   tabBar: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
+    width: "100%",
+    backgroundColor: "#F1EEE8",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    borderBottomColor: "#C3BCB0",
+  },
+  tabTrackInner: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 3,
+    gap: 3,
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    minHeight: 34,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderBottomWidth: 2,
+    borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
   },
-  tabActive: {
-    borderBottomColor: "#0F172A",
-  },
+  tabActive: {},
   tabText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#64748B",
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#57534E",
   },
   tabTextActive: {
-    color: "#0F172A",
-    fontWeight: "700",
+    fontWeight: "800",
   },
 
   /* ── Action Row ── */
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 8,
     backgroundColor: "#FFFFFF",
@@ -3544,11 +3504,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#CBD5E1",
     borderRadius: 10,
-    paddingHorizontal: 10,
-    gap: 6,
+    paddingHorizontal: 8,
+    gap: 5,
   },
   secondaryToolbarBtnText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: "600",
     color: "#0F172A",
   },

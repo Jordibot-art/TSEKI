@@ -7,12 +7,14 @@ import {
   Easing,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { getSkeuoPalette, skeuoCardStyle, skeuoWellStyle } from "./skeuoTheme";
 
 export interface AssessmentGeneratingAnimationProps {
   topicOrSubject?: string;
   questionCount?: string;
   difficulty?: string;
   questionType?: string;
+  mode?: "new" | "expand";
   isAiBusy?: boolean;
   statusMessage?: string;
   accentColor?: string;
@@ -24,6 +26,7 @@ export function AssessmentGeneratingAnimation({
   questionCount = "10 Items",
   difficulty = "Medium",
   questionType = "Multiple Choice",
+  mode = "new",
   isAiBusy = false,
   statusMessage,
   accentColor = "#EA580C",
@@ -49,24 +52,44 @@ export function AssessmentGeneratingAnimation({
   // Dynamic stages (advances 0 -> 1 -> 2 -> 3 and holds on final stage)
   const [stageIndex, setStageIndex] = useState<number>(0);
 
-  const STAGES = [
-    {
-      title: "Analyzing Curriculum & Lesson Materials",
-      sub: "Aligning with DepEd Bloom's Taxonomy standards",
-    },
-    {
-      title: "Crafting Higher-Order Thinking Questions",
-      sub: `Formulating ${questionCount} tailored for ${difficulty} level`,
-    },
-    {
-      title: "Generating Plausible Distractors & Keys",
-      sub: "Building fair, misconception-tested answer choices",
-    },
-    {
-      title: "Formatting Scannable Test Paper Grid",
-      sub: "Embedding 4-corner markers & verification blocks",
-    },
-  ];
+  const STAGES =
+    mode === "expand"
+      ? [
+          {
+            title: "Reviewing Existing Quiz Items",
+            sub: "Ensuring new questions never duplicate current items",
+          },
+          {
+            title: `Crafting ${questionCount}`,
+            sub: `Formulating additional ${questionType} items for ${difficulty}`,
+          },
+          {
+            title: "Building Answer Keys & Distractors",
+            sub: "Validating accuracy and DepEd Bloom's alignment",
+          },
+          {
+            title: "Appending to Your Assessment",
+            sub: "Numbering and formatting new scannable items",
+          },
+        ]
+      : [
+          {
+            title: "Analyzing Curriculum & Lesson Materials",
+            sub: "Aligning with DepEd Bloom's Taxonomy standards",
+          },
+          {
+            title: "Crafting Higher-Order Thinking Questions",
+            sub: `Formulating ${questionCount} tailored for ${difficulty} level`,
+          },
+          {
+            title: "Generating Plausible Distractors & Keys",
+            sub: "Building fair, misconception-tested answer choices",
+          },
+          {
+            title: "Formatting Scannable Test Paper Grid",
+            sub: "Embedding 4-corner markers & verification blocks",
+          },
+        ];
 
   const isSuccess = Boolean(
     statusMessage && statusMessage.toLowerCase().includes("successfully")
@@ -195,14 +218,13 @@ export function AssessmentGeneratingAnimation({
     }
   }, [isSuccess, progressAnim]);
 
+  const skeuo = getSkeuoPalette(darkMode, accentColor);
   const activeColor = isSuccess ? "#10B981" : isAiBusy ? "#F59E0B" : accentColor;
-  const stageBg = darkMode ? "#1E293B" : "#F8FAFC";
-  const stageBorder = darkMode ? "#334155" : "#E2E8F0";
-  const cardBg = darkMode ? "#0F172A" : "#FFFFFF";
-  const cardBorder = darkMode ? "#334155" : "#E2E8F0";
-  const textColor = darkMode ? "#F8FAFC" : "#0F172A";
-  const subTextColor = darkMode ? "#94A3B8" : "#64748B";
-  const skelBarBg = darkMode ? "#334155" : "#E2E8F0";
+  const cardBg = skeuo.surface;
+  const cardBorder = skeuo.border;
+  const textColor = skeuo.textPrimary;
+  const subTextColor = skeuo.textSecondary;
+  const skelBarBg = darkMode ? "#323742" : "#DDD8CE";
 
   const currentStage = STAGES[stageIndex];
   const greenOptionIdx = questionNum % 2 === 1 ? 1 : 0; // alternates between B and A
@@ -210,7 +232,7 @@ export function AssessmentGeneratingAnimation({
   return (
     <View style={styles.container}>
       {/* ── 1. Top Animated Stage: Rich Floating Question Card Preview (animation1.mp4) ── */}
-      <View style={[styles.stageCard, { backgroundColor: stageBg, borderColor: stageBorder }]}>
+      <View style={[styles.stageCard, skeuoWellStyle(skeuo, 16)]}>
         {/* Subtle Stacked Back Card Silhouette */}
         <View
           style={[
@@ -226,9 +248,8 @@ export function AssessmentGeneratingAnimation({
         <Animated.View
           style={[
             styles.previewQuestionCard,
+            skeuoCardStyle(skeuo, 12),
             {
-              backgroundColor: cardBg,
-              borderColor: cardBorder,
               opacity: cardOpacityAnim,
               transform: [{ translateY: cardSlideAnim }],
             },
@@ -365,7 +386,7 @@ export function AssessmentGeneratingAnimation({
       </View>
 
       {/* ── 3. Smooth Continuous Progress Bar + Step & Live Percentage Row ── */}
-      <View style={[styles.progressTrack, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}>
+      <View style={[styles.progressTrack, skeuoWellStyle(skeuo, 999), { backgroundColor: skeuo.wellDeep }]}>
         <Animated.View
           style={[
             styles.progressFill,
@@ -381,7 +402,7 @@ export function AssessmentGeneratingAnimation({
       </View>
 
       <View style={styles.stepCounterRow}>
-        <Text style={styles.stepText}>
+        <Text style={[styles.stepText, { color: subTextColor }]}>
           Step {stageIndex + 1} of {STAGES.length}
         </Text>
         <Text style={[styles.percentText, { color: isSuccess ? "#10B981" : textColor }]}>

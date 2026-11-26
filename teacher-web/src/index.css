@@ -1,32 +1,33 @@
-/* ─── TSEKI Teacher Web – Design System ─── */
+/* ─── TSEKI Teacher Web – Modern Tactile Skeuomorphism Design System ─── */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
 :root {
-  /* ── Brand Colors (10% Brand Accent) ── */
+  /* ── Brand Colors (Anodized TSEKI Orange) ── */
   --orange-50: #FFF7ED;
   --orange-100: #FFEDD5;
   --orange-200: #FED7AA;
   --orange-300: #FDBA74;
   --orange-400: #FB923C;
-  --orange-500: #EA580C;
+  --orange-500: #FF6B00;
   --orange-600: #EA580C;
   --orange-700: #C2410C;
+  --orange-800: #9A3412;
 
-  /* ── Zinc Neutral Palette (90% Neutral) ── */
-  --zinc-50: #FAFAFA;
-  --zinc-100: #F4F4F5;
-  --zinc-200: #E4E4E7;
-  --zinc-300: #D4D4D8;
-  --zinc-400: #A1A1AA;
-  --zinc-500: #71717A;
-  --zinc-600: #52525B;
-  --zinc-700: #3F3F46;
-  --zinc-800: #27272A;
-  --zinc-900: #18181B;
-  --zinc-950: #09090B;
+  /* ── Warm Ceramic-Aluminum Neutral Palette ── */
+  --zinc-50: #FAF8F5;
+  --zinc-100: #F2EFEA;
+  --zinc-200: #E6E2DA;
+  --zinc-300: #D6D1C7;
+  --zinc-400: #A8A29E;
+  --zinc-500: #78716C;
+  --zinc-600: #57534E;
+  --zinc-700: #44403C;
+  --zinc-800: #292524;
+  --zinc-900: #1C1917;
+  --zinc-950: #12100E;
 
-  /* Legacy aliases mapped to zinc */
+  /* Legacy aliases mapped to warm stone-metal neutrals */
   --gray-50: var(--zinc-50);
   --gray-100: var(--zinc-100);
   --gray-200: var(--zinc-200);
@@ -39,7 +40,7 @@
   --gray-900: var(--zinc-900);
   --gray-950: var(--zinc-950);
 
-  /* ── Status Colors ── */
+  /* ── Status & LED Colors ── */
   --emerald-500: #10B981;
   --emerald-100: #D1FAE5;
   --emerald-50: #ECFDF5;
@@ -53,68 +54,154 @@
   --purple-100: #EDE9FE;
   --pink-500: #EC4899;
 
-  /* ── Semantic Tokens (Light) ── */
-  --bg-primary: #FFFFFF;
-  --bg-secondary: #FAFAFA;
-  --bg-tertiary: var(--zinc-100);
-  --bg-card: #FFFFFF;
-  --bg-sidebar: #FAFAFA;
-  --text-primary: var(--zinc-900);
-  --text-secondary: var(--zinc-500);
-  --text-tertiary: var(--zinc-400);
-  --border-primary: rgba(228, 228, 231, 0.8);
-  --border-secondary: var(--zinc-100);
+  --led-success: #10B981;
+  --led-info: #3B82F6;
+  --led-warning: #F59E0B;
+  --led-error: #EF4444;
+  --led-orange: #FF6B00;
+
+  /* ── Semantic Surfaces (Light: Warm Brushed Aluminum / Ceramic Ivory) ── */
+  --bg-primary: #FAF8F5;
+  --bg-secondary: #EAE7E1;
+  --bg-tertiary: #E3DFD7;
+  --bg-card: #F9F7F3;
+  --bg-sidebar: #EFECE6;
+  --text-primary: #1C1917;
+  --text-secondary: #57534E;
+  --text-tertiary: #78716C;
+  --border-primary: #D6D1C7;
+  --border-secondary: #E4DFD6;
   --accent: var(--orange-600);
-  --accent-light: rgba(234, 88, 12, 0.08);
+  --accent-light: rgba(234, 88, 12, 0.1);
   --accent-hover: var(--orange-700);
 
-  /* ── Tighter Radii ── */
-  --radius-sm: 4px;
-  --radius-md: 6px;  /* badges */
-  --radius-lg: 8px;  /* buttons, inputs, selects */
-  --radius-xl: 12px; /* modals, primary cards */
+  /* ── Skeuomorphic Hardware Tokens (Light) ── */
+  --skeuo-canvas-bg: linear-gradient(180deg, #EFECE6 0%, #E7E3DC 100%);
+  --skeuo-surface-bg: linear-gradient(180deg, #FCFBF9 0%, #F2EFE9 100%);
+  --skeuo-chrome-bg: linear-gradient(180deg, #F6F3ED 0%, #EAE6DE 100%);
+  --skeuo-well-bg: #E5E1D9;
+  --skeuo-well-shadow: inset 0 2px 4px rgba(28, 25, 23, 0.12), inset 0 1px 1px rgba(28, 25, 23, 0.08), 0 1px 0 rgba(255, 255, 255, 0.85);
+  --skeuo-plaque-bg: linear-gradient(180deg, #FCFBF9 0%, #F1EEE8 100%);
+  --skeuo-plaque-border: #D2CCC1;
+  --skeuo-plaque-lip: #B9B2A5;
+  --skeuo-plaque-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 1px 2px rgba(28, 25, 23, 0.08), 0 8px 20px -4px rgba(28, 25, 23, 0.11);
+  --skeuo-modal-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 24px 54px -12px rgba(20, 17, 14, 0.34), 0 6px 16px rgba(20, 17, 14, 0.14);
+  --skeuo-groove-dark: rgba(28, 25, 23, 0.13);
+  --skeuo-groove-light: rgba(255, 255, 255, 0.86);
+  --skeuo-specular: rgba(255, 255, 255, 0.88);
+  --skeuo-focus-ring: 0 0 0 3px rgba(234, 88, 12, 0.24);
+
+  /* Tactile 3D Button Surfaces */
+  --skeuo-orange-btn: linear-gradient(180deg, #FB8532 0%, #EA580C 55%, #D44B07 100%);
+  --skeuo-orange-btn-hover: linear-gradient(180deg, #FF9347 0%, #F16216 55%, #DC510A 100%);
+  --skeuo-red-btn: linear-gradient(180deg, #F05252 0%, #DC2626 55%, #B91C1C 100%);
+  --skeuo-red-btn-hover: linear-gradient(180deg, #F86B6B 0%, #E52E2E 55%, #C62020 100%);
+  --skeuo-amber-btn: linear-gradient(180deg, #FBBF24 0%, #D97706 58%, #B45309 100%);
+  --skeuo-green-btn: linear-gradient(180deg, #22C58B 0%, #059669 58%, #047857 100%);
+  --skeuo-blue-btn: linear-gradient(180deg, #4B8DF8 0%, #2563EB 58%, #1D4ED8 100%);
+  --skeuo-neutral-btn: linear-gradient(180deg, #FCFBF9 0%, #ECE8E0 100%);
+  --skeuo-neutral-btn-hover: linear-gradient(180deg, #FFFFFF 0%, #F2EFE8 100%);
+
+  /* Unified Semantic Inline Banner Tokens (Light) */
+  --banner-success-bg: linear-gradient(180deg, #EFFAF4 0%, #E2F4EA 100%);
+  --banner-success-border: #9FD6BC;
+  --banner-success-text: #065F46;
+  --banner-info-bg: linear-gradient(180deg, #EFF5FE 0%, #E3EEFC 100%);
+  --banner-info-border: #ADC6F4;
+  --banner-info-text: #1E40AF;
+  --banner-warning-bg: linear-gradient(180deg, #FEF8EB 0%, #FAEDD3 100%);
+  --banner-warning-border: #E5C17B;
+  --banner-warning-text: #92400E;
+  --banner-error-bg: linear-gradient(180deg, #FDF1F0 0%, #F9E3E1 100%);
+  --banner-error-border: #E6ACA6;
+  --banner-error-text: #991B1B;
+  --banner-orange-bg: linear-gradient(180deg, #FEF4EC 0%, #FAE7D7 100%);
+  --banner-orange-border: #E9BA97;
+  --banner-orange-text: #9A3412;
+
+  /* ── Radii ── */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 11px;
+  --radius-xl: 15px;
   --radius-full: 9999px;
 
-  /* ── Crisp Borders Over Blurry Shadows ── */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.03);
-  --shadow-xl: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
-  --shadow-glow: none;
+  /* ── Grounded Tactile Shadows ── */
+  --shadow-xs: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 2px rgba(28, 25, 23, 0.08);
+  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 2px 4px rgba(28, 25, 23, 0.09);
+  --shadow-md: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 10px -2px rgba(28, 25, 23, 0.11), 0 1px 2px rgba(28, 25, 23, 0.06);
+  --shadow-lg: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 22px -4px rgba(28, 25, 23, 0.14), 0 2px 6px rgba(28, 25, 23, 0.08);
+  --shadow-xl: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 20px 42px -10px rgba(28, 25, 23, 0.22);
+  --shadow-glow: 0 4px 14px rgba(234, 88, 12, 0.28);
 
   /* ── Transitions ── */
-  --transition-fast: 150ms cubic-bezier(0.4,0,0.2,1);
-  --transition-base: 250ms cubic-bezier(0.4,0,0.2,1);
-  --transition-slow: 350ms cubic-bezier(0.4,0,0.2,1);
+  --transition-fast: 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-base: 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 320ms cubic-bezier(0.16, 1, 0.3, 1);
 
   /* ── Typography ── */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* ── Sidebar ── */
-  --sidebar-width: 250px;
-  --sidebar-collapsed-width: 68px;
+  --sidebar-width: 256px;
+  --sidebar-collapsed-width: 72px;
 }
 
-/* ─── Dark Mode ─── */
+/* ─── Dark Mode (Brushed Gunmetal & Anodized Slate-Graphite) ─── */
 [data-theme="dark"] {
-  --bg-primary: var(--gray-900);
-  --bg-secondary: var(--gray-800);
-  --bg-tertiary: var(--gray-700);
-  --bg-card: var(--gray-800);
-  --bg-sidebar: #0D1117;
-  --text-primary: var(--gray-50);
-  --text-secondary: var(--gray-400);
-  --text-tertiary: var(--gray-600);
-  --border-primary: var(--gray-700);
-  --border-secondary: var(--gray-800);
-  --accent-light: rgba(255,107,0,0.12);
+  --bg-primary: #181A1F;
+  --bg-secondary: #121418;
+  --bg-tertiary: #232730;
+  --bg-card: #21252D;
+  --bg-sidebar: #16181D;
+  --text-primary: #F4F2ED;
+  --text-secondary: #A3A8B4;
+  --text-tertiary: #6F7685;
+  --border-primary: #323742;
+  --border-secondary: #262A34;
+  --accent-light: rgba(255, 107, 0, 0.16);
 
-  --shadow-xs: 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.3);
-  --shadow-lg: 0 10px 15px rgba(0,0,0,0.35);
-  --shadow-xl: 0 20px 25px rgba(0,0,0,0.4);
+  --skeuo-canvas-bg: linear-gradient(180deg, #181A1F 0%, #111317 100%);
+  --skeuo-surface-bg: linear-gradient(180deg, #272B34 0%, #1C1F26 100%);
+  --skeuo-chrome-bg: linear-gradient(180deg, #232730 0%, #181B21 100%);
+  --skeuo-well-bg: #0E1014;
+  --skeuo-well-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.72), inset 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.07);
+  --skeuo-plaque-bg: linear-gradient(180deg, #272B34 0%, #1C1F26 100%);
+  --skeuo-plaque-border: #343A46;
+  --skeuo-plaque-lip: #0A0C0F;
+  --skeuo-plaque-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 2px 4px rgba(0, 0, 0, 0.4), 0 12px 26px -6px rgba(0, 0, 0, 0.56);
+  --skeuo-modal-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 28px 60px -10px rgba(0, 0, 0, 0.78), 0 8px 20px rgba(0, 0, 0, 0.45);
+  --skeuo-groove-dark: rgba(0, 0, 0, 0.68);
+  --skeuo-groove-light: rgba(255, 255, 255, 0.07);
+  --skeuo-specular: rgba(255, 255, 255, 0.1);
+  --skeuo-focus-ring: 0 0 0 3px rgba(255, 107, 0, 0.32);
+
+  --skeuo-neutral-btn: linear-gradient(180deg, #2E333E 0%, #22262F 100%);
+  --skeuo-neutral-btn-hover: linear-gradient(180deg, #363C49 0%, #282D38 100%);
+
+  /* Unified Semantic Inline Banner Tokens (Dark) */
+  --banner-success-bg: linear-gradient(180deg, #122E24 0%, #0D221B 100%);
+  --banner-success-border: #20614B;
+  --banner-success-text: #86EFAC;
+  --banner-info-bg: linear-gradient(180deg, #162643 0%, #101C33 100%);
+  --banner-info-border: #2A4D87;
+  --banner-info-text: #93C5FD;
+  --banner-warning-bg: linear-gradient(180deg, #31230F 0%, #24190A 100%);
+  --banner-warning-border: #765117;
+  --banner-warning-text: #FCD34D;
+  --banner-error-bg: linear-gradient(180deg, #35161A 0%, #261013 100%);
+  --banner-error-border: #782C35;
+  --banner-error-text: #FCA5A5;
+  --banner-orange-bg: linear-gradient(180deg, #321E14 0%, #24150D 100%);
+  --banner-orange-border: #743E1F;
+  --banner-orange-text: #FDBA74;
+
+  --shadow-xs: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 5px rgba(0, 0, 0, 0.45);
+  --shadow-md: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 6px 14px rgba(0, 0, 0, 0.5);
+  --shadow-lg: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 12px 28px rgba(0, 0, 0, 0.58);
+  --shadow-xl: inset 0 1px 0 rgba(255, 255, 255, 0.11), 0 24px 48px rgba(0, 0, 0, 0.7);
 }
 
 /* ─── Reset & Base ─── */
@@ -132,7 +219,8 @@ html {
 
 body {
   font-family: var(--font-family);
-  background: var(--bg-secondary);
+  background: var(--skeuo-canvas-bg);
+  background-color: var(--bg-secondary);
   color: var(--text-primary);
   line-height: 1.6;
   min-height: 100vh;
@@ -153,6 +241,15 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--skeuo-focus-ring);
 }
 
 input, textarea, select {

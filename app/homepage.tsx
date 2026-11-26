@@ -19,6 +19,14 @@ import {
 } from "react-native";
 import { AnimatedTsekiLogo } from "../components/AnimatedTsekiLogo";
 import { NotificationsModal } from "../components/NotificationsModal";
+import {
+  getSemanticTokens,
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "../components/skeuoTheme";
 import { useTheme } from "../context/ThemeContext";
 import {
   AlertPreferences,
@@ -115,12 +123,13 @@ export default function HomePage() {
   const router = useRouter();
   const { darkMode, themeColor } = useTheme();
 
-  // ── Dynamic colors ──────────────────────────────────────────────────────────
-  const bg = darkMode ? "#111827" : "#FFFFFF";
-  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain = darkMode ? "#F9FAFB" : "#181920";
-  const textSub = darkMode ? "#9CA3AF" : "#64748B";
-  const border = darkMode ? "#374151" : "#E5E7EB";
+  // ── Dynamic skeuomorphic colors ─────────────────────────────────────────────
+  const skeuo = getSkeuoPalette(darkMode, themeColor || ORANGE);
+  const bg = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
+  const border = skeuo.border;
 
 
   const [cards, setCards] = useState<ClassCard[]>([]);
@@ -654,9 +663,9 @@ export default function HomePage() {
   return (
     <View style={[styles.root, { backgroundColor: bg }]}>
       {/* ── Top App Bar ── */}
-      <View style={[styles.appBar, { backgroundColor: cardBg, borderBottomColor: border }]}>
+      <View style={[styles.appBar, { backgroundColor: skeuo.chrome, borderBottomColor: skeuo.bevelBottom }]}>
         <View style={styles.topBrandRow}>
-          <View style={styles.brandMarkCircle}>
+          <View style={[styles.brandMarkCircle, { backgroundColor: skeuo.surface }]}>
             <View style={styles.brandMarkInnerDot} />
           </View>
           <Text style={[styles.brandMarkText, { color: textMain }]}>TSEKI</Text>
@@ -664,12 +673,19 @@ export default function HomePage() {
         <TouchableOpacity
           style={[
             styles.notifBtn,
-            {
-              backgroundColor: darkMode ? "#431407" : ORANGE_LIGHT,
-              borderColor: darkMode ? "#7C2D12" : "#FED7AA",
+            skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
+            unreadAlertsCount > 0 && {
+              backgroundColor: skeuo.accentSoft,
+              borderTopColor: darkMode ? "#7C3A16" : "#FFFFFF",
+              borderLeftColor: skeuo.accentSoftBorder,
+              borderRightColor: skeuo.accentSoftBorder,
+              borderBottomColor: darkMode ? "#3A1909" : "#D9A47F",
             },
           ]}
-          onPress={() => handleOpenNotif(null)}
+          onPress={() => {
+            triggerSkeuoHaptic("light");
+            handleOpenNotif(null);
+          }}
           activeOpacity={0.75}
           accessibilityLabel={
             unreadAlertsCount > 0
@@ -683,13 +699,13 @@ export default function HomePage() {
             color={ORANGE}
           />
           {unreadAlertsCount > 0 ? (
-            <View style={[styles.notifBadge, { borderColor: cardBg }]}>
+            <View style={[styles.notifBadge, { borderColor: skeuo.chrome }]}>
               <Text style={styles.notifBadgeText}>
                 {unreadAlertsCount > 9 ? "9+" : unreadAlertsCount}
               </Text>
             </View>
           ) : alerts.length > 0 ? (
-            <View style={[styles.notifSubtleDot, { borderColor: cardBg }]} />
+            <View style={[styles.notifSubtleDot, { borderColor: skeuo.chrome }]} />
           ) : null}
         </TouchableOpacity>
       </View>
@@ -710,9 +726,12 @@ export default function HomePage() {
           <Pressable
             style={({ pressed }) => [
               styles.addBtn,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+              skeuoButtonStyle(skeuo, { fill: ORANGE, pressed, radius: 11 }),
             ]}
-            onPress={openModal}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              openModal();
+            }}
           >
             <Ionicons name="add" size={18} color="#FFFFFF" />
             <Text style={styles.addBtnText}>New Class</Text>
@@ -759,8 +778,13 @@ export default function HomePage() {
           return (
             <Pressable
               key={card.id}
-              style={[styles.classCard, { backgroundColor: cardBg, borderColor: border }]}
-              onPress={() =>
+              style={({ pressed }) => [
+                styles.classCard,
+                skeuoCardStyle(skeuo, 18),
+                pressed && { transform: [{ translateY: 1 }] },
+              ]}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
                 router.push({
                   pathname: "/classroom",
                   params: {
@@ -772,8 +796,8 @@ export default function HomePage() {
                     schedule: card.schedule,
                     color: card.color,
                   },
-                })
-              }
+                });
+              }}
             >
               <View style={[styles.cardTop, { backgroundColor: card.color }]}>
                 <View style={styles.cardHeaderRow}>
@@ -830,7 +854,7 @@ export default function HomePage() {
                 ) : null}
               </View>
 
-              <View style={[styles.cardBottom, { backgroundColor: cardBg }]}>
+              <View style={[styles.cardBottom, { backgroundColor: cardBg, borderTopColor: skeuo.grooveDark }]}>
                 <View style={styles.statItem}>
                   <Ionicons name="people-outline" size={16} color={textSub} />
                   <Text style={[styles.statText, { color: textSub }]}>
@@ -875,17 +899,20 @@ export default function HomePage() {
 
         {/* ── Empty State ── */}
         {!loading && cards.length === 0 && (
-          <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 48, paddingHorizontal: 24 }}>
-            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: ORANGE + "18", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-              <Ionicons name="school-outline" size={32} color={ORANGE} />
+          <View style={[{ alignItems: "center", justifyContent: "center", paddingVertical: 40, paddingHorizontal: 24, marginTop: 8 }, skeuoCardStyle(skeuo, 18)]}>
+            <View style={[{ width: 64, height: 64, alignItems: "center", justifyContent: "center", marginBottom: 16 }, skeuoWellStyle(skeuo, 32)]}>
+              <Ionicons name="school-outline" size={30} color={ORANGE} />
             </View>
             <Text style={{ fontSize: 17, fontWeight: "700", color: textMain, marginBottom: 6 }}>No Classrooms Yet</Text>
             <Text style={{ fontSize: 13, color: textSub, textAlign: "center", lineHeight: 18, marginBottom: 20 }}>
               Tap &quot;New Class&quot; above or the button below to build your first course and start grading!
             </Text>
             <TouchableOpacity
-              style={[styles.buildBtn, { backgroundColor: ORANGE, paddingHorizontal: 20, height: 44 }]}
-              onPress={openModal}
+              style={[styles.buildBtn, skeuoButtonStyle(skeuo, { fill: ORANGE, radius: 12 }), { paddingHorizontal: 20, height: 44, flex: 0 }]}
+              onPress={() => {
+                triggerSkeuoHaptic("light");
+                openModal();
+              }}
             >
               <Ionicons name="add-circle" size={18} color="#FFFFFF" />
               <Text style={styles.buildBtnText}>Build Classroom</Text>
@@ -894,43 +921,87 @@ export default function HomePage() {
         )}
       </ScrollView>
 
-      {/* ── Fixed Bottom Info Banner ── */}
-      {!bannerDismissed && (
-        <View style={styles.fixedBannerContainer}>
-          <View style={[styles.infoBanner, { backgroundColor: darkMode ? "#1F2937" : "#FFFBF5", borderColor: darkMode ? "#374151" : "#E5E7EB" }]}>
-            <View style={styles.bannerMascotWrap}>
-              <AnimatedTsekiLogo size={52} />
-            </View>
-            <View style={styles.bannerTextContent}>
-              <View style={styles.bannerTitleRow}>
-                <Text style={[styles.bannerTitle, { color: textMain }]}>{getTeacherGreeting(userName)}</Text>
-                <TouchableOpacity
-                  onPress={() => setBannerDismissed(true)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={styles.bannerCloseBtn}
-                  accessibilityLabel="Dismiss helper banner"
-                >
-                  <Ionicons name="close" size={16} color={textSub} />
-                </TouchableOpacity>
+      {/* ── Fixed Bottom Skeuomorphic Helper Plaque ── */}
+      {!bannerDismissed && (() => {
+        const skeuo = getSkeuoPalette(darkMode, ORANGE);
+        const sem = getSemanticTokens("confirm", darkMode, ORANGE);
+        return (
+          <View style={styles.fixedBannerContainer}>
+            <View
+              style={[
+                styles.infoBanner,
+                skeuoCardStyle(skeuo, 15),
+                {
+                  backgroundColor: darkMode ? skeuo.surface : "#FAF8F4",
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.bannerLedStrip,
+                  {
+                    backgroundColor: sem.ledBar,
+                    shadowColor: sem.led,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.bannerMascotWrap,
+                  skeuoWellStyle(skeuo, 12),
+                  { backgroundColor: sem.socketBg, borderColor: sem.socketBorder },
+                ]}
+              >
+                <AnimatedTsekiLogo size={46} />
               </View>
-              <Text style={[styles.bannerBody, { color: textSub }]}>
-                Open a class to grade answer sheets with the camera or generate DepEd-aligned quizzes in seconds.
-              </Text>
+              <View style={styles.bannerTextContent}>
+                <View style={styles.bannerTitleRow}>
+                  <Text style={[styles.bannerTitle, { color: skeuo.textPrimary }]}>
+                    {getTeacherGreeting(userName)}
+                  </Text>
+                  <Pressable
+                    onPress={() => {
+                      triggerSkeuoHaptic("light");
+                      setBannerDismissed(true);
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={({ pressed }) => [
+                      styles.bannerCloseBtn,
+                      skeuoButtonStyle(skeuo, { neutral: true, pressed, radius: 9 }),
+                    ]}
+                    accessibilityLabel="Dismiss helper banner"
+                  >
+                    <Ionicons name="close" size={14} color={skeuo.textSecondary} />
+                  </Pressable>
+                </View>
+                <Text style={[styles.bannerBody, { color: skeuo.textSecondary }]}>
+                  Open a class to grade answer sheets with the camera or generate DepEd-aligned quizzes in seconds.
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
-      )}
+        );
+      })()}
 
       {/* ── Bottom Navigation ── */}
-      <View style={[styles.bottomNav, { backgroundColor: cardBg, borderTopColor: border }]}>
-        <Pressable style={styles.navItem}>
+      <View style={[styles.bottomNav, { backgroundColor: skeuo.chrome, borderTopColor: skeuo.bevelTop }]}>
+        <Pressable style={[styles.navItem, skeuoWellStyle(skeuo, 12), { backgroundColor: skeuo.accentSoft, borderTopColor: skeuo.accentSoftBorder, borderLeftColor: skeuo.accentSoftBorder }]}>
           <Ionicons name="school-outline" size={20} color={ORANGE} />
           <Text style={styles.navTextActive}>My Classes</Text>
         </Pressable>
         {/* Settings nav */}
-        <Pressable style={styles.navItem} onPress={() => router.push("/settings" as any)}>
-          <Ionicons name="settings-outline" size={20} color="#64748B" />
-          <Text style={[styles.navText, { color: "#64748B" }]}>Settings</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.navItem,
+            pressed && skeuoWellStyle(skeuo, 12),
+          ]}
+          onPress={() => {
+            triggerSkeuoHaptic("selection");
+            router.push("/settings" as any);
+          }}
+        >
+          <Ionicons name="settings-outline" size={20} color={textSub} />
+          <Text style={[styles.navText, { color: textSub }]}>Settings</Text>
         </Pressable>
       </View>
 
@@ -941,20 +1012,20 @@ export default function HomePage() {
         presentationStyle="pageSheet"
         onRequestClose={handleCancel}
       >
-        <View style={[styles.modalFullScreen, { backgroundColor: cardBg }]}>
+        <View style={[styles.modalFullScreen, { backgroundColor: skeuo.canvas }]}>
           {/* Top Drag Handle */}
-          <View style={styles.sheetDragHandle} />
+          <View style={[styles.sheetDragHandle, { backgroundColor: skeuo.borderStrong }]} />
 
           {/* Header */}
           <View
             style={[
               styles.modalFullScreenHeader,
-              { borderBottomColor: border, backgroundColor: cardBg },
+              { borderBottomColor: skeuo.bevelBottom, backgroundColor: skeuo.chrome },
             ]}
           >
             <View style={styles.modalHeaderInfo}>
               <Text style={[styles.modalTitle, { color: textMain }]}>Build Classroom</Text>
-              <Text style={[styles.modalSubtitle, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+              <Text style={[styles.modalSubtitle, { color: textSub }]}>
                 Set up course information &amp; schedule
               </Text>
             </View>
@@ -962,12 +1033,12 @@ export default function HomePage() {
               onPress={handleCancel}
               style={[
                 styles.modalCloseBtn,
-                { backgroundColor: darkMode ? "#334155" : "#F1F5F9" },
+                skeuoButtonStyle(skeuo, { neutral: true, radius: 16 }),
               ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityLabel="Close modal"
             >
-              <Ionicons name="close" size={18} color={darkMode ? "#E2E8F0" : "#475569"} />
+              <Ionicons name="close" size={18} color={textMain} />
             </TouchableOpacity>
           </View>
 
@@ -983,40 +1054,34 @@ export default function HomePage() {
               bounces={false}
             >
               {/* Class title */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155", marginTop: 6 }]}>
+              <Text style={[styles.fieldLabel, { color: textMain, marginTop: 6 }]}>
                 Class title <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={[
                   styles.input,
-                  {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                    borderColor: darkMode ? "#334155" : "#CBD5E1",
-                    color: darkMode ? "#F8FAFC" : "#0F172A",
-                  },
+                  skeuoWellStyle(skeuo, 11),
+                  { color: textMain },
                 ]}
                 placeholder="e.g. Grade 10 - Mathematics"
-                placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
+                placeholderTextColor={skeuo.textMuted}
                 value={classTitle}
                 autoCapitalize="words"
                 onChangeText={setClassTitle}
               />
 
               {/* Subject */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>
+              <Text style={[styles.fieldLabel, { color: textMain }]}>
                 Subject <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={[
                   styles.input,
-                  {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                    borderColor: darkMode ? "#334155" : "#CBD5E1",
-                    color: darkMode ? "#F8FAFC" : "#0F172A",
-                  },
+                  skeuoWellStyle(skeuo, 11),
+                  { color: textMain },
                 ]}
                 placeholder="e.g. Mathematics"
-                placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
+                placeholderTextColor={skeuo.textMuted}
                 value={subject}
                 autoCapitalize="words"
                 onChangeText={setSubject}
@@ -1025,36 +1090,30 @@ export default function HomePage() {
               {/* Section + Room (side by side) */}
               <View style={styles.rowFields}>
                 <View style={styles.halfField}>
-                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Section</Text>
+                  <Text style={[styles.fieldLabel, { color: textMain }]}>Section</Text>
                   <TextInput
                     style={[
                       styles.input,
-                      {
-                        backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                        borderColor: darkMode ? "#334155" : "#CBD5E1",
-                        color: darkMode ? "#F8FAFC" : "#0F172A",
-                      },
+                      skeuoWellStyle(skeuo, 11),
+                      { color: textMain },
                     ]}
                     placeholder="e.g. Section 5"
-                    placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
+                    placeholderTextColor={skeuo.textMuted}
                     value={section}
                     autoCapitalize="words"
                     onChangeText={setSection}
                   />
                 </View>
                 <View style={styles.halfField}>
-                  <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Room</Text>
+                  <Text style={[styles.fieldLabel, { color: textMain }]}>Room</Text>
                   <TextInput
                     style={[
                       styles.input,
-                      {
-                        backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                        borderColor: darkMode ? "#334155" : "#CBD5E1",
-                        color: darkMode ? "#F8FAFC" : "#0F172A",
-                      },
+                      skeuoWellStyle(skeuo, 11),
+                      { color: textMain },
                     ]}
                     placeholder="e.g. CL1"
-                    placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
+                    placeholderTextColor={skeuo.textMuted}
                     value={room}
                     autoCapitalize="characters"
                     onChangeText={setRoom}
@@ -1063,28 +1122,25 @@ export default function HomePage() {
               </View>
 
               {/* Schedule */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155" }]}>Schedule</Text>
+              <Text style={[styles.fieldLabel, { color: textMain }]}>Schedule</Text>
               <TextInput
                 style={[
                   styles.input,
-                  {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                    borderColor: darkMode ? "#334155" : "#CBD5E1",
-                    color: darkMode ? "#F8FAFC" : "#0F172A",
-                  },
+                  skeuoWellStyle(skeuo, 11),
+                  { color: textMain },
                 ]}
                 placeholder="e.g. MWF 9:00 - 10:30 AM"
-                placeholderTextColor={darkMode ? "#64748B" : "#94A3B8"}
+                placeholderTextColor={skeuo.textMuted}
                 value={schedule}
                 autoCapitalize="characters"
                 onChangeText={setSchedule}
               />
 
               {/* Theme color */}
-              <Text style={[styles.fieldLabel, { color: darkMode ? "#E2E8F0" : "#334155", marginBottom: 4 }]}>
+              <Text style={[styles.fieldLabel, { color: textMain, marginBottom: 4 }]}>
                 Theme color
               </Text>
-              <Text style={[styles.colorSubtitle, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+              <Text style={[styles.colorSubtitle, { color: textSub }]}>
                 Select an accent color for this classroom card &amp; banner
               </Text>
 
@@ -1095,10 +1151,17 @@ export default function HomePage() {
                     <TouchableOpacity
                       key={c}
                       activeOpacity={0.8}
-                      onPress={() => setSelectedColor(c)}
+                      onPress={() => {
+                        triggerSkeuoHaptic("selection");
+                        setSelectedColor(c);
+                      }}
                       style={[
                         styles.colorSwatch,
-                        { backgroundColor: c },
+                        {
+                          backgroundColor: c,
+                          borderWidth: 2,
+                          borderColor: isSelected ? textMain : "rgba(255,255,255,0.45)",
+                        },
                         isSelected && styles.colorSwatchSelected,
                       ]}
                       accessibilityLabel={`Select theme color ${c}`}
@@ -1116,17 +1179,14 @@ export default function HomePage() {
                 <TouchableOpacity
                   style={[
                     styles.cancelBtn,
-                    {
-                      backgroundColor: darkMode ? "#1E293B" : "#FFFFFF",
-                      borderColor: darkMode ? "#475569" : "#CBD5E1",
-                    },
+                    skeuoButtonStyle(skeuo, { neutral: true, radius: 11 }),
                   ]}
                   onPress={handleCancel}
                 >
                   <Text
                     style={[
                       styles.cancelBtnText,
-                      { color: darkMode ? "#E2E8F0" : "#334155" },
+                      { color: textMain },
                     ]}
                   >
                     Cancel
@@ -1139,14 +1199,14 @@ export default function HomePage() {
                     (!classTitle.trim() || saving)
                       ? [
                           styles.buildBtnDisabled,
-                          {
-                            backgroundColor: darkMode ? "#1E293B" : "#F1F5F9",
-                            borderColor: darkMode ? "#334155" : "#E2E8F0",
-                          },
+                          skeuoWellStyle(skeuo, 11),
                         ]
-                      : { backgroundColor: selectedColor || "#EA580C" },
+                      : skeuoButtonStyle(skeuo, { fill: selectedColor || "#EA580C", radius: 11 }),
                   ]}
-                  onPress={handleBuildClass}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    handleBuildClass();
+                  }}
                   disabled={!classTitle.trim() || saving}
                 >
                   {saving ? (
@@ -1156,12 +1216,12 @@ export default function HomePage() {
                       <Ionicons
                         name="add"
                         size={18}
-                        color={(!classTitle.trim() || saving) ? "#94A3B8" : "#FFFFFF"}
+                        color={(!classTitle.trim() || saving) ? skeuo.textMuted : "#FFFFFF"}
                       />
                       <Text
                         style={[
                           styles.buildBtnText,
-                          (!classTitle.trim() || saving) && styles.buildBtnTextDisabled,
+                          (!classTitle.trim() || saving) && { color: skeuo.textMuted },
                         ]}
                       >
                         Build Class
@@ -1479,21 +1539,26 @@ const styles = StyleSheet.create({
   },
   infoBanner: {
     flexDirection: "row",
-    backgroundColor: "#FFFBF5",
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 15,
+    paddingVertical: 12,
+    paddingRight: 13,
+    paddingLeft: 16,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 1,
+    overflow: "hidden",
+  },
+  bannerLedStrip: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    shadowOffset: { width: 1, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
   },
   bannerMascotWrap: {
-    width: 54,
-    height: 54,
+    width: 52,
+    height: 52,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -1508,23 +1573,22 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   bannerTitle: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: "700",
-    color: "#181920",
+    letterSpacing: -0.2,
     flex: 1,
     marginRight: 8,
   },
   bannerCloseBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
   },
   bannerBody: {
-    fontSize: 12.5,
-    color: "#64748B",
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17.5,
+    fontWeight: "500",
   },
 
   /* ── Bottom Navigation ── */

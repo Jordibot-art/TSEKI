@@ -21,6 +21,15 @@ import { AssessmentGeneratingAnimation } from "./AssessmentGeneratingAnimation";
 import { PublishingQuizAnimation } from "./PublishingQuizAnimation";
 import { PdfExportingAnimation } from "./PdfExportingAnimation";
 import { PreGenReviewModal } from "./aiBuilder/PreGenReviewModal";
+import { SkeuoToast } from "./SkeuoToast";
+import {
+    getSemanticTokens,
+    getSkeuoPalette,
+    skeuoButtonStyle,
+    skeuoCardStyle,
+    skeuoWellStyle,
+    triggerSkeuoHaptic,
+} from "./skeuoTheme";
 import {
     SmoothBottomSheetModal,
     SmoothCenterModal,
@@ -150,27 +159,27 @@ function Dropdown({
 }) {
     const [open, setOpen] = useState(false);
     const { darkMode } = useTheme();
-    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-    const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-    const border = darkMode ? "#374151" : "#D1D5DB";
-    const inputBg = darkMode ? "#374151" : "#F9FAFB";
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
+    const cardBg = skeuo.surface;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
+    const border = skeuo.border;
 
     return (
         <>
-            <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>{label}</Text>
+            <Text style={[styles.fieldLabel, { color: textSub }]}>{label}</Text>
             <TouchableOpacity
-                style={[styles.dropdownBtn, { backgroundColor: inputBg, borderColor: border }]}
+                style={[styles.dropdownBtn, skeuoWellStyle(skeuo, 12)]}
                 onPress={() => setOpen(true)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
             >
                 <Text style={[styles.dropdownValue, { color: textMain }]}>{value}</Text>
                 <Ionicons name="chevron-down" size={16} color={textSub} />
             </TouchableOpacity>
 
             <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-                <TouchableOpacity style={styles.ddOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
-                    <View style={[styles.ddSheet, { backgroundColor: cardBg }]}>
+                <TouchableOpacity style={[styles.ddOverlay, { backgroundColor: skeuo.backdrop }]} activeOpacity={1} onPress={() => setOpen(false)}>
+                    <View style={[styles.ddSheet, skeuoCardStyle(skeuo, 18), { backgroundColor: cardBg }]}>
                         <Text style={[styles.ddTitle, { color: accentColor }]}>{label}</Text>
                         <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
                             {options.map((opt) => (
@@ -251,12 +260,13 @@ export default function AIBuilderTab({
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { darkMode } = useTheme();
-    const bg = darkMode ? "#111827" : "#F9FAFB";
-    const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-    const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-    const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-    const border = darkMode ? "#374151" : "#D1D5DB";
-    const inputBg = darkMode ? "#374151" : "#F9FAFB";
+    const skeuo = getSkeuoPalette(darkMode, accentColor);
+    const bg = skeuo.canvas;
+    const cardBg = skeuo.surface;
+    const textMain = skeuo.textPrimary;
+    const textSub = skeuo.textSecondary;
+    const border = skeuo.border;
+    const inputBg = skeuo.well;
 
     const resolvedSubject = classSubject && classSubject.trim().length > 0 ? classSubject.trim() : "General";
     const initialSectionLabel = formatSectionLabel(classSection);
@@ -544,6 +554,9 @@ export default function AIBuilderTab({
     const [adjustTargetDifficulty, setAdjustTargetDifficulty] = useState<string>(difficulty);
     const [adjustTargetGradeLevel, setAdjustTargetGradeLevel] = useState<string>(gradeLevel);
     const [generatingMore, setGeneratingMore] = useState(false);
+    const [generatingMoreCount, setGeneratingMoreCount] = useState<number>(5);
+    const [generatingMoreStatus, setGeneratingMoreStatus] = useState<string | undefined>(undefined);
+    const generatingMoreLockRef = useRef(false);
 
     // ── Change Individual Question Type State ────────────────────────────────
     const [changeTypeModalOpen, setChangeTypeModalOpen] = useState(false);
@@ -1043,7 +1056,13 @@ export default function AIBuilderTab({
     }
 
     async function handleGenerateMoreQuestions(countToAdd: number) {
-        if (!generatedAssessment || generatingMore) return;
+        if (!generatedAssessment || generatingMore || generatingMoreLockRef.current) return;
+        generatingMoreLockRef.current = true;
+        setGeneratingMoreCount(countToAdd);
+        setGeneratingMoreStatus(undefined);
+        // Close the Adjust Setup sheet cleanly before presenting the full-screen loading modal
+        setAdjustSetupModalOpen(false);
+        await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
         setGeneratingMore(true);
         try {
             let attachedPdfBase64: string | undefined;
@@ -1089,7 +1108,12 @@ export default function AIBuilderTab({
                 answerKey: updatedAnswerKey,
             });
             setQuestionCount(`${updatedQuestions.length} Questions`);
-            setAdjustSetupModalOpen(false);
+            setGeneratingMoreStatus(
+                `Successfully generated +${result.questions.length} new question${result.questions.length === 1 ? "" : "s"}!`
+            );
+            await waitForTransition(450);
+            setGeneratingMore(false);
+            await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
 
             Alert.alert(
                 "Questions Added!",
@@ -1097,9 +1121,13 @@ export default function AIBuilderTab({
             );
         } catch (err: any) {
             console.error("Error generating additional questions:", err);
+            setGeneratingMore(false);
+            await waitForTransition(TRANSITION_HANDOFF_DELAY_MS);
             Alert.alert("Addition Failed", err?.message || "Could not generate additional questions.");
         } finally {
+            generatingMoreLockRef.current = false;
             setGeneratingMore(false);
+            setGeneratingMoreStatus(undefined);
         }
     }
 
@@ -1902,8 +1930,8 @@ export default function AIBuilderTab({
             {!showResults ? (
                 <>
                     {/* ── Header ── */}
-                    <View style={styles.headerRow}>
-                        <View style={[styles.headerIconBg, { backgroundColor: accentColor + "18" }]}>
+                    <View style={[styles.headerRow, skeuoCardStyle(skeuo, 16), { padding: 14, marginBottom: 14 }]}>
+                        <View style={[styles.headerIconBg, skeuoWellStyle(skeuo, 12), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
                             <Ionicons name="sparkles" size={18} color={accentColor} />
                         </View>
                         <View style={{ flex: 1 }}>
@@ -1919,11 +1947,11 @@ export default function AIBuilderTab({
                     </View>
 
                     {/* ── Attached File ── */}
-                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155", marginTop: 4 }]}>Reference file (optional)</Text>
+                    <Text style={[styles.fieldLabel, { color: textSub, marginTop: 4 }]}>Reference file (optional)</Text>
                     <TouchableOpacity
                         style={[
                             styles.attachBtn,
-                            { backgroundColor: inputBg, borderColor: border },
+                            skeuoWellStyle(skeuo, 12),
                             attachedFile && {
                                 borderColor: getDocBadgeInfo(attachedFile.type).color + "60",
                                 backgroundColor: getDocBadgeInfo(attachedFile.type).bgColor + (darkMode ? "22" : "40"),
@@ -1958,11 +1986,11 @@ export default function AIBuilderTab({
                             </>
                         ) : (
                             <>
-                                <Ionicons name="attach-outline" size={18} color={darkMode ? "#94A3B8" : "#475569"} />
-                                <Text style={[styles.attachBtnText, { color: textMain, fontWeight: "500" }]}>
+                                <Ionicons name="attach-outline" size={18} color={textSub} />
+                                <Text style={[styles.attachBtnText, { color: textMain, fontWeight: "600" }]}>
                                     Upload reference file
                                 </Text>
-                                <Text style={{ fontSize: 12, color: "#64748B", fontWeight: "500" }}>
+                                <Text style={{ fontSize: 12, color: textSub, fontWeight: "500" }}>
                                     DOC, PPT, PDF
                                 </Text>
                             </>
@@ -1970,11 +1998,11 @@ export default function AIBuilderTab({
                     </TouchableOpacity>
 
                     {/* ── Paste Lesson Notes or Syllabus Text (Optional) ── */}
-                    <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>
+                    <Text style={[styles.fieldLabel, { color: textSub }]}>
                         Lesson notes or syllabus (optional)
                     </Text>
                     <TextInput
-                        style={[styles.textAreaInput, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                        style={[styles.textAreaInput, skeuoWellStyle(skeuo, 12), { color: textMain }]}
                         placeholder="Paste textbook excerpts, lesson summary, or curriculum outline here for deeper contextual accuracy..."
                         placeholderTextColor={textSub}
                         value={lessonNotes}
@@ -1987,8 +2015,8 @@ export default function AIBuilderTab({
                     {/* ── Subject (Auto from Classroom) + Grade Level ── */}
                     <View style={styles.twoCol}>
                         <View style={styles.colHalf}>
-                            <Text style={[styles.fieldLabel, { color: darkMode ? "#D1D5DB" : "#334155" }]}>Subject</Text>
-                            <View style={[styles.autoSubjectBtn, { backgroundColor: inputBg, borderColor: border }]}>
+                            <Text style={[styles.fieldLabel, { color: textSub }]}>Subject</Text>
+                            <View style={[styles.autoSubjectBtn, skeuoWellStyle(skeuo, 12)]}>
                                 <Text style={[styles.autoSubjectText, { color: textMain }]} numberOfLines={1}>
                                     {subject}
                                 </Text>
@@ -2043,26 +2071,25 @@ export default function AIBuilderTab({
                     {/* ── Per-User Daily AI Quota Status Bar (resets 12:00 AM Manila) ── */}
                     {quotaState && (
                         <View
-                            style={{
-                                marginTop: 18,
-                                paddingHorizontal: 14,
-                                paddingVertical: 10,
-                                borderRadius: 12,
-                                borderWidth: 1,
-                                borderColor: quotaState.isDailyLimitReached
-                                    ? "#FECACA"
-                                    : (darkMode ? "#334155" : "#E2E8F0"),
-                                backgroundColor: quotaState.isDailyLimitReached
-                                    ? (darkMode ? "rgba(220, 38, 38, 0.12)" : "#FEF2F2")
-                                    : (darkMode ? "#1E293B" : "#F8FAFC"),
-                            }}
+                            style={[
+                                skeuoWellStyle(skeuo, 12),
+                                {
+                                    marginTop: 18,
+                                    paddingHorizontal: 14,
+                                    paddingVertical: 11,
+                                },
+                                quotaState.isDailyLimitReached && {
+                                    borderColor: "#DC2626",
+                                    backgroundColor: darkMode ? "#2E1417" : "#FBECEB",
+                                },
+                            ]}
                         >
                             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                                 <Text
                                     style={{
                                         fontSize: 12,
-                                        fontWeight: "500",
-                                        color: quotaState.isDailyLimitReached ? "#DC2626" : (darkMode ? "#94A3B8" : "#475569"),
+                                        fontWeight: "600",
+                                        color: quotaState.isDailyLimitReached ? "#DC2626" : textSub,
                                         flex: 1,
                                     }}
                                     numberOfLines={1}
@@ -2078,25 +2105,22 @@ export default function AIBuilderTab({
                                             setQuotaState(freshState);
                                             Alert.alert("Quota Reset", `Daily AI quota reset to ${freshState.remainingToday} of ${freshState.dailyLimit} for testing!`);
                                         }}
-                                        style={{
-                                            paddingHorizontal: 8,
-                                            paddingVertical: 2,
-                                            borderRadius: 6,
-                                            backgroundColor: quotaState.isDailyLimitReached
-                                                ? (darkMode ? "rgba(220, 38, 38, 0.25)" : "#FEE2E2")
-                                                : (darkMode ? "#334155" : "#E2E8F0"),
-                                            marginLeft: 8,
-                                        }}
-                                        activeOpacity={0.7}
+                                        style={[
+                                            skeuoButtonStyle(skeuo, { neutral: true, radius: 7 }),
+                                            {
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 3,
+                                                marginLeft: 8,
+                                            },
+                                        ]}
+                                        activeOpacity={0.75}
                                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                     >
                                         <Text
                                             style={{
                                                 fontSize: 11,
-                                                fontWeight: "600",
-                                                color: quotaState.isDailyLimitReached
-                                                    ? "#DC2626"
-                                                    : (darkMode ? "#F8FAFC" : "#0F172A"),
+                                                fontWeight: "700",
+                                                color: quotaState.isDailyLimitReached ? "#DC2626" : textMain,
                                             }}
                                         >
                                             Reset
@@ -2106,9 +2130,11 @@ export default function AIBuilderTab({
                             </View>
                             <View
                                 style={{
-                                    height: 4,
-                                    borderRadius: 2,
-                                    backgroundColor: darkMode ? "#334155" : "#E2E8F0",
+                                    height: 6,
+                                    borderRadius: 3,
+                                    backgroundColor: skeuo.wellDeep,
+                                    borderWidth: 1,
+                                    borderColor: skeuo.wellBorderTop,
                                     overflow: "hidden",
                                 }}
                             >
@@ -2128,7 +2154,10 @@ export default function AIBuilderTab({
                     <TouchableOpacity
                         style={[
                             styles.generateBtn,
-                            { backgroundColor: canGenerate ? accentColor : (darkMode ? "#4B5563" : "#D1D5DB") },
+                            canGenerate
+                                ? skeuoButtonStyle(skeuo, { fill: accentColor, radius: 14 })
+                                : skeuoButtonStyle(skeuo, { neutral: true, radius: 14 }),
+                            !canGenerate && { opacity: 0.6 },
                         ]}
                         onPress={handleOpenPreGeneratePreview}
                         disabled={!canGenerate}
@@ -2160,24 +2189,24 @@ export default function AIBuilderTab({
             ) : (
                 <>
                     {/* ── Preview Screen Header Banner ── */}
-                    <View style={[styles.previewScreenBanner, { backgroundColor: cardBg, borderColor: border }]}>
+                    <View style={[styles.previewScreenBanner, skeuoCardStyle(skeuo, 18, 2)]}>
                         <View style={styles.previewTopRow}>
-                            <View style={[styles.previewModeBadge, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
-                                <Text style={[styles.previewModeBadgeText, { color: darkMode ? "#CBD5E1" : "#475569" }]}>Draft Preview</Text>
+                            <View style={[styles.previewModeBadge, skeuoWellStyle(skeuo, 8)]}>
+                                <Text style={[styles.previewModeBadgeText, { color: textSub }]}>Draft Preview</Text>
                             </View>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                                 <TouchableOpacity
                                     onPress={handleOpenAdjustSetup}
-                                    style={[styles.previewAdjustBtn, { backgroundColor: inputBg, borderColor: border }]}
-                                    activeOpacity={0.7}
+                                    style={[styles.previewAdjustBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 10, elevation: 0 })]}
+                                    activeOpacity={0.75}
                                 >
-                                    <Ionicons name="options-outline" size={13} color={darkMode ? "#CBD5E1" : "#0F172A"} style={{ marginRight: 4 }} />
-                                    <Text style={[styles.previewAdjustBtnText, { color: darkMode ? "#CBD5E1" : "#0F172A" }]}>Adjust Setup</Text>
+                                    <Ionicons name="options-outline" size={13} color={textMain} style={{ marginRight: 4 }} />
+                                    <Text style={[styles.previewAdjustBtnText, { color: textMain }]}>Adjust Setup</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={handleConfirmNewQuiz}
-                                    style={[styles.previewResetBtn, { backgroundColor: inputBg, borderColor: border }]}
-                                    activeOpacity={0.7}
+                                    style={[styles.previewResetBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 10, elevation: 0 })]}
+                                    activeOpacity={0.75}
                                 >
                                     <Ionicons name="refresh" size={13} color={textSub} style={{ marginRight: 4 }} />
                                     <Text style={[styles.previewResetBtnText, { color: textSub }]}>New Quiz</Text>
@@ -2185,15 +2214,15 @@ export default function AIBuilderTab({
                             </View>
                         </View>
 
-                        <Text style={[styles.previewTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                        <Text style={[styles.previewTitle, { color: textMain }]}>
                             {generatedAssessment?.quizTitle || "Assessment Preview"}
                         </Text>
 
-                        <Text style={[styles.previewSubtext, { color: darkMode ? textSub : "#64748B" }]}>
+                        <Text style={[styles.previewSubtext, { color: textSub }]}>
                             Review or edit items below before publishing to your class.
                         </Text>
 
-                        <View style={[styles.previewStatsRow, { backgroundColor: inputBg, borderColor: border }]}>
+                        <View style={[styles.previewStatsRow, skeuoWellStyle(skeuo, 12)]}>
                             <TouchableOpacity
                                 style={styles.previewStatItem}
                                 onPress={handleOpenAdjustSetup}
@@ -2307,37 +2336,35 @@ export default function AIBuilderTab({
                                     const hasOptions = Boolean(q.options && q.options.length > 0 && q.type !== "word_box");
 
                                     return (
-                                        <View key={q.questionNumber} style={[styles.questionCard, { backgroundColor: cardBg, borderColor: border }]}>
+                                        <View key={q.questionNumber} style={[styles.questionCard, skeuoCardStyle(skeuo, 16, 1)]}>
                                             {/* Row 1 — Dedicated Card Header Bar */}
                                             <View style={styles.questionHeader}>
                                                 <View style={styles.questionHeaderLeft}>
-                                                    <View style={[styles.questionNumber, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
-                                                        <Text style={[styles.questionNumberText, { color: darkMode ? "#F8FAFC" : "#0F172A" }]}>
+                                                    <View style={[styles.questionNumber, skeuoWellStyle(skeuo, 8)]}>
+                                                        <Text style={[styles.questionNumberText, { color: textMain }]}>
                                                             Q{q.questionNumber}
                                                         </Text>
                                                     </View>
                                                     <TouchableOpacity
                                                         style={[
                                                             styles.typeSelectorChip,
-                                                            {
-                                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                                                borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                                            },
+                                                            skeuoButtonStyle(skeuo, { neutral: true, radius: 8, elevation: 0 }),
                                                         ]}
                                                         onPress={() => {
+                                                            triggerSkeuoHaptic("light");
                                                             setSelectedQForTypeChange(q);
                                                             setSelectedNewType(q.type);
                                                             setChangeTypeModalOpen(true);
                                                         }}
-                                                        activeOpacity={0.7}
+                                                        activeOpacity={0.75}
                                                         hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                                                     >
-                                                        <Text style={[styles.typeSelectorChipText, { color: darkMode ? "#CBD5E1" : "#475569" }]} numberOfLines={1}>
+                                                        <Text style={[styles.typeSelectorChipText, { color: textMain }]} numberOfLines={1}>
                                                             {formatTypeLabel(q.type)}
                                                         </Text>
-                                                        <Ionicons name="chevron-down" size={11} color={darkMode ? "#94A3B8" : "#64748B"} />
+                                                        <Ionicons name="chevron-down" size={11} color={textSub} />
                                                     </TouchableOpacity>
-                                                    <Text style={[styles.questionPointsLabel, { color: darkMode ? textSub : "#64748B" }]}>
+                                                    <Text style={[styles.questionPointsLabel, { color: textSub }]}>
                                                         {points} {points === 1 ? "pt" : "pts"}
                                                     </Text>
                                                 </View>
@@ -2346,20 +2373,20 @@ export default function AIBuilderTab({
                                                     <TouchableOpacity
                                                         style={[
                                                             styles.regenerateIconBtn,
-                                                            {
-                                                                backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                                                borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                                            },
+                                                            skeuoButtonStyle(skeuo, { neutral: true, radius: 8, elevation: 0 }),
                                                         ]}
-                                                        onPress={() => handleRegenerateQuestion(q.questionNumber)}
+                                                        onPress={() => {
+                                                            triggerSkeuoHaptic("light");
+                                                            handleRegenerateQuestion(q.questionNumber);
+                                                        }}
                                                         disabled={regeneratingQNum !== null}
-                                                        activeOpacity={0.7}
+                                                        activeOpacity={0.75}
                                                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                                     >
                                                         {regeneratingQNum === q.questionNumber ? (
-                                                            <ActivityIndicator size="small" color={darkMode ? "#CBD5E1" : "#334155"} style={{ transform: [{ scale: 0.75 }] }} />
+                                                            <ActivityIndicator size="small" color={textMain} style={{ transform: [{ scale: 0.75 }] }} />
                                                         ) : (
-                                                            <Ionicons name="refresh" size={14} color={darkMode ? "#CBD5E1" : "#334155"} />
+                                                            <Ionicons name="refresh" size={14} color={textMain} />
                                                         )}
                                                     </TouchableOpacity>
 
@@ -2437,32 +2464,32 @@ export default function AIBuilderTab({
                                                 <View style={styles.choicesWrap}>
                                                     {q.options.map((opt, cIdx) => {
                                                         const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
+                                                        const okSem = getSemanticTokens("success", darkMode);
                                                         return (
                                                             <View
                                                                 key={`${opt}_${cIdx}`}
                                                                 style={[
                                                                     styles.choiceItem,
-                                                                    {
-                                                                        backgroundColor: darkMode ? inputBg : "#FFFFFF",
-                                                                        borderColor: darkMode ? border : "#E2E8F0",
-                                                                    },
-                                                                    isCorrect && {
-                                                                        backgroundColor: "#F0FDF4",
-                                                                        borderColor: "#16A34A",
-                                                                    },
+                                                                    isCorrect
+                                                                        ? {
+                                                                            backgroundColor: okSem.plaqueBg,
+                                                                            borderColor: okSem.led,
+                                                                            borderWidth: 1.5,
+                                                                        }
+                                                                        : skeuoWellStyle(skeuo, 10),
                                                                 ]}
                                                             >
                                                                 <Text
                                                                     style={[
                                                                         styles.choiceText,
-                                                                        { color: darkMode ? textMain : "#334155" },
-                                                                        isCorrect && { color: "#15803D", fontWeight: "600" },
+                                                                        { color: textMain },
+                                                                        isCorrect && { color: okSem.plaqueText, fontWeight: "700" },
                                                                     ]}
                                                                 >
                                                                     {opt}
                                                                 </Text>
                                                                 {isCorrect && (
-                                                                    <Ionicons name="checkmark" size={16} color="#16A34A" style={{ marginLeft: 8 }} />
+                                                                    <Ionicons name="checkmark-circle" size={17} color={okSem.led} style={{ marginLeft: 8 }} />
                                                                 )}
                                                             </View>
                                                         );
@@ -2564,31 +2591,44 @@ export default function AIBuilderTab({
                         style={[
                             styles.addQuestionBtn,
                             {
-                                backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                                borderColor: darkMode ? border : "#CBD5E1",
+                                backgroundColor: skeuo.surfaceMuted,
+                                borderColor: skeuo.borderStrong,
                             },
                         ]}
-                        onPress={openAddQuestionModal}
-                        activeOpacity={0.7}
+                        onPress={() => {
+                            triggerSkeuoHaptic("light");
+                            openAddQuestionModal();
+                        }}
+                        activeOpacity={0.78}
                     >
-                        <View style={[styles.addQuestionIconCircle, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
-                            <Ionicons name="add" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                        <View style={[styles.addQuestionIconCircle, skeuoWellStyle(skeuo, 18)]}>
+                            <Ionicons name="add" size={20} color={textMain} />
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={[styles.addQuestionTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                            <Text style={[styles.addQuestionTitle, { color: textMain }]}>
                                 Add Question Manually
                             </Text>
-                            <Text style={[styles.addQuestionSub, { color: darkMode ? textSub : "#64748B" }]}>
+                            <Text style={[styles.addQuestionSub, { color: textSub }]}>
                                 Add your own question to this assessment
                             </Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={18} color={darkMode ? textSub : "#64748B"} />
+                        <Ionicons name="chevron-forward" size={18} color={textSub} />
                     </TouchableOpacity>
 
                     {/* ── Primary CTA: Publish Quiz ── */}
                     <TouchableOpacity
-                        style={[styles.publishBtn, { backgroundColor: "#EA580C", opacity: publishingQuiz ? 0.7 : 1 }]}
-                        onPress={handlePublishQuiz}
+                        style={[
+                            styles.publishBtn,
+                            skeuoButtonStyle(skeuo, {
+                                fill: accentColor || "#EA580C",
+                                radius: 13,
+                            }),
+                            { opacity: publishingQuiz ? 0.7 : 1 },
+                        ]}
+                        onPress={() => {
+                            triggerSkeuoHaptic("medium");
+                            handlePublishQuiz();
+                        }}
                         disabled={publishingQuiz}
                         activeOpacity={0.85}
                     >
@@ -2603,22 +2643,22 @@ export default function AIBuilderTab({
                         <TouchableOpacity
                             style={[
                                 styles.secondaryFooterBtn,
-                                {
-                                    backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                                    borderColor: darkMode ? border : "#CBD5E1",
-                                    opacity: savingDraft ? 0.6 : 1,
-                                },
+                                skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
+                                { opacity: savingDraft ? 0.6 : 1 },
                             ]}
-                            onPress={handleSaveDraft}
+                            onPress={() => {
+                                triggerSkeuoHaptic("light");
+                                handleSaveDraft();
+                            }}
                             disabled={savingDraft}
-                            activeOpacity={0.75}
+                            activeOpacity={0.78}
                         >
                             {savingDraft ? (
-                                <ActivityIndicator size="small" color={darkMode ? textMain : "#0F172A"} />
+                                <ActivityIndicator size="small" color={textMain} />
                             ) : (
                                 <>
-                                    <Ionicons name="save-outline" size={16} color={darkMode ? textMain : "#0F172A"} />
-                                    <Text style={[styles.secondaryFooterBtnText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                    <Ionicons name="save-outline" size={16} color={textMain} />
+                                    <Text style={[styles.secondaryFooterBtnText, { color: textMain }]}>
                                         Save as Draft
                                     </Text>
                                 </>
@@ -2628,22 +2668,22 @@ export default function AIBuilderTab({
                         <TouchableOpacity
                             style={[
                                 styles.secondaryFooterBtn,
-                                {
-                                    backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                                    borderColor: darkMode ? border : "#CBD5E1",
-                                    opacity: exportingPdf ? 0.6 : 1,
-                                },
+                                skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
+                                { opacity: exportingPdf ? 0.6 : 1 },
                             ]}
-                            onPress={() => setExportModalOpen(true)}
+                            onPress={() => {
+                                triggerSkeuoHaptic("light");
+                                setExportModalOpen(true);
+                            }}
                             disabled={exportingPdf}
-                            activeOpacity={0.75}
+                            activeOpacity={0.78}
                         >
                             {exportingPdf ? (
-                                <ActivityIndicator size="small" color={darkMode ? textMain : "#0F172A"} />
+                                <ActivityIndicator size="small" color={textMain} />
                             ) : (
                                 <>
-                                    <Ionicons name="print-outline" size={16} color={darkMode ? textMain : "#0F172A"} />
-                                    <Text style={[styles.secondaryFooterBtnText, { color: darkMode ? textMain : "#0F172A" }]}>
+                                    <Ionicons name="print-outline" size={16} color={textMain} />
+                                    <Text style={[styles.secondaryFooterBtnText, { color: textMain }]}>
                                         Export / Print PDF
                                     </Text>
                                 </>
@@ -2657,12 +2697,10 @@ export default function AIBuilderTab({
             {/* ── Publishing Quiz Loading Overlay ── */}
             <SmoothCenterModal
                 visible={publishingQuiz}
+                backdropColor={skeuo.backdrop}
                 cardStyle={[
                     styles.loadingCard,
-                    {
-                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                        borderColor: darkMode ? border : "#E2E8F0",
-                    },
+                    skeuoCardStyle(skeuo, 22),
                 ]}
             >
                 <PublishingQuizAnimation
@@ -2722,12 +2760,10 @@ export default function AIBuilderTab({
             {/* ── Full-Screen Generating Loading Overlay ── */}
             <SmoothCenterModal
                 visible={generating}
+                backdropColor={skeuo.backdrop}
                 cardStyle={[
                     styles.loadingCard,
-                    {
-                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                        borderColor: darkMode ? border : "#E2E8F0",
-                    },
+                    skeuoCardStyle(skeuo, 22),
                 ]}
             >
                 <AssessmentGeneratingAnimation
@@ -2742,16 +2778,35 @@ export default function AIBuilderTab({
                 />
             </SmoothCenterModal>
 
+            {/* ── Full-Screen Expanding (+N Questions) Loading Overlay ── */}
+            <SmoothCenterModal
+                visible={generatingMore}
+                backdropColor={skeuo.backdrop}
+                cardStyle={[
+                    styles.loadingCard,
+                    skeuoCardStyle(skeuo, 22),
+                ]}
+            >
+                <AssessmentGeneratingAnimation
+                    mode="expand"
+                    topicOrSubject={generatedAssessment?.quizTitle || subject || "Assessment"}
+                    questionCount={`+${generatingMoreCount} Questions`}
+                    difficulty={adjustTargetDifficulty || difficulty}
+                    questionType={adjustTargetType || questionType}
+                    statusMessage={generatingMoreStatus}
+                    accentColor={accentColor}
+                    darkMode={darkMode}
+                />
+            </SmoothCenterModal>
+
             {/* ── PDF Exporting Progress Overlay ── */}
             <SmoothCenterModal
                 visible={exportingPdf}
                 onRequestClose={handleCancelExport}
+                backdropColor={skeuo.backdrop}
                 cardStyle={[
                     styles.loadingCard,
-                    {
-                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                        borderColor: darkMode ? border : "#E2E8F0",
-                    },
+                    skeuoCardStyle(skeuo, 22),
                 ]}
             >
                 <PdfExportingAnimation
@@ -3267,34 +3322,54 @@ export default function AIBuilderTab({
                     if (!generatingMore) setAdjustSetupModalOpen(false);
                 }}
                 dismissOnBackdropPress={!generatingMore}
-                sheetStyle={[styles.adjustSheet, { backgroundColor: cardBg }]}
+                backdropColor={skeuo.backdrop}
+                sheetStyle={[
+                    styles.adjustSheet,
+                    {
+                        backgroundColor: cardBg,
+                        borderTopWidth: 1.5,
+                        borderTopColor: skeuo.bevelTop,
+                        paddingBottom: Math.max(insets.bottom + 16, 28),
+                    },
+                ]}
             >
-                <View style={styles.dragPill} />
+                <View style={[styles.dragPill, { backgroundColor: skeuo.borderStrong }]} />
                         <View style={styles.adjustHeader}>
-                            <View style={[styles.adjustHeaderIcon, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
-                                <Ionicons name="options-outline" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                            <View
+                                style={[
+                                    styles.adjustHeaderIcon,
+                                    skeuoWellStyle(skeuo, 12),
+                                    {
+                                        backgroundColor: skeuo.accentSoft,
+                                        borderColor: skeuo.accentSoftBorder,
+                                    },
+                                ]}
+                            >
+                                <Ionicons name="options-outline" size={20} color={accentColor} />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={[styles.adjustTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                                <Text style={[styles.adjustTitle, { color: textMain }]}>
                                     Adjust Assessment Setup
                                 </Text>
-                                <Text style={[styles.adjustSub, { color: darkMode ? textSub : "#64748B" }]}>
+                                <Text style={[styles.adjustSub, { color: textSub }]}>
                                     Change question count or types without starting over or wasting daily AI quota.
                                 </Text>
                             </View>
                             <TouchableOpacity
+                                style={[styles.adjustCloseBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}
                                 onPress={() => {
+                                    triggerSkeuoHaptic("light");
                                     if (!generatingMore) setAdjustSetupModalOpen(false);
                                 }}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                                <Ionicons name="close" size={22} color={darkMode ? textSub : "#64748B"} />
+                                <Ionicons name="close" size={18} color={textMain} />
                             </TouchableOpacity>
                         </View>
 
                         <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }} contentContainerStyle={{ paddingBottom: 16 }}>
                             {/* Question Count Section */}
-                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569" }]}>
+                            <Text style={[styles.adjustSectionLabel, { color: textSub }]}>
                                 QUESTION COUNT
                             </Text>
                             <View style={styles.countChipsRow}>
@@ -3305,22 +3380,27 @@ export default function AIBuilderTab({
                                             key={num}
                                             style={[
                                                 styles.countChip,
-                                                {
-                                                    backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                                    borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                                },
-                                                isSelected && {
-                                                    backgroundColor: "#0F172A",
-                                                    borderColor: "#0F172A",
-                                                },
+                                                isSelected
+                                                    ? skeuoButtonStyle(skeuo, {
+                                                        fill: accentColor || "#EA580C",
+                                                        radius: 10,
+                                                    })
+                                                    : skeuoButtonStyle(skeuo, {
+                                                        neutral: true,
+                                                        radius: 10,
+                                                    }),
                                             ]}
-                                            onPress={() => setAdjustTargetCount(num)}
+                                            activeOpacity={0.78}
+                                            onPress={() => {
+                                                triggerSkeuoHaptic("selection");
+                                                setAdjustTargetCount(num);
+                                            }}
                                         >
                                             <Text
                                                 style={[
                                                     styles.countChipText,
-                                                    { color: darkMode ? textMain : "#334155" },
-                                                    isSelected && { color: "#FFFFFF", fontWeight: "700" },
+                                                    { color: isSelected ? "#FFFFFF" : textMain },
+                                                    isSelected && { fontWeight: "800" },
                                                 ]}
                                             >
                                                 {num}
@@ -3337,19 +3417,54 @@ export default function AIBuilderTab({
 
                                 if (diff < 0) {
                                     const trimCount = Math.abs(diff);
+                                    const warnSem = getSemanticTokens("warning", darkMode);
                                     return (
-                                        <View style={[styles.adjustNoticeBox, { backgroundColor: "#FEF3C7", borderColor: "#FDE68A" }]}>
-                                            <Ionicons name="cut-outline" size={18} color="#D97706" style={{ marginTop: 2 }} />
+                                        <View
+                                            style={[
+                                                styles.adjustNoticeBox,
+                                                {
+                                                    backgroundColor: warnSem.plaqueBg,
+                                                    borderTopColor: darkMode ? warnSem.plaqueBorder : skeuo.bevelTop,
+                                                    borderLeftColor: warnSem.plaqueBorder,
+                                                    borderRightColor: warnSem.plaqueBorder,
+                                                    borderBottomColor: warnSem.plaqueBorder,
+                                                },
+                                            ]}
+                                        >
+                                            <View style={[styles.adjustNoticeLed, { backgroundColor: warnSem.ledBar }]} />
+                                            <View
+                                                style={[
+                                                    styles.adjustNoticeIconSocket,
+                                                    {
+                                                        backgroundColor: warnSem.socketBg,
+                                                        borderColor: warnSem.socketBorder,
+                                                    },
+                                                ]}
+                                            >
+                                                <Ionicons name="cut-outline" size={16} color={warnSem.plaqueText} />
+                                            </View>
                                             <View style={{ flex: 1 }}>
-                                                <Text style={{ fontSize: 13, fontWeight: "700", color: "#B45309" }}>
+                                                <Text style={{ fontSize: 13.5, fontWeight: "800", color: warnSem.plaqueText }}>
                                                     Reduce to {adjustTargetCount} Questions
                                                 </Text>
-                                                <Text style={{ fontSize: 12, color: "#92400E", marginTop: 2, lineHeight: 16 }}>
+                                                <Text style={{ fontSize: 12, color: warnSem.plaqueText, opacity: 0.9, marginTop: 2, lineHeight: 17 }}>
                                                     Trimming {trimCount} questions. Questions #{adjustTargetCount + 1} to #{currentCount} will be removed, keeping #{1} to #{adjustTargetCount}.
                                                 </Text>
                                                 <TouchableOpacity
-                                                    style={styles.adjustTrimBtn}
-                                                    onPress={() => handleApplyTrim(adjustTargetCount)}
+                                                    style={[
+                                                        styles.adjustTrimBtn,
+                                                        skeuoButtonStyle(skeuo, {
+                                                            fill: warnSem.fill,
+                                                            highlight: warnSem.highlight,
+                                                            lip: warnSem.lip,
+                                                            radius: 10,
+                                                        }),
+                                                    ]}
+                                                    activeOpacity={0.85}
+                                                    onPress={() => {
+                                                        triggerSkeuoHaptic("medium");
+                                                        handleApplyTrim(adjustTargetCount);
+                                                    }}
                                                 >
                                                     <Text style={{ fontSize: 12.5, fontWeight: "700", color: "#FFFFFF" }}>
                                                         Trim to {adjustTargetCount} Questions (Instant - Zero Quota)
@@ -3361,41 +3476,76 @@ export default function AIBuilderTab({
                                 }
 
                                 if (diff > 0) {
+                                    const infoSem = getSemanticTokens("info", darkMode);
                                     return (
-                                        <View style={[styles.adjustNoticeBox, { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }]}>
-                                            <Ionicons name="sparkles" size={18} color="#2563EB" style={{ marginTop: 2 }} />
+                                        <View
+                                            style={[
+                                                styles.adjustNoticeBox,
+                                                {
+                                                    backgroundColor: infoSem.plaqueBg,
+                                                    borderTopColor: darkMode ? infoSem.plaqueBorder : skeuo.bevelTop,
+                                                    borderLeftColor: infoSem.plaqueBorder,
+                                                    borderRightColor: infoSem.plaqueBorder,
+                                                    borderBottomColor: infoSem.plaqueBorder,
+                                                },
+                                            ]}
+                                        >
+                                            <View style={[styles.adjustNoticeLed, { backgroundColor: infoSem.ledBar }]} />
+                                            <View
+                                                style={[
+                                                    styles.adjustNoticeIconSocket,
+                                                    {
+                                                        backgroundColor: infoSem.socketBg,
+                                                        borderColor: infoSem.socketBorder,
+                                                    },
+                                                ]}
+                                            >
+                                                <Ionicons name="sparkles" size={16} color={infoSem.plaqueText} />
+                                            </View>
                                             <View style={{ flex: 1 }}>
-                                                <Text style={{ fontSize: 13, fontWeight: "700", color: "#1D4ED8" }}>
+                                                <Text style={{ fontSize: 13.5, fontWeight: "800", color: infoSem.plaqueText }}>
                                                     Expand by +{diff} Questions
                                                 </Text>
-                                                <Text style={{ fontSize: 12, color: "#1E40AF", marginTop: 2, lineHeight: 16 }}>
+                                                <Text style={{ fontSize: 12, color: infoSem.plaqueText, opacity: 0.9, marginTop: 2, lineHeight: 17 }}>
                                                     Generate {diff} additional questions based on your reference materials without repeating existing questions.
                                                 </Text>
-                                                <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                                                <View style={{ flexDirection: "row", gap: 8, marginTop: 11 }}>
                                                     <TouchableOpacity
-                                                        style={[styles.adjustAddAiBtn, { opacity: generatingMore ? 0.7 : 1 }]}
-                                                        onPress={() => handleGenerateMoreQuestions(diff)}
+                                                        style={[
+                                                            styles.adjustAddAiBtn,
+                                                            skeuoButtonStyle(skeuo, {
+                                                                fill: infoSem.fill,
+                                                                highlight: infoSem.highlight,
+                                                                lip: infoSem.lip,
+                                                                radius: 10,
+                                                            }),
+                                                            { opacity: generatingMore ? 0.7 : 1 },
+                                                        ]}
+                                                        activeOpacity={0.85}
+                                                        onPress={() => {
+                                                            triggerSkeuoHaptic("medium");
+                                                            handleGenerateMoreQuestions(diff);
+                                                        }}
                                                         disabled={generatingMore}
                                                     >
-                                                        {generatingMore ? (
-                                                            <ActivityIndicator size="small" color="#FFFFFF" />
-                                                        ) : (
-                                                            <>
-                                                                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                                                                <Text style={{ fontSize: 13, fontWeight: "600", color: "#FFFFFF" }}>
-                                                                    Generate +{diff} Questions
-                                                                </Text>
-                                                            </>
-                                                        )}
+                                                        <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                                                        <Text style={{ fontSize: 12.5, fontWeight: "700", color: "#FFFFFF" }} numberOfLines={1}>
+                                                            Generate +{diff} Questions
+                                                        </Text>
                                                     </TouchableOpacity>
                                                     <TouchableOpacity
-                                                        style={styles.adjustAddManualBtn}
+                                                        style={[
+                                                            styles.adjustAddManualBtn,
+                                                            skeuoButtonStyle(skeuo, { neutral: true, radius: 10 }),
+                                                        ]}
+                                                        activeOpacity={0.78}
                                                         onPress={() => {
+                                                            triggerSkeuoHaptic("light");
                                                             setAdjustSetupModalOpen(false);
                                                             openAddQuestionModal();
                                                         }}
                                                     >
-                                                        <Text style={{ fontSize: 12, fontWeight: "600", color: "#334155" }}>
+                                                        <Text style={{ fontSize: 12, fontWeight: "700", color: textMain }}>
                                                             Add Manually
                                                         </Text>
                                                     </TouchableOpacity>
@@ -3405,10 +3555,34 @@ export default function AIBuilderTab({
                                     );
                                 }
 
+                                const okSem = getSemanticTokens("success", darkMode);
                                 return (
-                                    <View style={[styles.adjustNoticeBox, { backgroundColor: "#F0FDF4", borderColor: "#BBF7D0" }]}>
-                                        <Ionicons name="checkmark-circle-outline" size={18} color="#16A34A" />
-                                        <Text style={{ fontSize: 12.5, color: "#15803D", fontWeight: "600", flex: 1 }}>
+                                    <View
+                                        style={[
+                                            styles.adjustNoticeBox,
+                                            {
+                                                alignItems: "center",
+                                                backgroundColor: okSem.plaqueBg,
+                                                borderTopColor: darkMode ? okSem.plaqueBorder : skeuo.bevelTop,
+                                                borderLeftColor: okSem.plaqueBorder,
+                                                borderRightColor: okSem.plaqueBorder,
+                                                borderBottomColor: okSem.plaqueBorder,
+                                            },
+                                        ]}
+                                    >
+                                        <View style={[styles.adjustNoticeLed, { backgroundColor: okSem.ledBar }]} />
+                                        <View
+                                            style={[
+                                                styles.adjustNoticeIconSocket,
+                                                {
+                                                    backgroundColor: okSem.socketBg,
+                                                    borderColor: okSem.socketBorder,
+                                                },
+                                            ]}
+                                        >
+                                            <Ionicons name="checkmark-circle" size={16} color={okSem.plaqueText} />
+                                        </View>
+                                        <Text style={{ fontSize: 12.5, color: okSem.plaqueText, fontWeight: "700", flex: 1 }}>
                                             Current quiz has {currentCount} questions.
                                         </Text>
                                     </View>
@@ -3416,7 +3590,7 @@ export default function AIBuilderTab({
                             })()}
 
                             {/* Assessment Format Selection */}
-                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 16 }]}>
+                            <Text style={[styles.adjustSectionLabel, { color: textSub, marginTop: 16 }]}>
                                 Assessment format
                             </Text>
                             <Dropdown
@@ -3436,7 +3610,7 @@ export default function AIBuilderTab({
                             </Text>
 
                             {/* Difficulty Level */}
-                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 14 }]}>
+                            <Text style={[styles.adjustSectionLabel, { color: textSub, marginTop: 14 }]}>
                                 DIFFICULTY LEVEL
                             </Text>
                             <Dropdown
@@ -3448,7 +3622,7 @@ export default function AIBuilderTab({
                             />
 
                             {/* Grade Level */}
-                            <Text style={[styles.adjustSectionLabel, { color: darkMode ? textSub : "#475569", marginTop: 14 }]}>
+                            <Text style={[styles.adjustSectionLabel, { color: textSub, marginTop: 14 }]}>
                                 GRADE LEVEL
                             </Text>
                             <Dropdown
@@ -3461,8 +3635,17 @@ export default function AIBuilderTab({
 
                             {/* Save Settings Button */}
                             <TouchableOpacity
-                                style={styles.adjustSaveBtn}
-                                onPress={handleSaveSetupSettings}
+                                style={[
+                                    styles.adjustSaveBtn,
+                                    skeuoButtonStyle(skeuo, {
+                                        fill: accentColor || "#EA580C",
+                                        radius: 13,
+                                    }),
+                                ]}
+                                onPress={() => {
+                                    triggerSkeuoHaptic("light");
+                                    handleSaveSetupSettings();
+                                }}
                                 activeOpacity={0.85}
                             >
                                 <Ionicons name="checkmark-outline" size={18} color="#FFFFFF" />
@@ -3481,29 +3664,48 @@ export default function AIBuilderTab({
                     }
                 }}
                 dismissOnBackdropPress={regeneratingQNum === null}
-                sheetStyle={[styles.adjustSheet, { backgroundColor: cardBg }]}
+                backdropColor={skeuo.backdrop}
+                sheetStyle={[
+                    styles.adjustSheet,
+                    {
+                        backgroundColor: cardBg,
+                        borderTopWidth: 1.5,
+                        borderTopColor: skeuo.bevelTop,
+                    },
+                ]}
             >
-                        <View style={styles.dragPill} />
+                        <View style={[styles.dragPill, { backgroundColor: skeuo.borderStrong }]} />
                         <View style={styles.adjustHeader}>
-                            <View style={[styles.adjustHeaderIcon, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" }]}>
-                                <Ionicons name="swap-horizontal" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                            <View
+                                style={[
+                                    styles.adjustHeaderIcon,
+                                    skeuoWellStyle(skeuo, 12),
+                                    {
+                                        backgroundColor: skeuo.accentSoft,
+                                        borderColor: skeuo.accentSoftBorder,
+                                    },
+                                ]}
+                            >
+                                <Ionicons name="swap-horizontal" size={20} color={accentColor} />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={[styles.adjustTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                                <Text style={[styles.adjustTitle, { color: textMain }]}>
                                     Change Question #{selectedQForTypeChange?.questionNumber} Type
                                 </Text>
-                                <Text style={[styles.adjustSub, { color: darkMode ? textSub : "#64748B" }]}>
+                                <Text style={[styles.adjustSub, { color: textSub }]}>
                                     Current: {selectedQForTypeChange ? formatTypeLabel(selectedQForTypeChange.type) : ""}
                                 </Text>
                             </View>
                             <TouchableOpacity
+                                style={[styles.adjustCloseBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}
                                 onPress={() => {
+                                    triggerSkeuoHaptic("light");
                                     setChangeTypeModalOpen(false);
                                     setSelectedQForTypeChange(null);
                                 }}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                                <Ionicons name="close" size={22} color={darkMode ? textSub : "#64748B"} />
+                                <Ionicons name="close" size={18} color={textMain} />
                             </TouchableOpacity>
                         </View>
 
@@ -3598,30 +3800,12 @@ export default function AIBuilderTab({
             </SmoothBottomSheetModal>
         </ScrollView>
 
-        {/* Non-blocking Draft Toast */}
+        {/* Non-blocking Unified Skeuomorphic Draft Toast */}
         {toastMessage && (
-            <Animated.View
-                pointerEvents="none"
-                style={[
-                    styles.draftToast,
-                    {
-                        opacity: toastFadeAnim,
-                        transform: [{
-                            translateY: toastFadeAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [12, 0],
-                            }),
-                        }],
-                    },
-                ]}
-            >
-                <Ionicons
-                    name={/cancel/i.test(toastMessage) ? "close-circle" : "checkmark-circle"}
-                    size={16}
-                    color={/cancel/i.test(toastMessage) ? "#F87171" : "#10B981"}
-                />
-                <Text style={styles.draftToastText}>{toastMessage}</Text>
-            </Animated.View>
+            <SkeuoToast
+                message={toastMessage}
+                animatedOpacity={toastFadeAnim}
+            />
         )}
     </View>
     );
@@ -4117,8 +4301,7 @@ const styles = StyleSheet.create({
     /* Result actions */
     publishBtn: {
         width: "100%",
-        height: 46,
-        borderRadius: 10,
+        height: 48,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
@@ -4126,19 +4309,17 @@ const styles = StyleSheet.create({
         marginTop: 4,
         marginBottom: 10,
     },
-    publishText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
+    publishText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
     resultActions: { flexDirection: "row", gap: 10, marginBottom: 8 },
     secondaryFooterBtn: {
         flex: 1,
-        height: 44,
-        borderRadius: 10,
-        borderWidth: 1,
+        height: 45,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
     },
-    secondaryFooterBtnText: { fontSize: 14, fontWeight: "500" },
+    secondaryFooterBtnText: { fontSize: 13.5, fontWeight: "700" },
 
     /* Scannable Question Elements */
     qTypeBadge: {
@@ -4758,33 +4939,56 @@ const styles = StyleSheet.create({
         gap: 8,
         marginBottom: 12,
     },
+    adjustCloseBtn: {
+        width: 32,
+        height: 32,
+        alignItems: "center",
+        justifyContent: "center",
+    },
     countChip: {
-        minWidth: 44,
-        height: 36,
-        borderRadius: 8,
-        borderWidth: 1,
+        minWidth: 46,
+        height: 38,
         alignItems: "center",
         justifyContent: "center",
         paddingHorizontal: 10,
     },
     countChipText: {
         fontSize: 13,
-        fontWeight: "600",
+        fontWeight: "700",
     },
     adjustNoticeBox: {
         flexDirection: "row",
         gap: 10,
-        padding: 12,
-        borderRadius: 10,
+        paddingVertical: 12,
+        paddingRight: 12,
+        paddingLeft: 15,
+        borderRadius: 13,
         borderWidth: 1,
+        borderBottomWidth: 2,
         marginBottom: 8,
+        overflow: "hidden",
+    },
+    adjustNoticeLed: {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 4,
+    },
+    adjustNoticeIconSocket: {
+        width: 30,
+        height: 30,
+        borderRadius: 9,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        marginTop: 1,
     },
     adjustTrimBtn: {
-        marginTop: 8,
-        backgroundColor: "#D97706",
-        paddingVertical: 8,
+        marginTop: 10,
+        paddingVertical: 9,
         paddingHorizontal: 12,
-        borderRadius: 8,
         alignItems: "center",
     },
     adjustAddAiBtn: {
@@ -4793,18 +4997,12 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        backgroundColor: "#2563EB",
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 8,
+        paddingVertical: 9,
+        paddingHorizontal: 11,
     },
     adjustAddManualBtn: {
-        paddingVertical: 8,
+        paddingVertical: 9,
         paddingHorizontal: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "#CBD5E1",
-        backgroundColor: "#FFFFFF",
         alignItems: "center",
         justifyContent: "center",
     },
@@ -4813,15 +5011,13 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        height: 46,
-        borderRadius: 10,
-        backgroundColor: "#0F172A",
+        height: 48,
         marginTop: 20,
     },
     adjustSaveBtnText: {
         color: "#FFFFFF",
-        fontSize: 14,
-        fontWeight: "600",
+        fontSize: 14.5,
+        fontWeight: "700",
     },
     typeOptionsList: {
         gap: 8,

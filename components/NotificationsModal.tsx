@@ -27,6 +27,14 @@ import {
   RosterAlert,
   saveAlertPreferences,
 } from "../lib/alertStore";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoGrooveStyle,
+  skeuoWellStyle,
+} from "./skeuoTheme";
+import { SkeuoToast } from "./SkeuoToast";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -94,9 +102,11 @@ function getSeverityVisuals(severity: AlertSeverity, darkMode: boolean) {
       return {
         label: "Critical",
         icon: "alert-circle" as const,
-        primary: darkMode ? "#F87171" : "#DC2626",
-        softBg: darkMode ? "#450A0A" : "#FEF2F2",
-        softBorder: darkMode ? "#7F1D1D" : "#FECACA",
+        primary: darkMode ? "#FCA5A5" : "#B91C1C",
+        led: "#EF4444",
+        softBg: darkMode ? "#2E1417" : "#FBECEB",
+        softBorder: darkMode ? "#6E2830" : "#E8B0AA",
+        socketBg: darkMode ? "#220E11" : "#F6D7D4",
         barColor: darkMode ? "#EF4444" : "#DC2626",
         metricLabel: "AVG",
       };
@@ -104,9 +114,11 @@ function getSeverityVisuals(severity: AlertSeverity, darkMode: boolean) {
       return {
         label: "At-Risk",
         icon: "warning" as const,
-        primary: darkMode ? "#FBBF24" : "#D97706",
-        softBg: darkMode ? "#451A03" : "#FFFBEB",
-        softBorder: darkMode ? "#78350F" : "#FDE68A",
+        primary: darkMode ? "#FCD34D" : "#B45309",
+        led: "#F59E0B",
+        softBg: darkMode ? "#2B1F0D" : "#FDF3DF",
+        softBorder: darkMode ? "#6C4A15" : "#E6C27A",
+        socketBg: darkMode ? "#1F1608" : "#F8E4BC",
         barColor: darkMode ? "#F59E0B" : "#D97706",
         metricLabel: "AVG",
       };
@@ -114,9 +126,11 @@ function getSeverityVisuals(severity: AlertSeverity, darkMode: boolean) {
       return {
         label: "Score Drop",
         icon: "trending-down" as const,
-        primary: darkMode ? "#C4B5FD" : "#7C3AED",
-        softBg: darkMode ? "#2E1065" : "#F5F3FF",
-        softBorder: darkMode ? "#5B21B6" : "#DDD6FE",
+        primary: darkMode ? "#DDD6FE" : "#6D28D9",
+        led: "#8B5CF6",
+        softBg: darkMode ? "#23173B" : "#F3EEFD",
+        softBorder: darkMode ? "#52328C" : "#CBB8F4",
+        socketBg: darkMode ? "#19102C" : "#E7DCFA",
         barColor: darkMode ? "#8B5CF6" : "#7C3AED",
         metricLabel: "QUIZ",
       };
@@ -125,9 +139,11 @@ function getSeverityVisuals(severity: AlertSeverity, darkMode: boolean) {
       return {
         label: "Watchlist",
         icon: "flag" as const,
-        primary: darkMode ? "#93C5FD" : "#2563EB",
-        softBg: darkMode ? "#172554" : "#EFF6FF",
-        softBorder: darkMode ? "#1E40AF" : "#BFDBFE",
+        primary: darkMode ? "#93C5FD" : "#1D4ED8",
+        led: "#3B82F6",
+        softBg: darkMode ? "#13213B" : "#EAF1FD",
+        softBorder: darkMode ? "#25457A" : "#AEC7F4",
+        socketBg: darkMode ? "#0D182C" : "#D8E6FB",
         barColor: darkMode ? "#3B82F6" : "#2563EB",
         metricLabel: "AVG",
       };
@@ -153,8 +169,9 @@ export function NotificationsModal({
   onClearAll,
   onPreferencesChange,
 }: NotificationsModalProps) {
-  const { darkMode } = useTheme();
+  const { darkMode, themeColor } = useTheme();
   const insets = useSafeAreaInsets();
+  const skeuo = getSkeuoPalette(darkMode, themeColor || ORANGE);
 
   const [mounted, setMounted] = useState(visible);
   const mountedRef = useRef(visible);
@@ -362,16 +379,16 @@ export function NotificationsModal({
     onPreferencesChange?.(updated);
   }
 
-  // ── Colors ────────────────────────────────────────────────────────────────
-  const sheetBg = darkMode ? "#111827" : "#FFFFFF";
-  const bodySurface = darkMode ? "#0B1120" : "#F8FAFC";
-  const cardBg = darkMode ? "#1E293B" : "#FFFFFF";
-  const readCardBg = darkMode ? "#151E2E" : "#F8FAFC";
-  const textMain = darkMode ? "#F8FAFC" : "#0F172A";
-  const textSub = darkMode ? "#94A3B8" : "#64748B";
-  const border = darkMode ? "#1F2937" : "#E2E8F0";
-  const cardBorder = darkMode ? "#334155" : "#E2E8F0";
-  const subtlePillBg = darkMode ? "#1F2937" : "#F1F5F9";
+  // ── Skeuomorphic Hardware Surface Colors ──────────────────────────────────
+  const sheetBg = skeuo.chrome;
+  const bodySurface = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const readCardBg = skeuo.surfaceMuted;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
+  const border = skeuo.border;
+  const cardBorder = skeuo.borderStrong;
+  const subtlePillBg = skeuo.well;
   const criticalCutoff = getCriticalCutoff(localPrefs.atRiskThreshold);
 
   const filterChips: {
@@ -425,9 +442,7 @@ export function NotificationsModal({
           style={[
             styles.backdrop,
             {
-              backgroundColor: darkMode
-                ? "rgba(2, 6, 23, 0.72)"
-                : "rgba(15, 23, 42, 0.48)",
+              backgroundColor: skeuo.backdrop,
               opacity: backdropAnim,
             },
           ]}
@@ -439,24 +454,31 @@ export function NotificationsModal({
           />
         </Animated.View>
 
-        {/* Bottom Sheet Container */}
+        {/* Bottom Sheet Machined Hardware Housing */}
         <Animated.View
           style={[
             styles.sheetContainer,
             {
               backgroundColor: sheetBg,
-              borderColor: darkMode ? "#1F2937" : "#E2E8F0",
+              borderTopColor: skeuo.bevelTop,
+              borderLeftColor: skeuo.border,
+              borderRightColor: skeuo.border,
+              shadowColor: skeuo.shadowColor,
               paddingBottom: Math.max(insets.bottom, 12),
               transform: [{ translateY: sheetAnim }],
             },
           ]}
         >
-          {/* Centered Drag Pill */}
+          {/* Centered Recessed Drag Groove */}
           <View style={styles.dragPillWrap}>
             <View
               style={[
                 styles.dragPill,
-                { backgroundColor: darkMode ? "#334155" : "#CBD5E1" },
+                {
+                  backgroundColor: skeuo.wellDeep,
+                  borderTopColor: skeuo.wellBorderTop,
+                  borderBottomColor: skeuo.wellBorderBottom,
+                },
               ]}
             />
           </View>
@@ -467,9 +489,10 @@ export function NotificationsModal({
               <View
                 style={[
                   styles.headerIconBox,
+                  skeuoWellStyle(skeuo, 12),
                   {
-                    backgroundColor: darkMode ? "#431407" : "#FFF7ED",
-                    borderColor: darkMode ? "#7C2D12" : "#FED7AA",
+                    backgroundColor: skeuo.accentSoft,
+                    borderColor: skeuo.accentSoftBorder,
                   },
                 ]}
               >
@@ -481,7 +504,15 @@ export function NotificationsModal({
                     Roster Alerts
                   </Text>
                   {unreadCount > 0 && (
-                    <View style={styles.unreadPill}>
+                    <View
+                      style={[
+                        styles.unreadPill,
+                        {
+                          borderTopColor: "#FB923C",
+                          borderBottomColor: "#9A3412",
+                        },
+                      ]}
+                    >
                       <Text style={styles.unreadPillText}>
                         {unreadCount} new
                       </Text>
@@ -498,60 +529,62 @@ export function NotificationsModal({
             </View>
 
             <View style={styles.headerActions}>
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.headerIconBtn,
-                  {
-                    backgroundColor: settingsOpen
-                      ? darkMode
-                        ? "#431407"
-                        : "#FFF7ED"
-                      : subtlePillBg,
-                    borderColor: settingsOpen
-                      ? darkMode
-                        ? "#9A3412"
-                        : "#FDBA74"
-                      : "transparent",
-                    borderWidth: 1,
-                  },
+                  settingsOpen
+                    ? skeuoButtonStyle(skeuo, {
+                        fill: ORANGE,
+                        highlight: "#FB923C",
+                        lip: "#9A3412",
+                        pressed,
+                        radius: 10,
+                      })
+                    : skeuoButtonStyle(skeuo, {
+                        neutral: true,
+                        pressed,
+                        radius: 10,
+                      }),
                 ]}
                 onPress={() => {
                   triggerHaptic("selection");
                   setSettingsOpen((prev) => !prev);
                 }}
-                activeOpacity={0.75}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityLabel="Alert threshold settings"
               >
                 <Ionicons
                   name="options-outline"
                   size={17}
-                  color={settingsOpen ? ORANGE : textSub}
+                  color={settingsOpen ? "#FFFFFF" : textMain}
                 />
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.headerIconBtn,
-                  { backgroundColor: subtlePillBg, borderRadius: 17 },
+                  skeuoButtonStyle(skeuo, {
+                    neutral: true,
+                    pressed,
+                    radius: 17,
+                  }),
                 ]}
                 onPress={onClose}
-                activeOpacity={0.75}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityLabel="Close notifications"
               >
-                <Ionicons name="close" size={18} color={textSub} />
-              </TouchableOpacity>
+                <Ionicons name="close" size={18} color={textMain} />
+              </Pressable>
             </View>
           </View>
 
-          {/* ── Collapsible Inline Alert Preferences Panel ── */}
+          {/* ── Collapsible Inline Alert Preferences Tray ── */}
           {settingsOpen && (
             <View
               style={[
                 styles.prefsPanel,
                 {
-                  backgroundColor: bodySurface,
+                  backgroundColor: skeuo.tray,
                   borderBottomColor: border,
                 },
               ]}
@@ -563,7 +596,7 @@ export function NotificationsModal({
                 <View
                   style={[
                     styles.depedPill,
-                    { backgroundColor: darkMode ? "#1E293B" : "#E2E8F0" },
+                    skeuoWellStyle(skeuo, 7),
                   ]}
                 >
                   <Text style={[styles.depedPillText, { color: textSub }]}>
@@ -576,23 +609,27 @@ export function NotificationsModal({
                 {ALERT_THRESHOLD_PRESETS.map((preset) => {
                   const isActive = localPrefs.atRiskThreshold === preset;
                   return (
-                    <TouchableOpacity
+                    <Pressable
                       key={preset}
-                      style={[
+                      style={({ pressed }) => [
                         styles.thresholdChip,
-                        {
-                          backgroundColor: isActive
-                            ? ORANGE
-                            : darkMode
-                              ? "#1E293B"
-                              : "#FFFFFF",
-                          borderColor: isActive ? ORANGE : cardBorder,
-                        },
+                        isActive
+                          ? skeuoButtonStyle(skeuo, {
+                              fill: ORANGE,
+                              highlight: "#FB923C",
+                              lip: "#9A3412",
+                              pressed,
+                              radius: 9,
+                            })
+                          : skeuoButtonStyle(skeuo, {
+                              neutral: true,
+                              pressed,
+                              radius: 9,
+                            }),
                       ]}
                       onPress={() =>
                         handleUpdatePrefs({ atRiskThreshold: preset })
                       }
-                      activeOpacity={0.8}
                     >
                       <Text
                         style={[
@@ -602,7 +639,7 @@ export function NotificationsModal({
                       >
                         ≤{preset}%
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })}
               </View>
@@ -636,9 +673,11 @@ export function NotificationsModal({
                     {
                       backgroundColor: localPrefs.enableScoreDropAlerts
                         ? ORANGE
-                        : darkMode
-                          ? "#334155"
-                          : "#CBD5E1",
+                        : skeuo.wellDeep,
+                      borderTopColor: localPrefs.enableScoreDropAlerts
+                        ? "#9A3412"
+                        : skeuo.wellBorderTop,
+                      borderBottomColor: skeuo.wellBorderBottom,
                       alignItems: localPrefs.enableScoreDropAlerts
                         ? "flex-end"
                         : "flex-start",
@@ -675,9 +714,11 @@ export function NotificationsModal({
                       {
                         backgroundColor: localPrefs.includeNearPassing
                           ? ORANGE
-                          : darkMode
-                            ? "#334155"
-                            : "#CBD5E1",
+                          : skeuo.wellDeep,
+                        borderTopColor: localPrefs.includeNearPassing
+                          ? "#9A3412"
+                          : skeuo.wellBorderTop,
+                        borderBottomColor: skeuo.wellBorderBottom,
                         alignItems: localPrefs.includeNearPassing
                           ? "flex-end"
                           : "flex-start",
@@ -709,23 +750,28 @@ export function NotificationsModal({
                   {filterChips.map((chip) => {
                     const selected = activeFilter === chip.key;
                     return (
-                      <TouchableOpacity
+                      <Pressable
                         key={chip.key}
-                        style={[
+                        style={({ pressed }) => [
                           styles.filterChip,
-                          {
-                            backgroundColor: selected
-                              ? darkMode
-                                ? "#F8FAFC"
-                                : "#0F172A"
-                              : subtlePillBg,
-                          },
+                          selected
+                            ? skeuoButtonStyle(skeuo, {
+                                fill: darkMode ? "#EAE7E1" : "#242220",
+                                highlight: darkMode ? "#FFFFFF" : "#44403C",
+                                lip: darkMode ? "#BDB6A9" : "#0D0E12",
+                                pressed,
+                                radius: 10,
+                              })
+                            : skeuoButtonStyle(skeuo, {
+                                neutral: true,
+                                pressed,
+                                radius: 10,
+                              }),
                         ]}
                         onPress={() => {
                           triggerHaptic("selection");
                           setActiveFilter(chip.key);
                         }}
-                        activeOpacity={0.8}
                       >
                         {chip.dotColor && (
                           <View
@@ -741,8 +787,8 @@ export function NotificationsModal({
                             {
                               color: selected
                                 ? darkMode
-                                  ? "#0F172A"
-                                  : "#FFFFFF"
+                                  ? "#1C1917"
+                                  : "#FAF8F5"
                                 : textMain,
                             },
                           ]}
@@ -755,15 +801,15 @@ export function NotificationsModal({
                             {
                               color: selected
                                 ? darkMode
-                                  ? "#475569"
-                                  : "#CBD5E1"
+                                  ? "#57534E"
+                                  : "#D6D1C7"
                                 : textSub,
                             },
                           ]}
                         >
                           {chip.count}
                         </Text>
-                      </TouchableOpacity>
+                      </Pressable>
                     );
                   })}
                 </ScrollView>
@@ -783,15 +829,11 @@ export function NotificationsModal({
                         {
                           backgroundColor:
                             selectedClassroomId === null
-                              ? darkMode
-                                ? "#431407"
-                                : "#FFF7ED"
-                              : "transparent",
+                              ? skeuo.accentSoft
+                              : skeuo.well,
                           borderColor:
                             selectedClassroomId === null
-                              ? darkMode
-                                ? "#9A3412"
-                                : "#FDBA74"
+                              ? skeuo.accentSoftBorder
                               : cardBorder,
                         },
                       ]}
@@ -823,8 +865,8 @@ export function NotificationsModal({
                             styles.classFilterPill,
                             {
                               backgroundColor: active
-                                ? cls.color + "18"
-                                : "transparent",
+                                ? cls.color + "1F"
+                                : skeuo.well,
                               borderColor: active ? cls.color : cardBorder,
                             },
                           ]}
@@ -933,9 +975,10 @@ export function NotificationsModal({
                 <View
                   style={[
                     styles.emptyIconBox,
+                    skeuoWellStyle(skeuo, 18),
                     {
-                      backgroundColor: darkMode ? "#064E3B40" : "#ECFDF5",
-                      borderColor: darkMode ? "#065F46" : "#A7F3D0",
+                      backgroundColor: darkMode ? "#112921" : "#E8F6EF",
+                      borderColor: darkMode ? "#1E5B47" : "#9CD6BC",
                     },
                   ]}
                 >
@@ -959,23 +1002,19 @@ export function NotificationsModal({
                 </Text>
 
                 {dismissedAlerts.length > 0 && onRestoreAlerts && (
-                  <TouchableOpacity
-                    style={[
+                  <Pressable
+                    style={({ pressed }) => [
                       styles.restoreEmptyBtn,
-                      {
-                        backgroundColor: cardBg,
-                        borderColor: cardBorder,
-                      },
+                      skeuoButtonStyle(skeuo, { neutral: true, pressed, radius: 11 }),
                     ]}
                     onPress={handleRestoreAllDismissed}
-                    activeOpacity={0.75}
                   >
                     <Ionicons name="refresh-outline" size={15} color={ORANGE} />
                     <Text style={[styles.restoreEmptyBtnText, { color: textMain }]}>
                       Restore {dismissedAlerts.length} dismissed alert
                       {dismissedAlerts.length === 1 ? "" : "s"}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 )}
               </View>
             ) : (
@@ -1008,35 +1047,57 @@ export function NotificationsModal({
                       key={`${alert.id}_${alert.studentId}`}
                       style={[
                         styles.alertCard,
+                        skeuoCardStyle(skeuo, 15),
                         {
                           backgroundColor: isUnread ? cardBg : readCardBg,
-                          borderColor: isUnread
+                          borderLeftColor: isUnread
                             ? visuals.softBorder
-                            : cardBorder,
-                          opacity: isDismissedView ? 0.84 : isUnread ? 1 : 0.92,
+                            : skeuo.border,
+                          borderRightColor: isUnread
+                            ? visuals.softBorder
+                            : skeuo.border,
+                          opacity: isDismissedView ? 0.84 : isUnread ? 1 : 0.94,
                         },
                       ]}
                       onPress={() => {
                         triggerHaptic("light");
                         onAlertPress(alert);
                       }}
-                      activeOpacity={0.82}
+                      activeOpacity={0.85}
                     >
-                      {/* Top Meta Row: Unread Dot + Severity Pill + Classroom Chip + Time + Dismiss */}
+                      {/* Left Semantic LED Strip */}
+                      <View
+                        style={[
+                          styles.cardLedStrip,
+                          {
+                            backgroundColor: isUnread
+                              ? visuals.led
+                              : skeuo.borderStrong,
+                          },
+                        ]}
+                      />
+
+                      {/* Top Meta Row: Unread LED + Severity Badge + Classroom Chip + Time + Dismiss */}
                       <View style={styles.cardTopRow}>
                         <View style={styles.cardTopLeft}>
                           {isUnread && (
                             <View
                               style={[
                                 styles.unreadDot,
-                                { backgroundColor: visuals.primary },
+                                {
+                                  backgroundColor: visuals.led,
+                                  shadowColor: visuals.led,
+                                },
                               ]}
                             />
                           )}
                           <View
                             style={[
                               styles.severityBadge,
-                              { backgroundColor: visuals.softBg },
+                              {
+                                backgroundColor: visuals.softBg,
+                                borderColor: visuals.softBorder,
+                              },
                             ]}
                           >
                             <Ionicons
@@ -1058,7 +1119,10 @@ export function NotificationsModal({
                             <View
                               style={[
                                 styles.classroomPill,
-                                { backgroundColor: subtlePillBg },
+                                {
+                                  backgroundColor: subtlePillBg,
+                                  borderColor: border,
+                                },
                               ]}
                             >
                               <View
@@ -1089,10 +1153,14 @@ export function NotificationsModal({
                           </Text>
                           {isDismissedView ? (
                             onRestoreAlerts && (
-                              <TouchableOpacity
-                                style={[
+                              <Pressable
+                                style={({ pressed }) => [
                                   styles.cardIconAction,
-                                  { backgroundColor: subtlePillBg },
+                                  skeuoButtonStyle(skeuo, {
+                                    neutral: true,
+                                    pressed,
+                                    radius: 8,
+                                  }),
                                 ]}
                                 onPress={(e) => {
                                   e.stopPropagation?.();
@@ -1103,20 +1171,20 @@ export function NotificationsModal({
                               >
                                 <Ionicons
                                   name="refresh-outline"
-                                  size={14}
+                                  size={13}
                                   color={ORANGE}
                                 />
-                              </TouchableOpacity>
+                              </Pressable>
                             )
                           ) : (
-                            <TouchableOpacity
-                              style={[
+                            <Pressable
+                              style={({ pressed }) => [
                                 styles.cardIconAction,
-                                {
-                                  backgroundColor: darkMode
-                                    ? "#0F172A80"
-                                    : "#F1F5F9",
-                                },
+                                skeuoButtonStyle(skeuo, {
+                                  neutral: true,
+                                  pressed,
+                                  radius: 8,
+                                }),
                               ]}
                               onPress={(e) => {
                                 e.stopPropagation?.();
@@ -1127,21 +1195,22 @@ export function NotificationsModal({
                             >
                               <Ionicons
                                 name="close"
-                                size={13}
+                                size={12}
                                 color={textSub}
                               />
-                            </TouchableOpacity>
+                            </Pressable>
                           )}
                         </View>
                       </View>
 
-                      {/* Main Body: Avatar + Name & Context + Tabular Score Metric */}
+                      {/* Main Body: Beveled Avatar Socket + Name & Context + Recessed Score Well */}
                       <View style={styles.cardMainRow}>
                         <View
                           style={[
                             styles.avatarBox,
+                            skeuoWellStyle(skeuo, 11),
                             {
-                              backgroundColor: visuals.softBg,
+                              backgroundColor: visuals.socketBg,
                               borderColor: visuals.softBorder,
                             },
                           ]}
@@ -1174,6 +1243,7 @@ export function NotificationsModal({
                         <View
                           style={[
                             styles.scoreBox,
+                            skeuoWellStyle(skeuo, 11),
                             {
                               backgroundColor: visuals.softBg,
                               borderColor: visuals.softBorder,
@@ -1199,15 +1269,15 @@ export function NotificationsModal({
                         </View>
                       </View>
 
-                      {/* Slim Visual Progress Gauge w/ 75% DepEd Passing Marker */}
+                      {/* Recessed Progress Gauge w/ 75% DepEd Passing Marker */}
                       <View style={styles.gaugeSection}>
                         <View
                           style={[
                             styles.gaugeTrack,
                             {
-                              backgroundColor: darkMode
-                                ? "#0F172A"
-                                : "#E2E8F0",
+                              backgroundColor: skeuo.wellDeep,
+                              borderTopColor: skeuo.wellBorderTop,
+                              borderBottomColor: skeuo.wellBorderBottom,
                             },
                           ]}
                         >
@@ -1226,8 +1296,8 @@ export function NotificationsModal({
                               {
                                 left: `${PASSING_GRADE}%`,
                                 backgroundColor: darkMode
-                                  ? "#94A3B8"
-                                  : "#475569",
+                                  ? "#D4CFC5"
+                                  : "#57534E",
                               },
                             ]}
                           />
@@ -1259,15 +1329,11 @@ export function NotificationsModal({
                         </View>
                       </View>
 
+                      {/* Engraved Groove Divider */}
+                      <View style={[styles.cardGroove, skeuoGrooveStyle(skeuo)]} />
+
                       {/* Bottom Action Footer */}
-                      <View
-                        style={[
-                          styles.cardFooter,
-                          {
-                            borderTopColor: darkMode ? "#33415580" : "#F1F5F9",
-                          },
-                        ]}
-                      >
+                      <View style={styles.cardFooter}>
                         <View style={styles.primaryActionWrap}>
                           <Ionicons
                             name="analytics-outline"
@@ -1292,35 +1358,33 @@ export function NotificationsModal({
                         </View>
 
                         {onRemedialQuizPress && (
-                          <TouchableOpacity
-                            style={[
+                          <Pressable
+                            style={({ pressed }) => [
                               styles.remedialBtn,
-                              {
-                                backgroundColor: darkMode
-                                  ? "#431407"
-                                  : "#FFF7ED",
-                                borderColor: darkMode
-                                  ? "#9A3412"
-                                  : "#FED7AA",
-                              },
+                              skeuoButtonStyle(skeuo, {
+                                fill: ORANGE,
+                                highlight: "#FB923C",
+                                lip: "#9A3412",
+                                pressed,
+                                radius: 9,
+                              }),
                             ]}
                             onPress={(e) => {
                               e.stopPropagation?.();
                               triggerHaptic("light");
                               onRemedialQuizPress(alert);
                             }}
-                            activeOpacity={0.78}
                             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                           >
                             <Ionicons
                               name="sparkles-outline"
                               size={12}
-                              color={ORANGE}
+                              color="#FFFFFF"
                             />
                             <Text style={styles.remedialBtnText}>
                               Remedial Quiz
                             </Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         )}
                       </View>
                     </TouchableOpacity>
@@ -1329,33 +1393,15 @@ export function NotificationsModal({
               </ScrollView>
             )}
 
-            {/* ── Floating Undo Snackbar ── */}
+            {/* ── Unified Floating Skeuomorphic Undo Snackbar ── */}
             {undoPayload && onRestoreAlerts && (
-              <View
-                style={[
-                  styles.undoBar,
-                  {
-                    backgroundColor: darkMode ? "#F8FAFC" : "#0F172A",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.undoText,
-                    { color: darkMode ? "#0F172A" : "#F8FAFC" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {undoPayload.message}
-                </Text>
-                <TouchableOpacity
-                  onPress={handleUndoPress}
-                  hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.undoActionText}>Undo</Text>
-                </TouchableOpacity>
-              </View>
+              <SkeuoToast
+                message={undoPayload.message}
+                variant="warning"
+                actionLabel="Undo"
+                onAction={handleUndoPress}
+                bottomOffset={12}
+              />
             )}
           </View>
         </Animated.View>
@@ -1378,16 +1424,17 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 540,
     alignSelf: "center",
-    maxHeight: "84%",
+    maxHeight: "85%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderTopWidth: 1,
+    borderTopWidth: 1.5,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     overflow: "hidden",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.14,
-    shadowRadius: 20,
-    elevation: 16,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.24,
+    shadowRadius: 22,
+    elevation: 18,
   },
   dragPillWrap: {
     alignItems: "center",
@@ -1395,9 +1442,11 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   dragPill: {
-    width: 36,
-    height: 4,
+    width: 40,
+    height: 5,
     borderRadius: 99,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
   },
 
   /* Header */
@@ -1419,10 +1468,8 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   headerIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    borderWidth: 1,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1442,14 +1489,16 @@ const styles = StyleSheet.create({
   },
   unreadPill: {
     backgroundColor: ORANGE,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 8,
+    borderTopWidth: 1,
+    borderBottomWidth: 2,
   },
   unreadPillText: {
     color: "#FFFFFF",
     fontSize: 10.5,
-    fontWeight: "700",
+    fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
   headerSubtitle: {
@@ -1463,9 +1512,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 35,
+    height: 35,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1489,11 +1537,10 @@ const styles = StyleSheet.create({
   depedPill: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
   },
   depedPillText: {
     fontSize: 10.5,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   thresholdRow: {
     flexDirection: "row",
@@ -1501,21 +1548,20 @@ const styles = StyleSheet.create({
   },
   thresholdChip: {
     flex: 1,
-    height: 34,
-    borderRadius: 9,
-    borderWidth: 1,
+    height: 35,
     alignItems: "center",
     justifyContent: "center",
   },
   thresholdChipText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
   prefsHint: {
     fontSize: 11.5,
-    marginTop: 7,
+    marginTop: 8,
     marginBottom: 10,
+    fontWeight: "500",
   },
   prefToggleRow: {
     flexDirection: "row",
@@ -1531,62 +1577,66 @@ const styles = StyleSheet.create({
   },
   prefToggleTitle: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   prefToggleSub: {
     fontSize: 11.5,
     marginTop: 1,
   },
   switchTrack: {
-    width: 42,
-    height: 24,
-    borderRadius: 12,
+    width: 44,
+    height: 25,
+    borderRadius: 13,
     padding: 2,
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1,
     justifyContent: "center",
   },
   switchThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    width: 19,
+    height: 19,
+    borderRadius: 9.5,
+    backgroundColor: "#FAF8F5",
+    borderWidth: 1,
+    borderTopColor: "#FFFFFF",
+    borderBottomColor: "#BDB6A9",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.16,
+    shadowOffset: { width: 0, height: 1.5 },
+    shadowOpacity: 0.25,
     shadowRadius: 2,
-    elevation: 2,
+    elevation: 3,
   },
 
   /* Filter & Controls Area */
   controlsArea: {
     paddingTop: 10,
-    paddingBottom: 8,
+    paddingBottom: 9,
     borderBottomWidth: 1,
   },
   filterChipsScroll: {
     paddingHorizontal: 18,
     gap: 8,
-    paddingBottom: 8,
+    paddingBottom: 9,
   },
   filterChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingHorizontal: 12,
-    height: 32,
-    borderRadius: 99,
+    height: 33,
   },
   chipDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 6.5,
+    height: 6.5,
+    borderRadius: 3.5,
   },
   filterChipText: {
-    fontSize: 12.5,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
   },
   filterChipCount: {
-    fontSize: 11.5,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
   classroomChipsScroll: {
@@ -1611,7 +1661,7 @@ const styles = StyleSheet.create({
   },
   classFilterText: {
     fontSize: 11.5,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   bulkBar: {
     flexDirection: "row",
@@ -1623,7 +1673,7 @@ const styles = StyleSheet.create({
   },
   bulkSummaryText: {
     fontSize: 11.5,
-    fontWeight: "500",
+    fontWeight: "600",
     flex: 1,
     minWidth: 0,
   },
@@ -1660,14 +1710,17 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   alertCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    paddingVertical: 13,
+    paddingRight: 14,
+    paddingLeft: 17,
+    overflow: "hidden",
+  },
+  cardLedStrip: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
   },
   cardTopRow: {
     flexDirection: "row",
@@ -1689,6 +1742,9 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 3.5,
     flexShrink: 0,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.75,
+    shadowRadius: 4,
   },
   severityBadge: {
     flexDirection: "row",
@@ -1697,12 +1753,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3.5,
     borderRadius: 7,
+    borderWidth: 1,
     flexShrink: 0,
   },
   severityBadgeText: {
     fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.1,
+    fontWeight: "800",
+    letterSpacing: 0.15,
   },
   classroomPill: {
     flexDirection: "row",
@@ -1711,6 +1768,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3.5,
     borderRadius: 7,
+    borderWidth: 1,
     maxWidth: 140,
     flexShrink: 1,
   },
@@ -1733,13 +1791,12 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontSize: 11.5,
-    fontWeight: "500",
+    fontWeight: "600",
     fontVariant: ["tabular-nums"],
   },
   cardIconAction: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1753,8 +1810,6 @@ const styles = StyleSheet.create({
   avatarBox: {
     width: 40,
     height: 40,
-    borderRadius: 12,
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -1770,21 +1825,19 @@ const styles = StyleSheet.create({
   },
   studentName: {
     fontSize: 14.5,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: -0.2,
     marginBottom: 2,
   },
   contextText: {
     fontSize: 12.5,
     lineHeight: 17,
-    fontWeight: "400",
+    fontWeight: "500",
   },
   scoreBox: {
-    minWidth: 58,
+    minWidth: 60,
     paddingHorizontal: 9,
     paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -1797,10 +1850,10 @@ const styles = StyleSheet.create({
   },
   scoreCaption: {
     fontSize: 8.5,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 0.5,
     marginTop: 1,
-    opacity: 0.85,
+    opacity: 0.88,
   },
 
   /* Progress Gauge */
@@ -1809,8 +1862,10 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   gaugeTrack: {
-    height: 5,
+    height: 7,
     borderRadius: 99,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
     overflow: "visible",
     position: "relative",
     justifyContent: "center",
@@ -1821,12 +1876,12 @@ const styles = StyleSheet.create({
   },
   passingTick: {
     position: "absolute",
-    top: -2,
+    top: -2.5,
     marginLeft: -1,
     width: 2,
-    height: 9,
+    height: 11,
     borderRadius: 1,
-    opacity: 0.7,
+    opacity: 0.85,
   },
   gaugeLabelsRow: {
     flexDirection: "row",
@@ -1838,7 +1893,7 @@ const styles = StyleSheet.create({
   },
   gaugeLabelText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   gaugeLabelLeft: {
     flex: 1,
@@ -1850,14 +1905,15 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
 
-  /* Card Footer */
+  /* Card Groove & Footer */
+  cardGroove: {
+    marginTop: 11,
+    marginBottom: 9,
+  },
   cardFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 11,
-    paddingTop: 10,
-    borderTopWidth: 1,
     gap: 10,
     width: "100%",
   },
@@ -1870,23 +1926,21 @@ const styles = StyleSheet.create({
   },
   primaryActionText: {
     fontSize: 12.5,
-    fontWeight: "600",
+    fontWeight: "700",
     flexShrink: 1,
   },
   remedialBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 6.5,
     flexShrink: 0,
   },
   remedialBtnText: {
     fontSize: 11.5,
     fontWeight: "700",
-    color: ORANGE,
+    color: "#FFFFFF",
   },
 
   /* Empty State */
@@ -1897,17 +1951,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   emptyIconBox: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    borderWidth: 1,
+    width: 58,
+    height: 58,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
   },
   emptyTitle: {
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: -0.2,
     marginBottom: 6,
   },
@@ -1923,41 +1975,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
   },
   restoreEmptyBtnText: {
     fontSize: 12.5,
-    fontWeight: "600",
-  },
-
-  /* Floating Undo Snackbar */
-  undoBar: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 12,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  undoText: {
-    fontSize: 13,
-    fontWeight: "500",
-    flex: 1,
-  },
-  undoActionText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FB923C",
+    fontWeight: "700",
   },
 });

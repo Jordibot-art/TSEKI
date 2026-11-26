@@ -528,6 +528,8 @@ export function SmoothStageTransition({
 }: SmoothStageTransitionProps) {
     const isFirstRenderRef = useRef(true);
     const prevKeyRef = useRef(transitionKey);
+    const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [animating, setAnimating] = useState(false);
     const opacity = useRef(new Animated.Value(1)).current;
     const translateY = useRef(new Animated.Value(0)).current;
 
@@ -540,33 +542,78 @@ export function SmoothStageTransition({
         if (prevKeyRef.current === transitionKey) return;
         prevKeyRef.current = transitionKey;
 
-        opacity.setValue(0.01);
+        if (settleTimerRef.current) {
+            clearTimeout(settleTimerRef.current);
+            settleTimerRef.current = null;
+        }
+
+        const isAndroid = Platform.OS === "android";
+        setAnimating(true);
+
+        // On Android, animating `opacity < 1` on a tall container with elevated child cards
+        // (e.g., 10–50 generated quiz questions) forces an offscreen HWUI layer that exceeds
+        // GL_MAX_TEXTURE_SIZE and drops card content while leaving only elevation shadows.
+        // Animate pure GPU translation on Android and clear the animated style once settled.
+        if (!isAndroid) {
+            opacity.setValue(0.01);
+        } else {
+            opacity.setValue(1);
+        }
         translateY.setValue(offsetY);
 
-        Animated.parallel([
-            Animated.timing(opacity, {
-                toValue: 1,
-                duration,
-                easing: Easing.out(Easing.cubic),
-                useNativeDriver: true,
-            }),
-            Animated.timing(translateY, {
-                toValue: 0,
-                duration: duration + 30,
-                easing: Easing.out(Easing.cubic),
-                useNativeDriver: true,
-            }),
-        ]).start();
+        const finish = () => {
+            if (settleTimerRef.current) {
+                clearTimeout(settleTimerRef.current);
+                settleTimerRef.current = null;
+            }
+            setAnimating(false);
+        };
+
+        settleTimerRef.current = setTimeout(finish, duration + 60);
+
+        const anims = isAndroid
+            ? [
+                  Animated.timing(translateY, {
+                      toValue: 0,
+                      duration: duration + 20,
+                      easing: Easing.out(Easing.cubic),
+                      useNativeDriver: true,
+                  }),
+              ]
+            : [
+                  Animated.timing(opacity, {
+                      toValue: 1,
+                      duration,
+                      easing: Easing.out(Easing.cubic),
+                      useNativeDriver: true,
+                  }),
+                  Animated.timing(translateY, {
+                      toValue: 0,
+                      duration: duration + 30,
+                      easing: Easing.out(Easing.cubic),
+                      useNativeDriver: true,
+                  }),
+              ];
+
+        Animated.parallel(anims).start(finish);
+
+        return () => {
+            if (settleTimerRef.current) {
+                clearTimeout(settleTimerRef.current);
+                settleTimerRef.current = null;
+            }
+        };
     }, [transitionKey, duration, offsetY, opacity, translateY]);
 
     return (
         <Animated.View
             style={[
                 style,
-                {
-                    opacity,
-                    transform: [{ translateY }],
-                },
+                animating
+                    ? Platform.OS === "android"
+                        ? { transform: [{ translateY }] }
+                        : { opacity, transform: [{ translateY }] }
+                    : undefined,
             ]}
         >
             {children}

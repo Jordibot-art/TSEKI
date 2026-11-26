@@ -11,6 +11,12 @@ import {
 import { getDocBadgeInfo, SupportedDocType } from "../../lib/documentParserService";
 import { QuotaState } from "../../lib/ai/aiQuotaService";
 import { SmoothBottomSheetModal } from "../SmoothModalTransition";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+} from "../skeuoTheme";
 
 export interface PreGenClassroomOption {
   id: string;
@@ -139,27 +145,29 @@ export function PreGenReviewModal({
   setEditingField,
   quotaState,
 }: PreGenReviewModalProps) {
+  const skeuo = getSkeuoPalette(darkMode, accentColor);
+
   return (
     <SmoothBottomSheetModal
       visible={visible}
       onClose={onClose}
       onRequestClose={onClose}
       avoidKeyboard
-      backdropColor="rgba(15, 23, 42, 0.52)"
+      backdropColor={skeuo.backdrop}
       sheetStyle={[
         styles.preGenSheet,
+        skeuoCardStyle(skeuo, 24),
         {
           backgroundColor: cardBg,
-          borderColor: darkMode ? border : "#E2E8F0",
           paddingBottom: Math.max(16, bottomInset + 10),
         },
       ]}
     >
-      <View style={styles.sheetDragHandle} />
+      <View style={[styles.sheetDragHandle, { backgroundColor: skeuo.borderStrong }]} />
 
           {/* Header */}
           <View style={styles.preGenHeader}>
-            <View style={[styles.preGenIconBox, { backgroundColor: accentColor + "18" }]}>
+            <View style={[styles.preGenIconBox, skeuoWellStyle(skeuo, 12), { backgroundColor: skeuo.accentSoft, borderColor: skeuo.accentSoftBorder }]}>
               <Ionicons name="eye-outline" size={19} color={accentColor} />
             </View>
             <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
@@ -172,7 +180,7 @@ export function PreGenReviewModal({
             </View>
             <TouchableOpacity
               onPress={onClose}
-              style={[styles.preGenCloseBtn, { backgroundColor: darkMode ? "#334155" : "#F1F5F9" }]}
+              style={[styles.preGenCloseBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel="Close preview"
             >
@@ -190,15 +198,8 @@ export function PreGenReviewModal({
             <View
               style={[
                 styles.preGenCard,
-                {
-                  backgroundColor: darkMode ? "#111827" : "#F8FAFC",
-                  borderColor:
-                    editingField === "classroom"
-                      ? accentColor
-                      : darkMode
-                        ? "#334155"
-                        : "#E2E8F0",
-                },
+                skeuoWellStyle(skeuo, 14),
+                editingField === "classroom" && { borderColor: accentColor, borderWidth: 1.5 },
               ]}
             >
               <View style={styles.preGenCardTopRow}>
@@ -937,14 +938,15 @@ export function PreGenReviewModal({
               <View
                 style={[
                   styles.preGenQuotaRow,
+                  skeuoWellStyle(skeuo, 11),
                   {
-                    backgroundColor: darkMode ? "#1E293B" : "#FFF7ED",
-                    borderColor: darkMode ? "#334155" : "#FED7AA",
+                    backgroundColor: skeuo.accentSoft,
+                    borderColor: skeuo.accentSoftBorder,
                   },
                 ]}
               >
                 <Ionicons name="sparkles-outline" size={14} color={accentColor} />
-                <Text style={[styles.preGenQuotaText, { color: darkMode ? "#CBD5E1" : "#9A3412" }]}>
+                <Text style={[styles.preGenQuotaText, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>
                   Uses 1 of {quotaState.remainingToday} remaining AI generations today
                 </Text>
               </View>
@@ -955,16 +957,13 @@ export function PreGenReviewModal({
           <View
             style={[
               styles.preGenFooter,
-              { borderTopColor: darkMode ? "#334155" : "#E2E8F0" },
+              { backgroundColor: skeuo.chrome, borderTopColor: skeuo.border },
             ]}
           >
             <TouchableOpacity
               style={[
                 styles.preGenBackBtn,
-                {
-                  backgroundColor: darkMode ? "#1F2937" : "#F1F5F9",
-                  borderColor: darkMode ? "#374151" : "#E2E8F0",
-                },
+                skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
               ]}
               onPress={onClose}
               activeOpacity={0.75}
@@ -975,13 +974,9 @@ export function PreGenReviewModal({
             <TouchableOpacity
               style={[
                 styles.preGenConfirmBtn,
-                {
-                  backgroundColor: canGenerate
-                    ? accentColor
-                    : darkMode
-                      ? "#4B5563"
-                      : "#CBD5E1",
-                },
+                canGenerate
+                  ? skeuoButtonStyle(skeuo, { fill: accentColor, radius: 12 })
+                  : [skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }), { opacity: 0.6 }],
               ]}
               onPress={onConfirm}
               disabled={!canGenerate}

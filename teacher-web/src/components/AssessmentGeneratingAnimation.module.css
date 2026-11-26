@@ -16,8 +16,8 @@
 /* ── 1. Top Animated Stage: Floating Question Card Preview ── */
 .stageCard {
   width: 100%;
-  background: var(--zinc-50, #F8FAFC);
-  border: 1px solid var(--zinc-200, #E2E8F0);
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
   border-radius: 16px;
   padding: 22px 16px 18px;
   margin-bottom: 20px;
@@ -27,6 +27,7 @@
   justify-content: center;
   position: relative;
   overflow: hidden;
+  box-shadow: var(--skeuo-well-shadow);
 }
 
 .backDeckCard {
@@ -35,9 +36,9 @@
   width: 226px;
   height: 154px;
   border-radius: 12px;
-  background: #FFFFFF;
-  border: 1px solid var(--zinc-200, #E2E8F0);
-  opacity: 0.55;
+  background: #FAF8F5;
+  border: 1px solid #D6D1C7;
+  opacity: 0.65;
   z-index: 1;
 }
 
@@ -45,11 +46,12 @@
   position: relative;
   z-index: 2;
   width: 244px;
-  background: #FFFFFF;
-  border: 1.5px solid var(--zinc-200, #E2E8F0);
+  background: linear-gradient(180deg, #FFFFFF 0%, #FAF8F5 100%);
+  border: 1.5px solid #D2CCC1;
+  border-bottom: 2.5px solid #B9B2A5;
   border-radius: 12px;
   padding: 13px 14px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 8px 20px -4px rgba(20, 17, 14, 0.22);
   overflow: hidden;
   animation: cardSlide 2.6s ease-in-out infinite alternate;
 }
@@ -91,7 +93,7 @@
 
 .skeletonText {
   border-radius: 3px;
-  background: var(--zinc-200, #E2E8F0);
+  background: #E2DDD4;
 }
 
 .optionsList {
@@ -120,8 +122,8 @@
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  border: 1px solid var(--zinc-300, #CBD5E1);
-  background: var(--zinc-50, #F8FAFC);
+  border: 1px solid #C8C1B6;
+  background: #F4F1EC;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -136,7 +138,7 @@
 .optionLetter {
   font-size: 7.5px;
   font-weight: 700;
-  color: var(--zinc-500, #64748B);
+  color: #57534E;
   line-height: 1;
 }
 
@@ -153,7 +155,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  opacity: 0.8;
+  opacity: 0.85;
   pointer-events: none;
   animation: sweepLaser 2.2s ease-in-out infinite alternate;
 }
@@ -180,13 +182,15 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3.5px 9px;
+  padding: 4px 10px;
   border-radius: 9999px;
   font-size: 11px;
-  font-weight: 600;
-  background: #FFFFFF;
-  color: var(--zinc-600, #475569);
-  border: 1px solid var(--zinc-200, #E2E8F0);
+  font-weight: 700;
+  background: var(--skeuo-neutral-btn);
+  color: var(--text-secondary);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 2px solid var(--skeuo-plaque-lip);
+  box-shadow: var(--shadow-xs);
 }
 
 /* ── 3. Status Text & Stages ── */
@@ -208,16 +212,17 @@
 }
 
 .pulseDot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
   animation: pulseDot 1.2s ease-in-out infinite;
 }
 
 .stageHeading {
   font-size: 14.5px;
-  font-weight: 700;
-  color: var(--zinc-900, #0F172A);
+  font-weight: 800;
+  color: var(--text-primary);
   letter-spacing: -0.2px;
 }
 
@@ -226,20 +231,24 @@
   line-height: 18px;
   min-height: 36px;
   max-width: 380px;
+  color: var(--text-secondary);
 }
 
 /* ── 4. Progress Bar ── */
 .progressTrack {
   width: 100%;
-  height: 6px;
-  background: var(--zinc-100, #F1F5F9);
+  height: 8px;
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
   border-radius: 9999px;
   overflow: hidden;
+  box-shadow: var(--skeuo-well-shadow);
 }
 
 .progressFill {
   height: 100%;
   border-radius: 9999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
   transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -253,13 +262,14 @@
 
 .stepText {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--zinc-500, #64748B);
+  font-weight: 700;
+  color: var(--text-tertiary);
 }
 
 .percentText {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Keyframes ── */

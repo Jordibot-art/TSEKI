@@ -27,6 +27,13 @@ import {
   formatSubjectLabel,
   getAuthTheme,
 } from "./AuthInput";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "../skeuoTheme";
 
 export interface TeacherRegistrationStep1Props {
   values: TeacherRegistrationStep1Data;
@@ -56,6 +63,7 @@ export function TeacherRegistrationStep1({
   const { darkMode } = useTheme();
   const insets = useSafeAreaInsets();
   const theme = getAuthTheme(darkMode);
+  const skeuo = getSkeuoPalette(darkMode, theme.accent);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -111,28 +119,31 @@ export function TeacherRegistrationStep1({
   const canAddCustom = customSubjectInput.trim().length > 0 && !loading;
 
   return (
-    <View style={[styles.screenRoot, { backgroundColor: theme.bgPage }]}>
+    <View style={[styles.screenRoot, { backgroundColor: skeuo.canvas }]}>
       {/* ── Fixed Opaque Top Header + 3px Progress Bar (Outside ScrollView) ── */}
       <View
-        style={[styles.fixedHeader, { backgroundColor: theme.bgSurface }]}
+        style={[styles.fixedHeader, { backgroundColor: skeuo.chrome }]}
       >
         <View style={styles.fixedHeaderInner}>
           <TouchableOpacity
-            style={styles.backBtn}
-            onPress={onBack}
-            activeOpacity={0.7}
+            style={[styles.backBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 10 })]}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              onBack();
+            }}
+            activeOpacity={0.75}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="Go back"
             disabled={loading}
           >
-            <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={theme.textPrimary} />
           </TouchableOpacity>
           <Text style={[styles.stepMetaText, { color: theme.textMuted }]}>
             Step 1 of 2 · Profile
           </Text>
         </View>
         <View
-          style={[styles.progressTrack, { backgroundColor: theme.bgSubtle }]}
+          style={[styles.progressTrack, { backgroundColor: skeuo.well }]}
         >
           <View
             style={[
@@ -145,7 +156,7 @@ export function TeacherRegistrationStep1({
 
       {/* ── Scrollable Form Content ── */}
       <ScrollView
-        style={[styles.scrollView, { backgroundColor: theme.bgPage }]}
+        style={[styles.scrollView, { backgroundColor: skeuo.canvas }]}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -165,10 +176,7 @@ export function TeacherRegistrationStep1({
           <View
             style={[
               styles.card,
-              {
-                backgroundColor: theme.bgSurface,
-                borderColor: theme.border,
-              },
+              skeuoCardStyle(skeuo, 16),
             ]}
           >
             {/* Full Name */}
@@ -239,10 +247,7 @@ export function TeacherRegistrationStep1({
               <Pressable
                 style={({ pressed }) => [
                   styles.dropdownTrigger,
-                  {
-                    backgroundColor: theme.bgSurface,
-                    borderColor: theme.borderInput,
-                  },
+                  skeuoWellStyle(skeuo, 12),
                   pressed && styles.pressedSubtle,
                 ]}
                 onPress={() => setSchoolPickerOpen(true)}
@@ -292,10 +297,7 @@ export function TeacherRegistrationStep1({
           <View
             style={[
               styles.card,
-              {
-                backgroundColor: theme.bgSurface,
-                borderColor: theme.border,
-              },
+              skeuoCardStyle(skeuo, 16),
             ]}
           >
             <View style={styles.sectionHeaderRow}>
@@ -369,17 +371,15 @@ export function TeacherRegistrationStep1({
                                 key={lvl}
                                 style={[
                                   styles.gradeChip,
-                                  {
-                                    backgroundColor: checked
-                                      ? theme.accentBg
-                                      : theme.bgSurface,
-                                    borderColor: checked
-                                      ? theme.accent
-                                      : theme.border,
-                                  },
+                                  checked
+                                    ? skeuoButtonStyle(skeuo, { fill: theme.accentBg, highlight: darkMode ? "#6B3416" : "#FFFFFF", lip: theme.accent, radius: 10 })
+                                    : skeuoWellStyle(skeuo, 10),
                                 ]}
-                                onPress={() => toggleGradeLevel(lvl)}
-                                activeOpacity={0.75}
+                                onPress={() => {
+                                  triggerSkeuoHaptic("selection");
+                                  toggleGradeLevel(lvl);
+                                }}
+                                activeOpacity={0.78}
                                 disabled={loading}
                               >
                                 {checked && (
@@ -428,10 +428,7 @@ export function TeacherRegistrationStep1({
           <View
             style={[
               styles.card,
-              {
-                backgroundColor: theme.bgSurface,
-                borderColor: theme.border,
-              },
+              skeuoCardStyle(skeuo, 16),
             ]}
           >
             <View style={styles.sectionHeaderRow}>
@@ -468,13 +465,14 @@ export function TeacherRegistrationStep1({
               <TouchableOpacity
                 style={[
                   styles.addTagBtn,
-                  {
-                    backgroundColor: canAddCustom
-                      ? theme.accent
-                      : theme.btnDisabledBg,
-                  },
+                  canAddCustom
+                    ? skeuoButtonStyle(skeuo, { fill: theme.accent, radius: 12 })
+                    : skeuoWellStyle(skeuo, 12),
                 ]}
-                onPress={handleAddCustomSubject}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  handleAddCustomSubject();
+                }}
                 disabled={!canAddCustom}
                 activeOpacity={0.8}
               >
@@ -585,10 +583,7 @@ export function TeacherRegistrationStep1({
           <View
             style={[
               styles.card,
-              {
-                backgroundColor: theme.bgSurface,
-                borderColor: theme.border,
-              },
+              skeuoCardStyle(skeuo, 16),
             ]}
           >
             <AuthInput
@@ -658,8 +653,8 @@ export function TeacherRegistrationStep1({
         style={[
           styles.stickyFooter,
           {
-            backgroundColor: theme.bgSurface,
-            borderTopColor: theme.border,
+            backgroundColor: skeuo.chrome,
+            borderTopColor: skeuo.bevelTop,
             paddingBottom: Math.max(insets.bottom, 14),
           },
         ]}
@@ -682,11 +677,13 @@ export function TeacherRegistrationStep1({
           <Pressable
             style={({ pressed }) => [
               styles.primaryBtn,
-              { backgroundColor: theme.accent },
-              pressed && styles.btnPressed,
+              skeuoButtonStyle(skeuo, { pressed, radius: 13 }),
               loading && styles.btnDisabled,
             ]}
-            onPress={onSubmit}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              onSubmit();
+            }}
             disabled={loading}
           >
             {loading ? (
@@ -705,7 +702,7 @@ export function TeacherRegistrationStep1({
         animationType="fade"
         onRequestClose={() => setSchoolPickerOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View style={[styles.modalBackdrop, { backgroundColor: skeuo.backdrop }]}>
           <Pressable
             style={StyleSheet.absoluteFillObject}
             onPress={() => setSchoolPickerOpen(false)}
@@ -713,10 +710,7 @@ export function TeacherRegistrationStep1({
           <View
             style={[
               styles.modalCard,
-              {
-                backgroundColor: theme.bgSurface,
-                borderColor: theme.border,
-              },
+              skeuoCardStyle(skeuo, 18),
             ]}
           >
             <View style={styles.modalHeader}>
@@ -734,10 +728,7 @@ export function TeacherRegistrationStep1({
             <View
               style={[
                 styles.searchBox,
-                {
-                  backgroundColor: theme.bgPage,
-                  borderColor: theme.borderInput,
-                },
+                skeuoWellStyle(skeuo, 11),
               ]}
             >
               <Ionicons

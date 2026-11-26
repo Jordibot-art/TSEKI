@@ -10,23 +10,48 @@ import { ThemeProvider } from "../context/ThemeContext";
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <View style={styles.errorContainer}>
-      <View style={styles.errorCard}>
-        <View style={styles.errorIconCircle}>
-          <Ionicons name="warning-outline" size={32} color="#EA580C" />
+      <View style={styles.errorBezel}>
+        <View style={styles.errorCard}>
+          <View style={styles.errorHeader}>
+            <View style={styles.errorSocket}>
+              <View style={styles.errorMedallion}>
+                <Ionicons name="warning-outline" size={22} color="#FFFFFF" />
+              </View>
+            </View>
+            <View style={styles.errorHeaderText}>
+              <View style={styles.errorEyebrowRow}>
+                <View style={styles.errorLed} />
+                <Text style={styles.errorEyebrow}>RECOVERY REQUIRED</Text>
+              </View>
+              <Text style={styles.errorTitle}>Something went wrong</Text>
+            </View>
+          </View>
+
+          <View style={styles.errorGroove} />
+
+          <View style={styles.errorBodyWrap}>
+            <Text style={styles.errorBody}>
+              TSEKI ran into an unexpected error on this screen. Your saved classrooms and grades are safe.
+            </Text>
+            {!!error?.message && (
+              <View style={styles.errorDetailWell}>
+                <Text style={styles.errorDetail} numberOfLines={4}>
+                  {error.message}
+                </Text>
+              </View>
+            )}
+            <Pressable
+              style={({ pressed }) => [
+                styles.retryButton,
+                pressed && styles.retryButtonPressed,
+              ]}
+              onPress={retry}
+            >
+              <Ionicons name="refresh" size={16} color="#FFFFFF" />
+              <Text style={styles.retryButtonText}>Reload Screen</Text>
+            </Pressable>
+          </View>
         </View>
-        <Text style={styles.errorTitle}>Something went wrong</Text>
-        <Text style={styles.errorBody}>
-          TSEKI ran into an unexpected error on this screen. Your saved classrooms and grades are safe.
-        </Text>
-        {!!error?.message && (
-          <Text style={styles.errorDetail} numberOfLines={4}>
-            {error.message}
-          </Text>
-        )}
-        <Pressable style={styles.retryButton} onPress={retry}>
-          <Ionicons name="refresh" size={16} color="#FFFFFF" />
-          <Text style={styles.retryButtonText}>Reload Screen</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -63,70 +88,159 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     flex: 1,
-    backgroundColor: "#FFF7ED",
+    backgroundColor: "#EAE7E1",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: 20,
+  },
+  errorBezel: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#DDD8CE",
+    borderRadius: 23,
+    padding: 5,
+    borderWidth: 1,
+    borderTopColor: "#FFFFFF",
+    borderLeftColor: "#C5BEB1",
+    borderRightColor: "#C5BEB1",
+    borderBottomColor: "#ABA497",
+    borderBottomWidth: 3,
+    shadowColor: "#1C1917",
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
   },
   errorCard: {
     width: "100%",
-    maxWidth: 380,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
-    alignItems: "center",
+    backgroundColor: "#F9F7F3",
+    borderRadius: 18,
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#FED7AA",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    borderTopColor: "#FFFFFF",
+    borderLeftColor: "#D4CFC5",
+    borderRightColor: "#D4CFC5",
+    borderBottomColor: "#C3BCB0",
+    borderBottomWidth: 2,
   },
-  errorIconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#FFEDD5",
+  errorHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#F1EEE8",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  errorSocket: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#F8E5BE",
+    borderWidth: 1,
+    borderTopColor: "#DDAE57",
+    borderLeftColor: "#DDAE57",
+    borderRightColor: "#E5C17B",
+    borderBottomColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 14,
+  },
+  errorMedallion: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#D97706",
+    borderTopWidth: 1,
+    borderTopColor: "#FBBF24",
+    borderBottomWidth: 2,
+    borderBottomColor: "#92400E",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  errorHeaderText: {
+    flex: 1,
+  },
+  errorEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 2,
+  },
+  errorLed: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#F59E0B",
+  },
+  errorEyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#92400E",
   },
   errorTitle: {
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 8,
-    textAlign: "center",
+    color: "#1C1917",
+  },
+  errorGroove: {
+    height: 2,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(28, 25, 23, 0.13)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.85)",
+  },
+  errorBodyWrap: {
+    padding: 18,
   },
   errorBody: {
     fontSize: 14,
-    color: "#475569",
-    textAlign: "center",
+    color: "#57534E",
     lineHeight: 20,
-    marginBottom: 12,
+    marginBottom: 14,
+  },
+  errorDetailWell: {
+    backgroundColor: "#E5E1D9",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderTopColor: "#BFB8AB",
+    borderLeftColor: "#BFB8AB",
+    borderRightColor: "#D4CFC5",
+    borderBottomColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 16,
   },
   errorDetail: {
     fontSize: 12,
     color: "#9A3412",
-    backgroundColor: "#FFF7ED",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    width: "100%",
-    textAlign: "center",
-    marginBottom: 16,
+    lineHeight: 17,
   },
   retryButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#FF6B00",
+    backgroundColor: "#EA580C",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderTopColor: "#FB923C",
+    borderLeftColor: "#9A3412",
+    borderRightColor: "#9A3412",
+    borderBottomColor: "#9A3412",
+    borderBottomWidth: 3,
     paddingHorizontal: 22,
     paddingVertical: 12,
-    borderRadius: 12,
     width: "100%",
+    shadowColor: "#1C1917",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  retryButtonPressed: {
+    transform: [{ translateY: 1.5 }],
+    borderBottomWidth: 1,
+    borderTopColor: "#9A3412",
   },
   retryButtonText: {
     color: "#FFFFFF",

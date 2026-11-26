@@ -4,13 +4,13 @@ import { useTheme } from "../context/ThemeContext";
 import {
   User,
   FileText,
-  CheckCircle2,
   Moon,
   Sun,
   School,
   Save,
   Cpu,
 } from "lucide-react";
+import { SkeuoToast } from "../components/SkeuoToast";
 import styles from "./SettingsPage.module.css";
 
 export default function SettingsPage() {
@@ -52,10 +52,11 @@ export default function SettingsPage() {
       </div>
 
       {savedNotice && (
-        <div className={styles.savedBanner}>
-          <CheckCircle2 size={18} />
-          <span>Preferences updated and saved successfully!</span>
-        </div>
+        <SkeuoToast
+          message="Preferences updated and saved successfully!"
+          variant="success"
+          onDismiss={() => setSavedNotice(false)}
+        />
       )}
 
       <form onSubmit={handleSave} className={styles.settingsGrid}>

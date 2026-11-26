@@ -14,8 +14,8 @@
 
 .stageCard {
   width: 100%;
-  background: var(--zinc-50, #F8FAFC);
-  border: 1px solid var(--zinc-200, #E2E8F0);
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
   border-radius: 16px;
   padding: 18px 12px;
   margin-bottom: 18px;
@@ -23,17 +23,19 @@
   align-items: center;
   justify-content: center;
   position: relative;
+  box-shadow: var(--skeuo-well-shadow);
 }
 
 .paperSheet {
   width: 240px;
   height: 182px;
   background: #FFFFFF;
-  border: 1.5px solid var(--zinc-200, #E2E8F0);
+  border: 1.5px solid #D2CCC1;
+  border-bottom: 2.5px solid #B9B2A5;
   border-radius: 12px;
   padding: 14px 16px;
   position: relative;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 20px -4px rgba(20, 17, 14, 0.22);
   overflow: hidden;
 }
 
@@ -42,7 +44,7 @@
   position: absolute;
   width: 9px;
   height: 9px;
-  background: var(--zinc-900, #0F172A);
+  background: #0F172A;
   border-radius: 1.5px;
   z-index: 5;
 }
@@ -197,14 +199,14 @@
 
 .stageTitle {
   font-size: 14.5px;
-  font-weight: 700;
-  color: var(--zinc-900, #0F172A);
+  font-weight: 800;
+  color: var(--text-primary);
   letter-spacing: -0.2px;
 }
 
 .stageSub {
   font-size: 12.5px;
-  color: var(--zinc-500, #64748B);
+  color: var(--text-secondary);
   line-height: 18px;
   min-height: 36px;
   max-width: 380px;
@@ -212,15 +214,18 @@
 
 .progressTrack {
   width: 100%;
-  height: 6px;
-  background: var(--zinc-100, #F1F5F9);
+  height: 8px;
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
   border-radius: 9999px;
   overflow: hidden;
+  box-shadow: var(--skeuo-well-shadow);
 }
 
 .progressFill {
   height: 100%;
   border-radius: 9999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -234,14 +239,15 @@
 
 .stepText {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--zinc-500, #64748B);
+  font-weight: 700;
+  color: var(--text-tertiary);
 }
 
 .percentText {
   font-size: 11px;
-  font-weight: 700;
-  color: var(--zinc-900, #0F172A);
+  font-weight: 800;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes laserSweep {

@@ -27,6 +27,15 @@ import { getDraftTimeRemaining, StoredQuiz } from "../lib/quizStore";
 import { PdfExportingAnimation } from "./PdfExportingAnimation";
 import { PublishingQuizAnimation } from "./PublishingQuizAnimation";
 import { SmoothInlineOverlay } from "./SmoothModalTransition";
+import { SkeuoToast } from "./SkeuoToast";
+import {
+  getSemanticTokens,
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+  triggerSkeuoHaptic,
+} from "./skeuoTheme";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function isChoiceAnswer(choice: string, answer: string, choiceIndex: number): boolean {
@@ -131,14 +140,15 @@ export function AssessmentInspectorModal({
   const insets = useSafeAreaInsets();
   const isDraft = quiz?.status === "DRAFT";
 
-  // ── Dynamic Colors (matching AIBuilderTab) ─────────────────────────────────
-  const bg = darkMode ? "#111827" : "#F9FAFB";
-  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain = darkMode ? "#F9FAFB" : "#1F2937";
-  const textSub = darkMode ? "#9CA3AF" : "#6B7280";
-  const border = darkMode ? "#374151" : "#E2E8F0";
-  const inputBg = darkMode ? "#374151" : "#F9FAFB";
+  // ── Dynamic Colors (matching AIBuilderTab Skeuomorphic Palette) ────────────
   const accentColor = themeColor || "#EA580C";
+  const skeuo = getSkeuoPalette(darkMode, accentColor);
+  const bg = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
+  const border = skeuo.border;
+  const inputBg = skeuo.well;
 
   // ── Draft inline editing state ─────────────────────────────────────────────
   const [editingQuestionQNum, setEditingQuestionQNum] = useState<number | null>(null);
@@ -599,6 +609,8 @@ export function AssessmentInspectorModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
+      statusBarTranslucent
+      navigationBarTranslucent
       onRequestClose={() => {
         if (exportingPdf && onCancelExportPdf) {
           onCancelExportPdf();
@@ -619,54 +631,58 @@ export function AssessmentInspectorModal({
     >
       <View style={[styles.container, { backgroundColor: bg }]}>
         {/* ── Clean Top Bar (short fixed label + non-overlapping status pill + close button) ── */}
-        <View style={[styles.topBar, { backgroundColor: cardBg, borderBottomColor: border }]}>
+        <View
+          style={[
+            styles.topBar,
+            {
+              backgroundColor: skeuo.chrome,
+              borderBottomColor: skeuo.bevelBottom,
+              paddingTop: Math.max(insets.top + 10, 44),
+            },
+          ]}
+        >
           <View style={styles.topBarLeft}>
             <Text
-              style={[styles.topBarTitle, { color: darkMode ? textMain : "#0F172A" }]}
+              style={[styles.topBarTitle, { color: textMain }]}
               numberOfLines={1}
             >
               Assessment Preview
             </Text>
-            <View
-              style={[
-                styles.statusBadge,
-                isDraft
-                  ? {
-                      backgroundColor: darkMode ? "rgba(245, 158, 11, 0.16)" : "#FEF3C7",
-                      borderColor: darkMode ? "rgba(245, 158, 11, 0.35)" : "#FDE68A",
-                    }
-                  : {
-                      backgroundColor: darkMode ? "rgba(37, 99, 235, 0.18)" : "#DBEAFE",
-                      borderColor: darkMode ? "rgba(59, 130, 246, 0.35)" : "#BFDBFE",
+            {(() => {
+              const badgeSem = getSemanticTokens(isDraft ? "warning" : "info", darkMode);
+              return (
+                <View
+                  style={[
+                    styles.statusBadge,
+                    {
+                      backgroundColor: badgeSem.plaqueBg,
+                      borderColor: badgeSem.plaqueBorder,
                     },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.statusBadgeText,
-                  {
-                    color: isDraft
-                      ? darkMode
-                        ? "#FBBF24"
-                        : "#B45309"
-                      : darkMode
-                        ? "#60A5FA"
-                        : "#1D4ED8",
-                  },
-                ]}
-              >
-                {isDraft ? "DRAFT" : "ARCHIVE"}
-              </Text>
-            </View>
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusBadgeText,
+                      { color: badgeSem.plaqueText },
+                    ]}
+                  >
+                    {isDraft ? "DRAFT" : "ARCHIVE"}
+                  </Text>
+                </View>
+              );
+            })()}
           </View>
 
           <TouchableOpacity
-            style={[styles.closeBtn, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}
-            onPress={onClose}
+            style={[styles.closeBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 17 })]}
+            onPress={() => {
+              triggerSkeuoHaptic("light");
+              onClose();
+            }}
             accessibilityLabel="Close inspector"
-            activeOpacity={0.7}
+            activeOpacity={0.78}
           >
-            <Ionicons name="close" size={20} color={textMain} />
+            <Ionicons name="close" size={18} color={textMain} />
           </TouchableOpacity>
         </View>
 
@@ -683,23 +699,20 @@ export function AssessmentInspectorModal({
               <View
                 style={[
                   styles.previewScreenBanner,
-                  {
-                    backgroundColor: cardBg,
-                    borderColor: border,
-                  },
+                  skeuoCardStyle(skeuo, 18),
                 ]}
               >
                 <View style={styles.previewTopRow}>
                   <View
                     style={[
                       styles.previewModeBadge,
-                      { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" },
+                      skeuoWellStyle(skeuo, 8),
                     ]}
                   >
                     <Text
                       style={[
                         styles.previewModeBadgeText,
-                        { color: darkMode ? "#CBD5E1" : "#475569" },
+                        { color: textSub },
                       ]}
                     >
                       {isDraft ? "Draft Preview" : "Archived Preview"}
@@ -709,13 +722,10 @@ export function AssessmentInspectorModal({
                   <View
                     style={[
                       styles.classChip,
-                      {
-                        backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                        borderColor: darkMode ? "#334155" : "#E2E8F0",
-                      },
+                      skeuoWellStyle(skeuo, 8),
                     ]}
                   >
-                    <Ionicons name="school-outline" size={12} color="#2563EB" />
+                    <Ionicons name="school-outline" size={12} color={darkMode ? "#60A5FA" : "#2563EB"} />
                     <Text
                       style={[styles.classChipText, { color: darkMode ? "#93C5FD" : "#2563EB" }]}
                       numberOfLines={1}
@@ -726,23 +736,18 @@ export function AssessmentInspectorModal({
                 </View>
 
                 {/* Full Un-truncated Assessment Title */}
-                <Text style={[styles.previewTitle, { color: darkMode ? textMain : "#0F172A" }]}>
+                <Text style={[styles.previewTitle, { color: textMain }]}>
                   {quiz.quizTitle || "Assessment Preview"}
                 </Text>
 
-                <Text style={[styles.previewSubtext, { color: darkMode ? textSub : "#64748B" }]}>
+                <Text style={[styles.previewSubtext, { color: textSub }]}>
                   {isDraft
                     ? `Review or edit items below before publishing · Saved ${formattedDate}${timeInfo ? ` · ${timeInfo.text}` : ""}`
                     : `Published to ${quiz.classTitle || "Classroom"} · ${formattedDate}`}
                 </Text>
 
                 {/* 4-Column Stats Row (matching AIBuilderTab) */}
-                <View
-                  style={[
-                    styles.previewStatsRow,
-                    { backgroundColor: inputBg, borderColor: border },
-                  ]}
-                >
+                <View style={[styles.previewStatsRow, skeuoWellStyle(skeuo, 12)]}>
                   <View style={styles.previewStatItem}>
                     <Text
                       style={[styles.previewStatValue, { color: darkMode ? textMain : "#0F172A" }]}
@@ -920,7 +925,7 @@ export function AssessmentInspectorModal({
                           key={q.questionNumber}
                           style={[
                             styles.questionCard,
-                            { backgroundColor: cardBg, borderColor: border },
+                            skeuoCardStyle(skeuo, 16, 1),
                           ]}
                         >
                           {/* Row 1 — Dedicated Card Header Bar */}
@@ -929,13 +934,13 @@ export function AssessmentInspectorModal({
                               <View
                                 style={[
                                   styles.questionNumber,
-                                  { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" },
+                                  skeuoWellStyle(skeuo, 8),
                                 ]}
                               >
                                 <Text
                                   style={[
                                     styles.questionNumberText,
-                                    { color: darkMode ? "#F8FAFC" : "#0F172A" },
+                                    { color: textMain },
                                   ]}
                                 >
                                   Q{q.questionNumber}
@@ -946,23 +951,21 @@ export function AssessmentInspectorModal({
                                 <TouchableOpacity
                                   style={[
                                     styles.typeSelectorChip,
-                                    {
-                                      backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                      borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                    },
+                                    skeuoButtonStyle(skeuo, { neutral: true, radius: 8, elevation: 0 }),
                                   ]}
                                   onPress={() => {
+                                    triggerSkeuoHaptic("light");
                                     setSelectedQForTypeChange(q);
                                     setSelectedNewType(q.type);
                                     setChangeTypeModalOpen(true);
                                   }}
-                                  activeOpacity={0.7}
+                                  activeOpacity={0.75}
                                   hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                                 >
                                   <Text
                                     style={[
                                       styles.typeSelectorChipText,
-                                      { color: darkMode ? "#CBD5E1" : "#475569" },
+                                      { color: textMain },
                                     ]}
                                     numberOfLines={1}
                                   >
@@ -971,23 +974,20 @@ export function AssessmentInspectorModal({
                                   <Ionicons
                                     name="chevron-down"
                                     size={11}
-                                    color={darkMode ? "#94A3B8" : "#64748B"}
+                                    color={textSub}
                                   />
                                 </TouchableOpacity>
                               ) : (
                                 <View
                                   style={[
                                     styles.typeSelectorChip,
-                                    {
-                                      backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                      borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                    },
+                                    skeuoWellStyle(skeuo, 8),
                                   ]}
                                 >
                                   <Text
                                     style={[
                                       styles.typeSelectorChipText,
-                                      { color: darkMode ? "#CBD5E1" : "#475569" },
+                                      { color: textSub },
                                     ]}
                                     numberOfLines={1}
                                   >
@@ -999,7 +999,7 @@ export function AssessmentInspectorModal({
                               <Text
                                 style={[
                                   styles.questionPointsLabel,
-                                  { color: darkMode ? textSub : "#64748B" },
+                                  { color: textSub },
                                 ]}
                               >
                                 {points} {points === 1 ? "pt" : "pts"}
@@ -1011,27 +1011,27 @@ export function AssessmentInspectorModal({
                                 <TouchableOpacity
                                   style={[
                                     styles.regenerateIconBtn,
-                                    {
-                                      backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                                      borderColor: darkMode ? "#334155" : "#E2E8F0",
-                                    },
+                                    skeuoButtonStyle(skeuo, { neutral: true, radius: 8, elevation: 0 }),
                                   ]}
-                                  onPress={() => handleRegenerateQuestion(q.questionNumber)}
+                                  onPress={() => {
+                                    triggerSkeuoHaptic("light");
+                                    handleRegenerateQuestion(q.questionNumber);
+                                  }}
                                   disabled={regeneratingQNum !== null}
-                                  activeOpacity={0.7}
+                                  activeOpacity={0.75}
                                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                 >
                                   {regeneratingQNum === q.questionNumber ? (
                                     <ActivityIndicator
                                       size="small"
-                                      color={darkMode ? "#CBD5E1" : "#334155"}
+                                      color={textMain}
                                       style={{ transform: [{ scale: 0.75 }] }}
                                     />
                                   ) : (
                                     <Ionicons
                                       name="refresh"
                                       size={14}
-                                      color={darkMode ? "#CBD5E1" : "#334155"}
+                                      color={textMain}
                                     />
                                   )}
                                 </TouchableOpacity>
@@ -1101,20 +1101,20 @@ export function AssessmentInspectorModal({
                               >
                                 <TouchableOpacity
                                   onPress={() => setEditingQuestionQNum(null)}
-                                  style={[styles.smallCancelBtn, { borderColor: border }]}
+                                  style={[styles.smallCancelBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 9 })]}
                                 >
                                   <Text
-                                    style={{ fontSize: 12, fontWeight: "600", color: textSub }}
+                                    style={{ fontSize: 12, fontWeight: "700", color: textMain }}
                                   >
                                     Cancel
                                   </Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                   onPress={() => handleSaveQuestionTextEdit(q.questionNumber)}
-                                  style={[styles.smallSaveBtn, { backgroundColor: accentColor }]}
+                                  style={[styles.smallSaveBtn, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 9 })]}
                                 >
                                   <Text
-                                    style={{ fontSize: 12, fontWeight: "600", color: "#FFFFFF" }}
+                                    style={{ fontSize: 12, fontWeight: "700", color: "#FFFFFF" }}
                                   >
                                     Save Question
                                   </Text>
@@ -1137,30 +1137,28 @@ export function AssessmentInspectorModal({
                             <View style={styles.choicesWrap}>
                               {q.options.map((opt, cIdx) => {
                                 const isCorrect = isChoiceAnswer(opt, correctAnswer, cIdx);
+                                const okSem = getSemanticTokens("success", darkMode);
                                 return (
                                   <View
                                     key={`${opt}_${cIdx}`}
                                     style={[
                                       styles.choiceItem,
-                                      {
-                                        backgroundColor: darkMode ? inputBg : "#FFFFFF",
-                                        borderColor: darkMode ? border : "#E2E8F0",
-                                      },
-                                      isCorrect && {
-                                        backgroundColor: darkMode
-                                          ? "rgba(22, 163, 74, 0.16)"
-                                          : "#F0FDF4",
-                                        borderColor: "#16A34A",
-                                      },
+                                      isCorrect
+                                        ? {
+                                            backgroundColor: okSem.plaqueBg,
+                                            borderColor: okSem.led,
+                                            borderWidth: 1.5,
+                                          }
+                                        : skeuoWellStyle(skeuo, 10),
                                     ]}
                                   >
                                     <Text
                                       style={[
                                         styles.choiceText,
-                                        { color: darkMode ? textMain : "#334155" },
+                                        { color: textMain },
                                         isCorrect && {
-                                          color: darkMode ? "#4ADE80" : "#15803D",
-                                          fontWeight: "600",
+                                          color: okSem.plaqueText,
+                                          fontWeight: "700",
                                         },
                                       ]}
                                     >
@@ -1168,9 +1166,9 @@ export function AssessmentInspectorModal({
                                     </Text>
                                     {isCorrect && (
                                       <Ionicons
-                                        name="checkmark"
-                                        size={16}
-                                        color={darkMode ? "#4ADE80" : "#16A34A"}
+                                        name="checkmark-circle"
+                                        size={17}
+                                        color={okSem.led}
                                         style={{ marginLeft: 8 }}
                                       />
                                     )}
@@ -1345,29 +1343,30 @@ export function AssessmentInspectorModal({
                   style={[
                     styles.addQuestionBtn,
                     {
-                      backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                      borderColor: darkMode ? border : "#CBD5E1",
+                      backgroundColor: skeuo.surfaceMuted,
+                      borderColor: skeuo.borderStrong,
                     },
                   ]}
                   onPress={() => {
+                    triggerSkeuoHaptic("light");
                     resetManualForm();
                     setAddQuestionModalOpen(true);
                   }}
-                  activeOpacity={0.7}
+                  activeOpacity={0.78}
                 >
                   <View
                     style={[
                       styles.addQuestionIconCircle,
-                      { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9" },
+                      skeuoWellStyle(skeuo, 18),
                     ]}
                   >
-                    <Ionicons name="add" size={20} color={darkMode ? "#F8FAFC" : "#0F172A"} />
+                    <Ionicons name="add" size={20} color={textMain} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text
                       style={[
                         styles.addQuestionTitle,
-                        { color: darkMode ? textMain : "#0F172A" },
+                        { color: textMain },
                       ]}
                     >
                       Add Question Manually
@@ -1375,7 +1374,7 @@ export function AssessmentInspectorModal({
                     <Text
                       style={[
                         styles.addQuestionSub,
-                        { color: darkMode ? textSub : "#64748B" },
+                        { color: textSub },
                       ]}
                     >
                       Add your own question to this assessment
@@ -1384,7 +1383,7 @@ export function AssessmentInspectorModal({
                   <Ionicons
                     name="chevron-forward"
                     size={18}
-                    color={darkMode ? textSub : "#64748B"}
+                    color={textSub}
                   />
                 </TouchableOpacity>
               )}
@@ -1398,9 +1397,9 @@ export function AssessmentInspectorModal({
             style={[
               styles.footer,
               {
-                backgroundColor: cardBg,
-                borderTopColor: border,
-                paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 16) : 16,
+                backgroundColor: skeuo.chrome,
+                borderTopColor: skeuo.bevelTop,
+                paddingBottom: Math.max(insets.bottom, 16),
               },
             ]}
           >
@@ -1409,9 +1408,15 @@ export function AssessmentInspectorModal({
                 <TouchableOpacity
                   style={[
                     styles.publishBtn,
-                    { backgroundColor: darkMode ? "#334155" : "#1E293B" },
+                    skeuoButtonStyle(skeuo, {
+                      fill: accentColor,
+                      radius: 13,
+                    }),
                   ]}
-                  onPress={() => onPublishDraft(quiz)}
+                  onPress={() => {
+                    triggerSkeuoHaptic("medium");
+                    onPublishDraft(quiz);
+                  }}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="send-outline" size={16} color="#FFFFFF" />
@@ -1422,29 +1427,29 @@ export function AssessmentInspectorModal({
                   <TouchableOpacity
                     style={[
                       styles.secondaryFooterBtn,
-                      {
-                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                        borderColor: darkMode ? border : "#CBD5E1",
-                        opacity: savingDraft ? 0.6 : 1,
-                      },
+                      skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
+                      { opacity: savingDraft ? 0.6 : 1 },
                     ]}
-                    onPress={handleSaveDraftPress}
+                    onPress={() => {
+                      triggerSkeuoHaptic("light");
+                      handleSaveDraftPress();
+                    }}
                     disabled={savingDraft}
-                    activeOpacity={0.75}
+                    activeOpacity={0.78}
                   >
                     {savingDraft ? (
-                      <ActivityIndicator size="small" color={darkMode ? textMain : "#0F172A"} />
+                      <ActivityIndicator size="small" color={textMain} />
                     ) : (
                       <>
                         <Ionicons
                           name="save-outline"
                           size={16}
-                          color={darkMode ? textMain : "#0F172A"}
+                          color={textMain}
                         />
                         <Text
                           style={[
                             styles.secondaryFooterBtnText,
-                            { color: darkMode ? textMain : "#0F172A" },
+                            { color: textMain },
                           ]}
                         >
                           Save Draft
@@ -1456,25 +1461,25 @@ export function AssessmentInspectorModal({
                   <TouchableOpacity
                     style={[
                       styles.secondaryFooterBtn,
-                      {
-                        backgroundColor: darkMode ? cardBg : "#FFFFFF",
-                        borderColor: darkMode ? border : "#CBD5E1",
-                        opacity: exportingPdf ? 0.6 : 1,
-                      },
+                      skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }),
+                      { opacity: exportingPdf ? 0.6 : 1 },
                     ]}
-                    onPress={() => onExportPdf(quiz)}
+                    onPress={() => {
+                      triggerSkeuoHaptic("light");
+                      onExportPdf(quiz);
+                    }}
                     disabled={exportingPdf}
-                    activeOpacity={0.75}
+                    activeOpacity={0.78}
                   >
                     <Ionicons
                       name="print-outline"
                       size={16}
-                      color={darkMode ? textMain : "#0F172A"}
+                      color={textMain}
                     />
                     <Text
                       style={[
                         styles.secondaryFooterBtnText,
-                        { color: darkMode ? textMain : "#0F172A" },
+                        { color: textMain },
                       ]}
                     >
                       Export / Print PDF
@@ -1486,13 +1491,22 @@ export function AssessmentInspectorModal({
               <TouchableOpacity
                 style={[
                   styles.publishBtn,
-                  { backgroundColor: darkMode ? "#334155" : "#1E293B", marginBottom: 0 },
+                  skeuoButtonStyle(skeuo, {
+                    fill: darkMode ? "#2E3440" : "#242220",
+                    highlight: darkMode ? "#4F5769" : "#4A4540",
+                    lip: "#0C0A09",
+                    radius: 13,
+                  }),
+                  { marginBottom: 0 },
                 ]}
-                onPress={() => onExportPdf(quiz)}
+                onPress={() => {
+                  triggerSkeuoHaptic("light");
+                  onExportPdf(quiz);
+                }}
                 disabled={exportingPdf}
                 activeOpacity={0.85}
               >
-                <Ionicons name="print-outline" size={16} color="#FFFFFF" />
+                <Ionicons name="print-outline" size={16} color="#FAF8F5" />
                 <Text style={styles.publishText}>Export / Print PDF</Text>
               </TouchableOpacity>
             )}
@@ -2092,10 +2106,13 @@ export function AssessmentInspectorModal({
                 </View>
               </ScrollView>
 
-              <View style={[styles.addQStickyFooter, { borderTopColor: border }]}>
+              <View style={[styles.addQStickyFooter, { borderTopColor: border, backgroundColor: skeuo.chrome }]}>
                 <TouchableOpacity
-                  style={[styles.addQSubmitBtn, { backgroundColor: "#EA580C" }]}
-                  onPress={handleAddManualQuestion}
+                  style={[styles.addQSubmitBtn, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 12 })]}
+                  onPress={() => {
+                    triggerSkeuoHaptic("light");
+                    handleAddManualQuestion();
+                  }}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="add" size={18} color="#FFFFFF" />
@@ -2106,32 +2123,12 @@ export function AssessmentInspectorModal({
           </KeyboardAvoidingView>
         )}
 
-        {/* ── Non-blocking Toast ── */}
+        {/* ── Non-blocking Unified Skeuomorphic Toast ── */}
         {toastMessage && (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.draftToast,
-              {
-                opacity: toastFadeAnim,
-                transform: [
-                  {
-                    translateY: toastFadeAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [12, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Ionicons
-              name={/cancel/i.test(toastMessage) ? "close-circle" : "checkmark-circle"}
-              size={16}
-              color={/cancel/i.test(toastMessage) ? "#F87171" : "#10B981"}
-            />
-            <Text style={styles.draftToastText}>{toastMessage}</Text>
-          </Animated.View>
+          <SkeuoToast
+            message={toastMessage}
+            animatedOpacity={toastFadeAnim}
+          />
         )}
 
         {/* ── Inspector Draft Publishing Loading Overlay ── */}
@@ -2139,10 +2136,7 @@ export function AssessmentInspectorModal({
           visible={Boolean(publishingDraft)}
           cardStyle={[
             styles.loadingCard,
-            {
-              backgroundColor: darkMode ? cardBg : "#FFFFFF",
-              borderColor: darkMode ? border : "#E2E8F0",
-            },
+            skeuoCardStyle(skeuo, 22),
           ]}
         >
           <PublishingQuizAnimation
@@ -2157,10 +2151,7 @@ export function AssessmentInspectorModal({
           visible={Boolean(exportingPdf && !exportModalVisible)}
           cardStyle={[
             styles.loadingCard,
-            {
-              backgroundColor: darkMode ? cardBg : "#FFFFFF",
-              borderColor: darkMode ? border : "#E2E8F0",
-            },
+            skeuoCardStyle(skeuo, 22),
           ]}
         >
           <PdfExportingAnimation

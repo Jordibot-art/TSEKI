@@ -26,6 +26,13 @@ import {
   QuestionAnalysisSummary,
 } from "../lib/questionAnalysis";
 import { ItemAnalysisModal } from "./ItemAnalysisModal";
+import {
+  getSemanticTokens,
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+} from "./skeuoTheme";
 
 export type TrackerStudent = {
   id: string;
@@ -76,13 +83,14 @@ export default function TrackerTab({
   const [chartWidth, setChartWidth] = useState(320);
   const [perfRecords, setPerfRecords] = useState<QuizPerformanceRecord[]>([]);
   const { darkMode } = useTheme();
+  const skeuo = getSkeuoPalette(darkMode, accentColor);
 
-  const bg = darkMode ? "#111827" : "#F9FAFB";
-  const cardBg = darkMode ? "#1F2937" : "#FFFFFF";
-  const textMain = darkMode ? "#F9FAFB" : "#0F172A";
-  const textSub = darkMode ? "#9CA3AF" : "#64748B";
-  const border = darkMode ? "#374151" : "#F1F5F9";
-  const subBorder = darkMode ? "#374151" : "#E2E8F0";
+  const bg = skeuo.canvas;
+  const cardBg = skeuo.surface;
+  const textMain = skeuo.textPrimary;
+  const textSub = skeuo.textSecondary;
+  const border = skeuo.border;
+  const subBorder = skeuo.border;
 
   // ── Load Real Quiz Performance History ───────────────────────────────────
   useEffect(() => {
@@ -309,7 +317,7 @@ export default function TrackerTab({
       {/* ── Section 1: 4 Key Metric Cards (2x2 Grid) ── */}
       <View style={styles.metricsGrid}>
         {/* Card 1: Class Average */}
-        <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: subBorder }]}>
+        <View style={[styles.metricCard, skeuoCardStyle(skeuo, 15)]}>
           <Text style={[styles.metricLabel, { color: textSub }]}>Class Average</Text>
           <Text style={[styles.metricValue, { color: textMain }]}>{classAvg}%</Text>
           <View style={styles.trendRow}>
@@ -320,28 +328,27 @@ export default function TrackerTab({
         </View>
 
         {/* Card 2: Pass Rate */}
-        <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: subBorder }]}>
+        <View style={[styles.metricCard, skeuoCardStyle(skeuo, 15)]}>
           <Text style={[styles.metricLabel, { color: textSub }]}>Pass Rate (≥75%)</Text>
           <Text style={[styles.metricValue, { color: textMain }]}>{passRate}%</Text>
           <Text style={[styles.metricSub, { color: textSub }]}>Target 85%</Text>
         </View>
 
         {/* Card 3: Total Enrolled */}
-        <View style={[styles.metricCard, { backgroundColor: cardBg, borderColor: subBorder }]}>
+        <View style={[styles.metricCard, skeuoCardStyle(skeuo, 15)]}>
           <Text style={[styles.metricLabel, { color: textSub }]}>Total Enrolled</Text>
           <Text style={[styles.metricValue, { color: textMain }]}>{students.length}</Text>
           <Text style={[styles.metricSub, { color: textSub }]}>Active Roster</Text>
         </View>
 
-        {/* Card 4: At-Risk Flags (White surface + 3px subtle left border) */}
+        {/* Card 4: At-Risk Flags (Raised plaque + 3px alert indicator bar) */}
         <View
           style={[
             styles.metricCard,
+            skeuoCardStyle(skeuo, 15),
             {
-              backgroundColor: cardBg,
-              borderColor: subBorder,
               borderLeftWidth: 3,
-              borderLeftColor: atRiskCount > 0 ? "#DC2626" : subBorder,
+              borderLeftColor: atRiskCount > 0 ? "#DC2626" : skeuo.border,
             },
           ]}
         >
@@ -357,7 +364,7 @@ export default function TrackerTab({
       </View>
 
       {/* ── Section 2: Grade Distribution Histogram ── */}
-      <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
+      <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
         <View style={styles.distHeaderRow}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: textMain }]}>Grade Distribution</Text>
@@ -365,7 +372,7 @@ export default function TrackerTab({
               Student breakdown across grading performance bands
             </Text>
           </View>
-          <View style={[styles.totalEnrolledBadge, { backgroundColor: darkMode ? "#374151" : "#F1F5F9" }]}>
+          <View style={[styles.totalEnrolledBadge, skeuoWellStyle(skeuo, 9)]}>
             <Text style={[styles.totalEnrolledBadgeText, { color: textSub }]}>
               {students.length} Student{students.length !== 1 ? "s" : ""}
             </Text>
@@ -437,7 +444,7 @@ export default function TrackerTab({
       </View>
 
       {/* ── Section 3: Class Performance Trend (Interactive & Fully Functional) ── */}
-      <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
+      <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
         <View style={styles.trendHeaderRow}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: textMain }]}>Class Performance Trend</Text>
@@ -488,58 +495,93 @@ export default function TrackerTab({
           </View>
         ) : (
           <>
-            {/* Interactive Selected Quiz Detail Banner */}
-            {selectedPoint && (
-              <View style={[styles.trendDetailBanner, { backgroundColor: darkMode ? "#111827" : "#F8FAFC", borderColor: subBorder }]}>
-                <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                  <View style={styles.trendDetailHeader}>
-                    <Ionicons name="analytics" size={13} color="#2563EB" />
-                    <Text style={[styles.trendDetailTitle, { color: textMain }]} numberOfLines={1} ellipsizeMode="tail">
+            {/* Interactive Selected Quiz Detail Plaque */}
+            {selectedPoint && (() => {
+              const skeuo = getSkeuoPalette(darkMode);
+              const pointVariant =
+                selectedPoint.value >= 75
+                  ? "success"
+                  : selectedPoint.value <= 50
+                  ? "error"
+                  : "confirm";
+              const pointSem = getSemanticTokens(pointVariant, darkMode);
+              return (
+                <View
+                  style={[
+                    styles.trendDetailBanner,
+                    {
+                      backgroundColor: skeuo.surface,
+                      borderTopColor: skeuo.bevelTop,
+                      borderLeftColor: skeuo.border,
+                      borderRightColor: skeuo.border,
+                      borderBottomColor: skeuo.bevelBottom,
+                      shadowColor: skeuo.shadowColor,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.trendDetailLedStrip,
+                      { backgroundColor: pointSem.ledBar },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.trendDetailIconSocket,
+                      {
+                        backgroundColor: pointSem.socketBg,
+                        borderColor: pointSem.socketBorder,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="analytics" size={14} color={pointSem.plaqueText} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                    <Text
+                      style={[styles.trendDetailTitle, { color: skeuo.textPrimary }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
                       {selectedPoint.fullTitle || selectedPoint.label}
                     </Text>
+                    <Text style={[styles.trendDetailSub, { color: skeuo.textSecondary }]}>
+                      {selectedPoint.submissions} student{selectedPoint.submissions !== 1 ? "s" : ""} recorded
+                    </Text>
                   </View>
-                  <Text style={[styles.trendDetailSub, { color: textSub }]}>
-                    {selectedPoint.submissions} student{selectedPoint.submissions !== 1 ? "s" : ""} recorded
-                  </Text>
-                </View>
-                <View style={styles.trendDetailScoreBox}>
-                  <Text
+                  <View
                     style={[
-                      styles.trendDetailScore,
+                      styles.trendDetailScoreBox,
+                      skeuoWellStyle(skeuo, 10),
                       {
-                        color:
-                          selectedPoint.value >= 75
-                            ? "#16A34A"
-                            : selectedPoint.value <= 50
-                            ? "#DC2626"
-                            : "#EA580C",
+                        backgroundColor: pointSem.plaqueBg,
+                        borderColor: pointSem.plaqueBorder,
                       },
                     ]}
                   >
-                    {selectedPoint.value}%
-                  </Text>
-                  <Text
-                    style={[
-                      styles.trendDetailStatus,
-                      {
-                        color:
-                          selectedPoint.value >= 75
-                            ? "#16A34A"
-                            : selectedPoint.value <= 50
-                            ? "#DC2626"
-                            : "#EA580C",
-                      },
-                    ]}
-                  >
-                    {selectedPoint.value >= 75
-                      ? "Passing"
-                      : selectedPoint.value <= 50
-                      ? "At Risk"
-                      : "On Track"}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.trendDetailScore,
+                        { color: pointSem.plaqueText },
+                      ]}
+                    >
+                      {selectedPoint.value}%
+                    </Text>
+                    <Text
+                      style={[
+                        styles.trendDetailStatus,
+                        { color: pointSem.plaqueText },
+                      ]}
+                    >
+                      {selectedPoint.value >= 75
+                        ? "Passing"
+                        : selectedPoint.value <= 50
+                        ? "At Risk"
+                        : "On Track"}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            )}
+              );
+            })()}
 
             {allTrendPoints.length > ASSESSMENT_PAGE_SIZE && (
               <View style={styles.trendLimitBar}>
@@ -753,7 +795,7 @@ export default function TrackerTab({
       </View>
 
       {/* ── Section 4: Item Analysis (Most Missed Questions & Difficulty Index) ── */}
-      <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
+      <View style={[styles.card, skeuoCardStyle(skeuo, 16)]}>
         <View style={styles.itemAnalysisHeaderRow}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: textMain, marginBottom: 3 }]}>
@@ -767,14 +809,11 @@ export default function TrackerTab({
 
         {/* ── Full-Width Interactive Quiz Selector Dropdown ── */}
         <TouchableOpacity
-          style={[
-            styles.quizSelectorDropdown,
-            { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: darkMode ? "#475569" : "#CBD5E1" },
-          ]}
+          style={[styles.quizSelectorDropdown, skeuoWellStyle(skeuo, 12)]}
           onPress={() => setQuizDropdownOpen(true)}
-          activeOpacity={0.7}
+          activeOpacity={0.75}
         >
-          <Ionicons name="document-text-outline" size={16} color={darkMode ? "#94A3B8" : "#64748B"} style={{ marginRight: 8 }} />
+          <Ionicons name="document-text-outline" size={16} color={textSub} style={{ marginRight: 8 }} />
           <Text style={[styles.quizSelectorDropdownText, { color: textMain }]} numberOfLines={1}>
             {activeQuizTitle || activeQuizName}
           </Text>
@@ -782,7 +821,7 @@ export default function TrackerTab({
         </TouchableOpacity>
 
         {!itemAnalysis || itemAnalysis.questionBreakdown.length === 0 ? (
-          <View style={[styles.emptyItemBox, { backgroundColor: darkMode ? "#1F2937" : "#F8FAFC", paddingVertical: 28, alignItems: "center", borderRadius: 12, marginVertical: 8 }]}>
+          <View style={[styles.emptyItemBox, skeuoWellStyle(skeuo, 12), { paddingVertical: 28, alignItems: "center", marginVertical: 8 }]}>
             <Ionicons name="document-text-outline" size={36} color={textSub} style={{ marginBottom: 8 }} />
             <Text style={{ color: textMain, fontWeight: "700", fontSize: 14 }}>
               No Graded Test Papers Yet
@@ -794,7 +833,7 @@ export default function TrackerTab({
         ) : (
           <>
             {/* ── Unified 3-Column Stat Strip ── */}
-            <View style={[styles.statStrip, { backgroundColor: darkMode ? "#1E293B" : "#F8FAFC", borderColor: subBorder }]}>
+            <View style={[styles.statStrip, skeuoWellStyle(skeuo, 12)]}>
               <View style={styles.statStripCol}>
                 <Text style={[styles.statStripLabel, { color: textSub }]}>Most Missed</Text>
                 <Text style={[styles.statStripVal, { color: textMain }]}>
@@ -1018,11 +1057,10 @@ export default function TrackerTab({
       <View
         style={[
           styles.flaggedSectionCard,
+          skeuoCardStyle(skeuo, 16),
           {
-            backgroundColor: cardBg,
-            borderColor: subBorder,
             borderLeftWidth: 3,
-            borderLeftColor: atRiskCount > 0 ? "#DC2626" : subBorder,
+            borderLeftColor: atRiskCount > 0 ? "#DC2626" : skeuo.border,
           },
         ]}
       >
@@ -1035,7 +1073,9 @@ export default function TrackerTab({
             style={[
               styles.flaggedCountBadge,
               {
-                backgroundColor: atRiskCount > 0 ? (darkMode ? "#450A0A" : "#FEE2E2") : (darkMode ? "#14532D" : "#DCFCE7"),
+                backgroundColor: atRiskCount > 0 ? (darkMode ? "#2E1417" : "#FBECEB") : (darkMode ? "#112921" : "#E8F6EF"),
+                borderWidth: 1,
+                borderColor: atRiskCount > 0 ? (darkMode ? "#6E2830" : "#E8B0AA") : (darkMode ? "#1E5B47" : "#9CD6BC"),
               },
             ]}
           >
@@ -1058,20 +1098,14 @@ export default function TrackerTab({
               return (
                 <TouchableOpacity
                   key={student.id}
-                  style={[
-                    styles.flaggedStudentItem,
-                    {
-                      backgroundColor: darkMode ? "#1E293B" : "#F8FAFC",
-                      borderColor: subBorder,
-                    },
-                  ]}
+                  style={[styles.flaggedStudentItem, skeuoWellStyle(skeuo, 12)]}
                   onPress={() => onOpenStudentProfile(student)}
                   activeOpacity={0.75}
                 >
                   {avatar ? (
                     <Image source={{ uri: avatar }} style={styles.flaggedAvatar} />
                   ) : (
-                    <View style={[styles.flaggedAvatarFallback, { backgroundColor: darkMode ? "#334155" : "#E2E8F0" }]}>
+                    <View style={[styles.flaggedAvatarFallback, skeuoButtonStyle(skeuo, { neutral: true, radius: 18 })]}>
                       <Text style={[styles.flaggedAvatarFallbackText, { color: textMain }]}>
                         {getInitials(student.full_name)}
                       </Text>
@@ -1096,9 +1130,9 @@ export default function TrackerTab({
             })}
           </View>
         ) : (
-          <View style={[styles.allClearCard, { backgroundColor: darkMode ? "#064E3B30" : "#F0FDF4", borderColor: "#86EFAC" }]}>
+          <View style={[styles.allClearCard, { backgroundColor: darkMode ? "#112921" : "#E8F6EF", borderColor: darkMode ? "#1E5B47" : "#9CD6BC" }]}>
             <Ionicons name="checkmark-circle" size={22} color="#16A34A" />
-            <Text style={[styles.allClearText, { color: darkMode ? "#86EFAC" : "#166534" }]}>
+            <Text style={[styles.allClearText, { color: darkMode ? "#86EFAC" : "#065F46" }]}>
               No students currently flagged as at-risk. Great performance!
             </Text>
           </View>
@@ -1109,9 +1143,10 @@ export default function TrackerTab({
       <View
         style={[
           styles.recommendationCard,
+          skeuoCardStyle(skeuo, 16),
           {
-            backgroundColor: darkMode ? "#43140725" : "#FFF7ED",
-            borderColor: darkMode ? "#7C2D12" : "#FED7AA",
+            backgroundColor: skeuo.accentSoft,
+            borderColor: skeuo.accentSoftBorder,
           },
         ]}
       >
@@ -1124,7 +1159,7 @@ export default function TrackerTab({
           <Text style={[styles.recommendationTitle, { color: darkMode ? "#FDBA74" : "#9A3412" }]}>
             {"Tseki's Recommendation"}
           </Text>
-          <Text style={[styles.recommendationText, { color: darkMode ? "#E2E8F0" : "#431407" }]}>
+          <Text style={[styles.recommendationText, { color: textMain }]}>
             {generateClassroomAdvice({
               classAverage: classAvg,
               passRate,
@@ -1140,9 +1175,9 @@ export default function TrackerTab({
           </Text>
 
           <TouchableOpacity
-            style={[styles.remedialBtn, { backgroundColor: accentColor }]}
+            style={[styles.remedialBtn, skeuoButtonStyle(skeuo, { fill: accentColor, radius: 11 })]}
             onPress={onNavigateToAIBuilder}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
           >
             <Ionicons name="sparkles" size={13} color="#FFFFFF" />
             <Text style={styles.remedialBtnText}>
@@ -1161,12 +1196,12 @@ export default function TrackerTab({
         navigationBarTranslucent
         onRequestClose={() => setQuizDropdownOpen(false)}
       >
-        <View style={styles.quizPickerOverlay}>
+        <View style={[styles.quizPickerOverlay, { backgroundColor: skeuo.backdrop }]}>
           <Pressable
             style={StyleSheet.absoluteFillObject}
             onPress={() => setQuizDropdownOpen(false)}
           />
-          <View style={[styles.quizPickerSheet, { backgroundColor: cardBg, borderColor: subBorder }]}>
+          <View style={[styles.quizPickerSheet, skeuoCardStyle(skeuo, 18)]}>
             <View style={[styles.quizPickerHeader, { borderBottomColor: subBorder }]}>
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text style={[styles.quizPickerTitle, { color: textMain }]}>Select Assessment</Text>
@@ -1188,15 +1223,7 @@ export default function TrackerTab({
 
             {/* Quick Search when classroom has more than 5 assessments */}
             {availableQuizOptions.length > ASSESSMENT_PAGE_SIZE && (
-              <View
-                style={[
-                  styles.quizPickerSearchBox,
-                  {
-                    backgroundColor: darkMode ? "#111827" : "#F8FAFC",
-                    borderColor: subBorder,
-                  },
-                ]}
-              >
+              <View style={[styles.quizPickerSearchBox, skeuoWellStyle(skeuo, 11)]}>
                 <Ionicons name="search-outline" size={15} color={textSub} />
                 <TextInput
                   style={[styles.quizPickerSearchInput, { color: textMain }]}
@@ -1547,13 +1574,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderRadius: 13,
+    paddingLeft: 14,
+    paddingRight: 10,
+    paddingVertical: 9,
     marginBottom: 8,
+    gap: 9,
+    overflow: "hidden",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  trendDetailLedStrip: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+  },
+  trendDetailIconSocket: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   trendDetailHeader: {
     flexDirection: "row",
@@ -1563,24 +1612,30 @@ const styles = StyleSheet.create({
   trendDetailTitle: {
     fontSize: 13,
     fontWeight: "800",
-    color: "#0F172A",
     maxWidth: 210,
   },
   trendDetailSub: {
     fontSize: 11,
-    color: "#64748B",
     marginTop: 2,
+    fontWeight: "500",
   },
   trendDetailScoreBox: {
-    alignItems: "flex-end",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 62,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
   trendDetailScore: {
-    fontSize: 17,
+    fontSize: 15.5,
     fontWeight: "800",
+    fontVariant: ["tabular-nums"],
   },
   trendDetailStatus: {
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 9.5,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
     marginTop: 1,
   },
   chartContainer: {

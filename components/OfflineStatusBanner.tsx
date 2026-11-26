@@ -1,7 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useState } from "react";
-import { AppState, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SkeuoBanner } from "./SkeuoBanner";
 
 type NetworkListener = (offline: boolean) => void;
 const listeners = new Set<NetworkListener>();
@@ -109,23 +109,16 @@ export function OfflineStatusBanner() {
       ]}
       pointerEvents="box-none"
     >
-      <View style={styles.banner}>
-        <Ionicons name="cloud-offline-outline" size={16} color="#92400E" />
-        <Text style={styles.bannerText} numberOfLines={2}>
-          Offline mode — local grades &amp; drafts are cached and will sync when reconnected.
-        </Text>
-        <Pressable
-          onPress={checkNow}
-          disabled={checking}
-          style={styles.retryBtn}
-          hitSlop={6}
-        >
-          <Text style={styles.retryText}>{checking ? "..." : "Retry"}</Text>
-        </Pressable>
-        <Pressable onPress={() => setDismissed(true)} hitSlop={8}>
-          <Ionicons name="close" size={16} color="#92400E" />
-        </Pressable>
-      </View>
+      <SkeuoBanner
+        variant="warning"
+        icon="cloud-offline-outline"
+        message="Offline mode — local grades & drafts are cached and will sync when reconnected."
+        actionLabel={checking ? "..." : "Retry"}
+        actionDisabled={checking}
+        onAction={checkNow}
+        onDismiss={() => setDismissed(true)}
+        compact
+      />
     </View>
   );
 }
@@ -138,39 +131,5 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 9998,
     paddingHorizontal: 12,
-  },
-  banner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  bannerText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#92400E",
-    lineHeight: 16,
-  },
-  retryBtn: {
-    backgroundColor: "#F59E0B",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  retryText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#FFFFFF",
   },
 });

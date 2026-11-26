@@ -624,7 +624,7 @@ export default function LoginPage() {
                 }}
                 aria-label="Back to welcome"
               >
-                <ArrowLeft size={22} color="#181920" />
+                <ArrowLeft size={20} color="currentColor" />
               </button>
 
               <div className={styles.headerBlock}>
@@ -673,9 +673,9 @@ export default function LoginPage() {
                         aria-label={showPassword ? "Hide password" : "Show password"}
                       >
                         {showPassword ? (
-                          <EyeOff size={18} color="#8E8EA8" />
+                          <EyeOff size={18} color="currentColor" />
                         ) : (
-                          <Eye size={18} color="#8E8EA8" />
+                          <Eye size={18} color="currentColor" />
                         )}
                       </button>
                     </div>
@@ -860,7 +860,7 @@ export default function LoginPage() {
                 }}
                 aria-label="Back to registration"
               >
-                <ArrowLeft size={22} color="#181920" />
+                <ArrowLeft size={20} color="currentColor" />
               </button>
 
               <div className={styles.headerBlock}>
@@ -999,7 +999,7 @@ export default function LoginPage() {
                 onClick={() => setForgotModalVisible(false)}
                 aria-label="Close modal"
               >
-                <X size={20} color="#6B7280" />
+                <X size={20} color="currentColor" />
               </button>
             </div>
 

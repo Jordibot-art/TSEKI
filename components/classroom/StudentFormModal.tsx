@@ -12,8 +12,14 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import {
+  getSkeuoPalette,
+  skeuoButtonStyle,
+  skeuoCardStyle,
+  skeuoWellStyle,
+} from "../skeuoTheme";
 
-const ORANGE = "#FF6B00";
+const ORANGE = "#EA580C";
 
 export interface StudentFormModalProps {
   visible: boolean;
@@ -60,6 +66,7 @@ export function StudentFormModal({
   textSub,
   btnSecondaryBg,
 }: StudentFormModalProps) {
+  const skeuo = getSkeuoPalette(darkMode, ORANGE);
   const isEdit = mode === "edit";
   const submitDisabled = !lastName.trim() || !firstName.trim() || saving;
 
@@ -75,10 +82,10 @@ export function StudentFormModal({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <TouchableWithoutFeedback onPress={onCancel}>
-          <View style={styles.modalOverlay}>
+          <View style={[styles.modalOverlay, { backgroundColor: skeuo.backdrop }]}>
             <TouchableWithoutFeedback>
-              <View style={[styles.modalCard, { backgroundColor: cardBg }]}>
-                <View style={styles.sheetDragHandle} />
+              <View style={[styles.modalCard, skeuoCardStyle(skeuo, 24), { backgroundColor: cardBg }]}>
+                <View style={[styles.sheetDragHandle, { backgroundColor: skeuo.borderStrong }]} />
 
                 <View style={styles.modalHeader}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
@@ -93,7 +100,7 @@ export function StudentFormModal({
                   </View>
                   <TouchableOpacity
                     onPress={onCancel}
-                    style={[styles.sheetCloseBtn, { backgroundColor: btnSecondaryBg }]}
+                    style={[styles.sheetCloseBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 16 })]}
                   >
                     <Ionicons name="close" size={18} color={textSub} />
                   </TouchableOpacity>
@@ -103,7 +110,7 @@ export function StudentFormModal({
                   Last name <Text style={styles.required}>*</Text>
                 </Text>
                 <TextInput
-                  style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                  style={[styles.input, skeuoWellStyle(skeuo, 12), { backgroundColor: inputBg, color: textMain }]}
                   placeholder="e.g. Dela Cruz"
                   placeholderTextColor={textSub}
                   value={lastName}
@@ -114,7 +121,7 @@ export function StudentFormModal({
                   First name <Text style={styles.required}>*</Text>
                 </Text>
                 <TextInput
-                  style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                  style={[styles.input, skeuoWellStyle(skeuo, 12), { backgroundColor: inputBg, color: textMain }]}
                   placeholder="e.g. Juan"
                   placeholderTextColor={textSub}
                   value={firstName}
@@ -125,7 +132,7 @@ export function StudentFormModal({
                   Middle name <Text style={{ fontSize: 12, fontWeight: "400", color: textSub }}>(optional)</Text>
                 </Text>
                 <TextInput
-                  style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                  style={[styles.input, skeuoWellStyle(skeuo, 12), { backgroundColor: inputBg, color: textMain }]}
                   placeholder="e.g. Santos"
                   placeholderTextColor={textSub}
                   value={middleName}
@@ -139,7 +146,7 @@ export function StudentFormModal({
                   ) : null}
                 </Text>
                 <TextInput
-                  style={[styles.input, { backgroundColor: inputBg, borderColor: border, color: textMain }]}
+                  style={[styles.input, skeuoWellStyle(skeuo, 12), { backgroundColor: inputBg, color: textMain }]}
                   placeholder="e.g. juan.delacruz@school.edu.ph"
                   placeholderTextColor={textSub}
                   value={email}
@@ -150,18 +157,18 @@ export function StudentFormModal({
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity
-                    style={[styles.cancelBtn, { borderColor: border, backgroundColor: btnSecondaryBg }]}
+                    style={[styles.cancelBtn, skeuoButtonStyle(skeuo, { neutral: true, radius: 12 })]}
                     onPress={onCancel}
                     disabled={isEdit && saving}
                   >
-                    <Text style={[styles.cancelBtnText, { color: textSub }]}>Cancel</Text>
+                    <Text style={[styles.cancelBtnText, { color: textMain }]}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
                       styles.addBtn,
                       submitDisabled
-                        ? [styles.addBtnDisabled, { backgroundColor: darkMode ? "#1E293B" : "#F1F5F9", borderColor: border }]
-                        : { backgroundColor: ORANGE },
+                        ? [skeuoButtonStyle(skeuo, { neutral: true, radius: 12 }), { opacity: 0.6 }]
+                        : skeuoButtonStyle(skeuo, { fill: ORANGE, radius: 12 }),
                     ]}
                     onPress={onSubmit}
                     disabled={submitDisabled}
@@ -172,7 +179,7 @@ export function StudentFormModal({
                       <Text
                         style={[
                           styles.addBtnText,
-                          (!lastName.trim() || !firstName.trim()) && { color: "#94A3B8" },
+                          (!lastName.trim() || !firstName.trim()) && { color: skeuo.textMuted },
                         ]}
                       >
                         {isEdit ? "Save Changes" : "Add Student"}

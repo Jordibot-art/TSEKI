@@ -1,11 +1,10 @@
+/* ── Export PDF Sheet — Modern Tactile Skeuomorphism (Light + Dark) ── */
+
 .exportBackdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
+  inset: 0;
+  background-color: rgba(15, 17, 22, 0.62);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,15 +14,18 @@
 }
 
 .exportSheet {
-  background: #ffffff;
-  border-radius: 20px;
+  background: var(--skeuo-plaque-bg);
+  border-radius: 22px;
   width: 100%;
-  max-width: 480px;
+  max-width: 484px;
   padding: 24px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 3px solid var(--skeuo-plaque-lip);
+  box-shadow:
+    inset 0 1px 0 var(--skeuo-specular),
+    0 24px 54px -12px rgba(0, 0, 0, 0.42);
   position: relative;
-  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
 }
 
@@ -33,6 +35,9 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--skeuo-groove-dark);
+  box-shadow: 0 1px 0 var(--skeuo-groove-light);
 }
 
 .exportSheetHeader {
@@ -42,38 +47,46 @@
 .exportSheetTitle {
   font-size: 18px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-primary);
   margin: 0 0 4px 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 .exportSheetSub {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0;
   line-height: 18px;
 }
 
 .sheetCloseBtn {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
+  background: var(--skeuo-neutral-btn);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 2px solid var(--skeuo-plaque-lip);
+  box-shadow: inset 0 1px 0 var(--skeuo-specular);
+  color: var(--text-secondary);
   cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
   flex-shrink: 0;
 }
 
 .sheetCloseBtn:hover {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--skeuo-neutral-btn-hover);
+  color: var(--text-primary);
 }
 
-/* ── Anti-Cheating Version Selector (Set A / B / C) ── */
+.sheetCloseBtn:active {
+  transform: translateY(1px);
+  border-bottom-width: 1px;
+}
+
+/* ── Anti-Cheating Version Selector (Recessed Track + Raised Caps) ── */
 .versionRow {
   display: flex;
   align-items: center;
@@ -82,41 +95,46 @@
 }
 
 .versionLabel {
-  font-size: 14px;
-  font-weight: 500;
-  color: #334155;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .segmentedTrack {
   display: flex;
-  background-color: #f1f5f9;
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
+  box-shadow: var(--skeuo-well-shadow);
   padding: 3px;
-  border-radius: 8px;
-  gap: 2px;
+  border-radius: 10px;
+  gap: 3px;
 }
 
 .segmentBtn {
   padding: 5px 14px;
-  border-radius: 6px;
+  border-radius: 7px;
   font-size: 12.5px;
-  font-weight: 500;
-  color: #64748b;
+  font-weight: 600;
+  color: var(--text-secondary);
   background: transparent;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
 }
 
 .segmentBtn:hover:not(.segmentBtnActive) {
-  color: #334155;
+  color: var(--text-primary);
 }
 
 .segmentBtnActive {
-  background-color: #ffffff;
-  border-color: #cbd5e1;
-  color: #0f172a;
-  font-weight: 700;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  background: var(--skeuo-plaque-bg);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 2px solid var(--skeuo-plaque-lip);
+  color: var(--accent);
+  font-weight: 800;
+  box-shadow:
+    inset 0 1px 0 var(--skeuo-specular),
+    0 2px 4px rgba(28, 25, 23, 0.1);
 }
 
 /* ── Force Separate Answer Sheet Toggle ── */
@@ -125,26 +143,26 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 12px;
-  border-radius: 10px;
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  margin-bottom: 12px;
+  padding: 10px 13px;
+  border-radius: 11px;
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
+  box-shadow: var(--skeuo-well-shadow);
+  margin-bottom: 14px;
   cursor: pointer;
   text-align: left;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
   box-sizing: border-box;
 }
 
 .forceSeparateBtn:hover {
-  background-color: #f1f5f9;
-  border-color: #cbd5e1;
+  border-color: var(--accent);
 }
 
 .forceSeparateText {
   font-size: 12.5px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
   flex: 1;
 }
 
@@ -152,15 +170,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-left: 8px;
 }
 
 .checkboxIconActive {
-  color: #ea580c;
+  color: var(--accent);
 }
 
-/* ── Export Option Cards (Matching Mobile TSEKI) ── */
+/* ── Export Option Tactile Plaques ── */
 .optionsList {
   display: flex;
   flex-direction: column;
@@ -173,37 +191,46 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 13px 14px;
   border-radius: 14px;
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: var(--skeuo-neutral-btn);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 3px solid var(--skeuo-plaque-lip);
+  box-shadow:
+    inset 0 1px 0 var(--skeuo-specular),
+    0 2px 6px rgba(28, 25, 23, 0.08);
   cursor: pointer;
   text-align: left;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
   box-sizing: border-box;
 }
 
 .exportOptionBtn:hover {
-  background-color: #ffffff;
-  border-color: #cbd5e1;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: var(--skeuo-neutral-btn-hover);
+  border-color: var(--accent);
+}
+
+.exportOptionBtn:active {
+  transform: translateY(1.5px);
+  border-bottom-width: 1px;
 }
 
 .exportOptionBtn:hover .downloadIcon {
-  color: #ea580c;
+  color: var(--accent);
   transform: translateY(1px);
 }
 
 .neutralOptionIcon {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background-color: #f8fafc;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--skeuo-plaque-border);
+  background: var(--skeuo-well-bg);
+  box-shadow: var(--skeuo-well-shadow);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #0f172a;
+  color: var(--text-primary);
   flex-shrink: 0;
 }
 
@@ -222,54 +249,61 @@
 .exportOptionTitle {
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .dimBadge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background-color: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #475569;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--skeuo-well-bg);
+  border: 1px solid var(--skeuo-plaque-border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
 }
 
 .exportOptionSub {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-secondary);
   line-height: 16px;
   margin: 0;
 }
 
 .downloadIcon {
-  color: #94a3b8;
+  color: var(--text-tertiary);
   flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
-/* ── Cancel Button ── */
+/* ── Cancel 3D Button ── */
 .exportCancelBtn {
   width: 100%;
   height: 44px;
-  border-radius: 12px;
-  background: transparent;
-  border: none;
-  font-size: 14px;
-  font-weight: 600;
-  color: #64748b;
+  border-radius: 11px;
+  background: var(--skeuo-neutral-btn);
+  border: 1px solid var(--skeuo-plaque-border);
+  border-bottom: 3px solid var(--skeuo-plaque-lip);
+  box-shadow: inset 0 1px 0 var(--skeuo-specular);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
 }
 
 .exportCancelBtn:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--skeuo-neutral-btn-hover);
+}
+
+.exportCancelBtn:active {
+  transform: translateY(1.5px);
+  border-bottom-width: 1px;
 }
 
 .animWrap {
@@ -282,9 +316,9 @@
   gap: 8px;
   padding: 9px 12px;
   border-radius: 10px;
-  background-color: #fff7ed;
-  border: 1px solid #fed7aa;
-  color: #9a3412;
+  background: var(--banner-warning-bg);
+  border: 1px solid var(--banner-warning-border);
+  color: var(--banner-warning-text);
   font-size: 12.5px;
   font-weight: 600;
   margin-bottom: 12px;

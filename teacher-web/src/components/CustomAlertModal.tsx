@@ -1,6 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  HelpCircle,
+  Info,
+  OctagonAlert,
+  WifiOff,
+  X,
+} from "lucide-react";
 import styles from "./CustomAlertModal.module.css";
 
 export type AlertType =
@@ -10,6 +19,7 @@ export type AlertType =
   | "cooldown"
   | "error"
   | "destructive"
+  | "warning"
   | "info"
   | "confirm"
   | "success";
@@ -32,38 +42,62 @@ export interface CustomAlertModalProps {
   cancelable?: boolean;
 }
 
+type SemanticVariant = "success" | "info" | "confirm" | "warning" | "error";
+
+interface ResolvedAlertVisual {
+  semantic: SemanticVariant;
+  iconKind: "check" | "info" | "help" | "warning" | "error" | "network" | "clock";
+  eyebrow: string;
+}
+
 function resolveAlertVisualVariant(
   title: string,
   type?: AlertType,
   buttons?: CustomAlertButton[]
-): {
-  isRedVariant: boolean;
-  isQuestion: boolean;
-} {
-  if (
-    type === "error" ||
-    type === "destructive" ||
-    type === "network" ||
-    type === "busy"
-  ) {
-    return { isRedVariant: true, isQuestion: false };
+): ResolvedAlertVisual {
+  if (type === "success") {
+    return { semantic: "success", iconKind: "check", eyebrow: "Completed" };
   }
-  if (type === "success" || type === "confirm" || type === "info") {
+  if (type === "network") {
+    return { semantic: "error", iconKind: "network", eyebrow: "Connection" };
+  }
+  if (type === "busy") {
+    return { semantic: "error", iconKind: "clock", eyebrow: "Service Busy" };
+  }
+  if (type === "error" || type === "destructive") {
     return {
-      isRedVariant: false,
-      isQuestion: (buttons && buttons.length >= 2) || title.trim().endsWith("?"),
+      semantic: "error",
+      iconKind: "error",
+      eyebrow: type === "destructive" ? "Confirm Action" : "Attention",
     };
+  }
+  if (type === "limit" || type === "cooldown") {
+    return {
+      semantic: "warning",
+      iconKind: "clock",
+      eyebrow: type === "limit" ? "Quota Limit" : "Cooldown",
+    };
+  }
+  if (type === "warning") {
+    return { semantic: "warning", iconKind: "warning", eyebrow: "Caution" };
+  }
+  if (type === "info") {
+    return { semantic: "info", iconKind: "info", eyebrow: "Notice" };
+  }
+  if (type === "confirm") {
+    return { semantic: "confirm", iconKind: "help", eyebrow: "Confirmation" };
   }
 
   const hasDestructiveBtn = (buttons || []).some((b) => b.style === "destructive");
   if (hasDestructiveBtn) {
-    return { isRedVariant: true, isQuestion: true };
+    return { semantic: "error", iconKind: "error", eyebrow: "Confirm Action" };
   }
 
   const lowerTitle = (title || "").toLowerCase();
-  const redKeywords = [
+  const errorKeywords = [
     "delete",
     "remove",
+    "discard",
     "error",
     "failed",
     "fail",
@@ -72,6 +106,19 @@ function resolveAlertVisualVariant(
     "weak",
     "too short",
     "invalid",
+    "conflict",
+    "log out",
+    "logout",
+    "expired",
+  ];
+  if (errorKeywords.some((kw) => lowerTitle.includes(kw))) {
+    return { semantic: "error", iconKind: "error", eyebrow: "Attention" };
+  }
+
+  const warningKeywords = [
+    "warning",
+    "caution",
+    "limit",
     "busy",
     "permission",
     "no data",
@@ -79,16 +126,24 @@ function resolveAlertVisualVariant(
     "no quiz",
     "minimum",
     "long answers",
-    "conflict",
-    "log out",
-    "logout",
-    "warning",
-    "expired",
-    "limit",
+    "cooldown",
   ];
+  if (warningKeywords.some((kw) => lowerTitle.includes(kw))) {
+    return { semantic: "warning", iconKind: "warning", eyebrow: "Caution" };
+  }
 
-  if (redKeywords.some((kw) => lowerTitle.includes(kw))) {
-    return { isRedVariant: true, isQuestion: false };
+  const successKeywords = [
+    "success",
+    "saved",
+    "published",
+    "created",
+    "updated",
+    "exported",
+    "complete",
+    "approved",
+  ];
+  if (successKeywords.some((kw) => lowerTitle.includes(kw))) {
+    return { semantic: "success", iconKind: "check", eyebrow: "Completed" };
   }
 
   const isQuestion =
@@ -97,7 +152,31 @@ function resolveAlertVisualVariant(
     lowerTitle.includes("confirm") ||
     lowerTitle.includes("publish");
 
-  return { isRedVariant: false, isQuestion };
+  if (isQuestion) {
+    return { semantic: "confirm", iconKind: "help", eyebrow: "Confirmation" };
+  }
+
+  return { semantic: "info", iconKind: "info", eyebrow: "Notice" };
+}
+
+function renderSemanticIcon(kind: ResolvedAlertVisual["iconKind"]) {
+  switch (kind) {
+    case "check":
+      return <CheckCircle2 size={18} strokeWidth={2.4} />;
+    case "network":
+      return <WifiOff size={17} strokeWidth={2.4} />;
+    case "clock":
+      return <Clock size={17} strokeWidth={2.4} />;
+    case "warning":
+      return <AlertTriangle size={17} strokeWidth={2.4} />;
+    case "error":
+      return <OctagonAlert size={18} strokeWidth={2.4} />;
+    case "help":
+      return <HelpCircle size={18} strokeWidth={2.4} />;
+    case "info":
+    default:
+      return <Info size={18} strokeWidth={2.4} />;
+  }
 }
 
 export default function CustomAlertModal({
@@ -111,6 +190,20 @@ export default function CustomAlertModal({
   buttons,
   cancelable = true,
 }: CustomAlertModalProps) {
+  const titleId = useId();
+  const descId = useId();
+
+  useEffect(() => {
+    if (!visible || !cancelable) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [visible, cancelable, onClose]);
+
   if (!visible) return null;
 
   const effectiveButtons: CustomAlertButton[] =
@@ -124,11 +217,7 @@ export default function CustomAlertModal({
           },
         ];
 
-  const { isRedVariant, isQuestion } = resolveAlertVisualVariant(
-    title,
-    type,
-    effectiveButtons
-  );
+  const visual = resolveAlertVisualVariant(title, type, effectiveButtons);
 
   const handleCloseCross = () => {
     const cancelBtn = effectiveButtons.find((b) => b.style === "cancel");
@@ -151,98 +240,141 @@ export default function CustomAlertModal({
     }
   };
 
-  // For 2-button layouts:
-  // - Red / Destructive variant: [Delete/Primary (Red), Cancel (Outlined)]
-  // - Blue / Confirm variant:    [Cancel (Outlined), Confirm/Primary (Blue)]
+  // Standard 2-button ordering matching Mobile: [Cancel (left), Action (right)]
   let orderedButtons = [...effectiveButtons];
   if (orderedButtons.length === 2) {
     const cancelIdx = orderedButtons.findIndex((b) => b.style === "cancel");
-    const otherIdx = cancelIdx === 0 ? 1 : 0;
     if (cancelIdx !== -1) {
       const cancelBtn = orderedButtons[cancelIdx];
-      const actionBtn = orderedButtons[otherIdx];
-      const isActionDestructive =
-        actionBtn.style === "destructive" || isRedVariant;
-      if (isActionDestructive) {
-        orderedButtons = [actionBtn, cancelBtn];
-      } else {
-        orderedButtons = [cancelBtn, actionBtn];
-      }
+      const actionBtn = orderedButtons[cancelIdx === 0 ? 1 : 0];
+      orderedButtons = [cancelBtn, actionBtn];
     }
   }
 
   const isTwoColumn = orderedButtons.length === 2;
 
+  // Parse optional trailing helper note in parentheses or "Note:" line
+  let bodyText = (message || "").trim();
+  let noteText: string | null = null;
+  const trailingParen = bodyText.match(/\n*\(([^)]+)\)\s*$/);
+  if (trailingParen && bodyText.includes("\n")) {
+    noteText = trailingParen[1].trim();
+    bodyText = bodyText.replace(trailingParen[0], "").trim();
+  } else {
+    const noteLine = bodyText.match(/\n+(?:Note:\s*|\*Note:\*\s*)(.+)$/i);
+    if (noteLine) {
+      noteText = noteLine[1].trim();
+      bodyText = bodyText.replace(noteLine[0], "").trim();
+    }
+  }
+
   const modalContent = (
     <div className={styles.overlay} onClick={handleBackdropPress}>
       <div
-        className={styles.outerGlassFrame}
+        className={styles.bezelFrame}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={bodyText ? descId : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         <div className={styles.card}>
-          {/* Top-Right Close Button */}
-          <button
-            type="button"
-            className={styles.closeBtn}
-            onClick={handleCloseCross}
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-
-          {/* Top-Center Layered Icon Badge */}
-          {isRedVariant ? (
-            <div className={`${styles.badgeHalo} ${styles.badgeHaloRed}`}>
-              <div className={styles.redDiamond}>
-                <span className={styles.redExclamation}>!</span>
-              </div>
-            </div>
-          ) : (
-            <div className={`${styles.badgeHalo} ${styles.badgeHaloBlue}`}>
-              <div className={styles.blueCircle}>
-                <span className={styles.blueSymbol}>{isQuestion ? "?" : "?"}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Title */}
-          <h3 className={styles.title}>{title}</h3>
-
-          {/* Message */}
-          {Boolean(message && message.trim().length > 0) && (
-            <div className={styles.message}>{message}</div>
-          )}
-
-          {/* Action Buttons */}
-          <div
-            className={`${styles.buttonsContainer} ${
-              isTwoColumn ? styles.buttonsRow : styles.buttonsColumn
-            }`}
-          >
-            {orderedButtons.map((btn, idx) => {
-              const isCancel =
-                btn.style === "cancel" && orderedButtons.length > 1;
-              const isDestructiveBtn =
-                btn.style === "destructive" || (!isCancel && isRedVariant);
-
-              let btnClass = styles.btnPrimary;
-              if (isCancel) {
-                btnClass = styles.btnCancel;
-              } else if (isDestructiveBtn) {
-                btnClass = styles.btnDestructive;
-              }
-
-              return (
-                <button
-                  key={`${btn.text || "btn"}_${idx}`}
-                  type="button"
-                  className={`${styles.btn} ${btnClass}`}
-                  onClick={() => handleButtonPress(btn)}
+          {/* Machined Header Bar */}
+          <div className={styles.headerBar}>
+            <div className={styles.headerLeft}>
+              <div
+                className={`${styles.medallionWell} ${styles[`well_${visual.semantic}`]}`}
+                aria-hidden="true"
+              >
+                <div
+                  className={`${styles.medallionCore} ${styles[`core_${visual.semantic}`]}`}
                 >
-                  {btn.text}
-                </button>
-              );
-            })}
+                  {renderSemanticIcon(visual.iconKind)}
+                </div>
+              </div>
+              <div className={styles.headerText}>
+                <div className={styles.eyebrowRow}>
+                  <span
+                    className={`${styles.statusLed} ${styles[`led_${visual.semantic}`]}`}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className={`${styles.eyebrow} ${styles[`eyebrow_${visual.semantic}`]}`}
+                  >
+                    {visual.eyebrow}
+                  </span>
+                </div>
+                <h3 id={titleId} className={styles.title}>
+                  {title}
+                </h3>
+              </div>
+            </div>
+
+            {cancelable && (
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={handleCloseCross}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          <div className={styles.groove} aria-hidden="true" />
+
+          {/* Body */}
+          <div className={styles.bodySection}>
+            {Boolean(bodyText.length > 0) && (
+              <div id={descId} className={styles.message}>
+                {bodyText}
+              </div>
+            )}
+
+            {Boolean(noteText && noteText.length > 0) && (
+              <div className={styles.noteWell}>
+                <Info size={14} className={styles.noteIcon} aria-hidden="true" />
+                <span>{noteText}</span>
+              </div>
+            )}
+
+            {/* Tactile Action Buttons */}
+            <div
+              className={`${styles.buttonsContainer} ${
+                isTwoColumn ? styles.buttonsRow : styles.buttonsColumn
+              }`}
+            >
+              {orderedButtons.map((btn, idx) => {
+                const isCancel =
+                  btn.style === "cancel" && orderedButtons.length > 1;
+                const isDestructiveBtn =
+                  btn.style === "destructive" ||
+                  (!isCancel && visual.semantic === "error");
+
+                let btnClass = styles.btnPrimary;
+                if (isCancel) {
+                  btnClass = styles.btnCancel;
+                } else if (isDestructiveBtn) {
+                  btnClass = styles.btnDestructive;
+                } else if (visual.semantic === "warning") {
+                  btnClass = styles.btnWarning;
+                } else if (visual.semantic === "success") {
+                  btnClass = styles.btnSuccess;
+                }
+
+                return (
+                  <button
+                    key={`${btn.text || "btn"}_${idx}`}
+                    type="button"
+                    className={`${styles.btn} ${btnClass}`}
+                    onClick={() => handleButtonPress(btn)}
+                  >
+                    {btn.text}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
