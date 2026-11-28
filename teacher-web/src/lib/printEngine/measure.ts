@@ -1,6 +1,6 @@
 // teacher-web/src/lib/printEngine/measure.ts
 
-import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib';
+import { PDFDocument, type PDFFont, StandardFonts } from 'pdf-lib';
 import { FONT_CONFIG } from './constants';
 import type { AnswerKeyItem, ScannableQuestion } from './types';
 
@@ -53,13 +53,70 @@ export function measureTextWidth(text: string, fontSize: number, font: PDFFont):
     return font.widthOfTextAtSize(text, fontSize);
 }
 
+function splitOverlongToken(token: string, maxWidth: number, fontSize: number, font: PDFFont): string[] {
+    if (!token || maxWidth <= 0) return [token];
+    if (measureTextWidth(token, fontSize, font) <= maxWidth) return [token];
+
+    if (/^_{4,}([.,;:?!)]*)$/.test(token)) {
+        const suffix = token.replace(/^_+/, '');
+        let underscores = '__________';
+        while (underscores.length > 3 && measureTextWidth(underscores + suffix, fontSize, font) > Math.min(maxWidth, 90)) {
+            underscores = underscores.slice(0, -1);
+        }
+        if (measureTextWidth(underscores + suffix, fontSize, font) <= maxWidth) {
+            return [underscores + suffix];
+        }
+    }
+
+    const chunks: string[] = [];
+    let remaining = token;
+    while (remaining.length > 0) {
+        if (measureTextWidth(remaining, fontSize, font) <= maxWidth) {
+            chunks.push(remaining);
+            break;
+        }
+        let lo = 1;
+        let hi = remaining.length;
+        while (lo < hi) {
+            const mid = Math.ceil((lo + hi) / 2);
+            if (measureTextWidth(remaining.slice(0, mid), fontSize, font) <= maxWidth) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        let splitAt = lo;
+        const minNatural = Math.max(1, Math.floor(lo * 0.6));
+        for (let idx = lo; idx >= minNatural; idx--) {
+            const ch = remaining[idx - 1];
+            if (ch === '-' || ch === '/' || ch === '_' || ch === '.' || ch === ',') {
+                splitAt = idx;
+                break;
+            }
+        }
+        chunks.push(remaining.slice(0, splitAt));
+        remaining = remaining.slice(splitAt);
+    }
+    return chunks.length > 0 ? chunks : [token];
+}
+
 /**
- * Splits text into wrapped lines that fit within maxWidth points.
+ * Splits text into wrapped lines that strictly fit within maxWidth points.
  */
 export function wrapText(text: string, maxWidth: number, fontSize: number, font: PDFFont): string[] {
     if (!text || text.trim().length === 0) return [''];
 
-    const words = text.split(/\s+/);
+    const normalized = text.replace(/_{10,}/g, '________');
+    const rawWords = normalized.trim().split(/\s+/);
+    const words: string[] = [];
+    for (const w of rawWords) {
+        if (measureTextWidth(w, fontSize, font) > maxWidth) {
+            words.push(...splitOverlongToken(w, maxWidth, fontSize, font));
+        } else {
+            words.push(w);
+        }
+    }
+
     const lines: string[] = [];
     let currentLine = '';
 
@@ -73,7 +130,6 @@ export function wrapText(text: string, maxWidth: number, fontSize: number, font:
             if (currentLine.length > 0) {
                 lines.push(currentLine);
             }
-            // If a single word is wider than maxWidth, keep it on its own line
             currentLine = word;
         }
     }
@@ -82,7 +138,7 @@ export function wrapText(text: string, maxWidth: number, fontSize: number, font:
         lines.push(currentLine);
     }
 
-    return lines;
+    return lines.length > 0 ? lines : [''];
 }
 
 /**
@@ -233,16 +289,115 @@ export function canPairMcOptions(
     return true;
 }
 
+export type AllInOneBoxLayout = 'inline' | 'below_full' | 'below_grid2';
+
+export interface ExpectedAnswerStats {
+    hasExplicitAnswer: boolean;
+    longestChars: number;
+    longestWords: number;
+    maxChars: number;
+    subAnswers: string[];
+}
+
+export function getEnumerationBoxCount(
+    question: ScannableQuestion,
+    answerKey?: AnswerKeyItem[]
+): number {
+    if (question.type !== 'enumeration') return 1;
+    const explicitBoxes =
+        typeof question.answerBoxesRequired === 'number' && question.answerBoxesRequired > 0
+            ? Math.round(question.answerBoxesRequired)
+            : 0;
+
+    let keyItemCount = 0;
+    if (answerKey && answerKey.length > 0) {
+        const keyObj = answerKey.find((k) => k.questionNumber === question.questionNumber);
+        const raw = String(keyObj?.correctAnswer ?? (question as any).correctAnswer ?? '').trim();
+        if (raw) {
+            const parts = raw
+                .split(/[,;\n/]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+            if (parts.length > 1) {
+                keyItemCount = Math.min(10, parts.length);
+            }
+        }
+    }
+
+    if (explicitBoxes > 1) {
+        return Math.max(explicitBoxes, keyItemCount);
+    }
+    if (keyItemCount > 1) {
+        return keyItemCount;
+    }
+    return explicitBoxes === 1 ? 1 : 3;
+}
+
+export function getExpectedAnswerStats(
+    question: ScannableQuestion,
+    answerKey?: AnswerKeyItem[]
+): ExpectedAnswerStats {
+    const keyObj = answerKey?.find((k) => k.questionNumber === question.questionNumber);
+    const raw = String(keyObj?.correctAnswer ?? (question as any).correctAnswer ?? '').trim();
+
+    if (!raw) {
+        return {
+            hasExplicitAnswer: false,
+            longestChars: 16,
+            longestWords: 2,
+            maxChars: 25,
+            subAnswers: [],
+        };
+    }
+
+    if (question.type === 'enumeration') {
+        const subs = raw
+            .split(/[,;\n/]+/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+        const list = subs.length > 0 ? subs : [raw];
+        let longestChars = 0;
+        let longestWords = 0;
+        for (const item of list) {
+            if (item.length > longestChars) longestChars = item.length;
+            const wc = item.split(/\s+/).filter(Boolean).length;
+            if (wc > longestWords) longestWords = wc;
+        }
+        return {
+            hasExplicitAnswer: true,
+            longestChars,
+            longestWords,
+            maxChars: Math.max(25, longestChars + 6),
+            subAnswers: list,
+        };
+    }
+
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    return {
+        hasExplicitAnswer: true,
+        longestChars: raw.length,
+        longestWords: words,
+        maxChars:
+            question.type === 'multiple_choice' || question.type === 'true_false'
+                ? 1
+                : Math.max(25, raw.length + 6),
+        subAnswers: [raw],
+    };
+}
+
 export interface AllInOneItemMetrics {
     isLetter: boolean;
     isEnumeration: boolean;
     enumBoxes: number;
+    boxLayout: AllInOneBoxLayout;
+    badgeWidth: number;
     boxWidth: number;
     boxHeight: number;
     totalBoxHeight: number;
     numReserve: number;
     textWidth: number;
     itemGap: number;
+    maxChars: number;
 }
 
 /**
@@ -524,63 +679,156 @@ export function measureWordBankLayout(
     };
 }
 
-/**
- * Shared exact geometry metrics used by both measurement (decideFit) and
- * rendering (allInOneRenderer) so ALL-IN-ONE pages never overflow or collide.
- */
 export function getAllInOneItemMetrics(
     question: ScannableQuestion,
     fontSize: number,
     columnWidth: number,
-    wordBoxMaxChars: number = 1
+    wordBoxMaxChars: number = 1,
+    answerKey?: AnswerKeyItem[]
 ): AllInOneItemMetrics {
     const isLetter =
         question.type === 'multiple_choice' ||
         question.type === 'true_false' ||
         question.type === 'word_box';
     const isEnumeration = question.type === 'enumeration';
-    const enumBoxes = isEnumeration ? Math.max(1, question.answerBoxesRequired || 3) : 1;
-
+    const enumBoxes = isEnumeration ? getEnumerationBoxCount(question, answerKey) : 1;
+    const ansStats = getExpectedAnswerStats(question, answerKey);
     const isCompact = fontSize <= 9.5;
-    const isWideWordBox = question.type === 'word_box' && wordBoxMaxChars > 1;
-    const boxWidth = isLetter
-        ? isWideWordBox
-            ? isCompact
-                ? 26
-                : 28
-            : isCompact
-                ? 20
-                : 22
-        : isCompact
-            ? 80
-            : 88;
-    const boxHeight = isLetter ? (isCompact ? 17 : 20) : isCompact ? 15.5 : 18;
-    const enumGap = 3;
-    const totalBoxHeight = isEnumeration
-        ? enumBoxes * boxHeight + (enumBoxes - 1) * enumGap
-        : boxHeight;
-
-    // Reserve clear space for the small question-number indicator drawn left of the box
-    const numReserve = question.questionNumber >= 10 ? 18 : 14;
-    const textWidth = Math.max(70, columnWidth - boxWidth - numReserve);
     const itemGap = fontSize >= 10.5 ? 6 : fontSize >= 9.0 ? 4.5 : 3.5;
 
+    if (isLetter) {
+        const isWideWordBox = question.type === 'word_box' && wordBoxMaxChars > 1;
+        const boxWidth = isWideWordBox ? (isCompact ? 26 : 28) : isCompact ? 20 : 22;
+        const boxHeight = isCompact ? 17 : 20;
+        const numReserve = question.questionNumber >= 10 ? 18 : 14;
+        const textWidth = Math.max(70, columnWidth - boxWidth - numReserve);
+        return {
+            isLetter: true,
+            isEnumeration: false,
+            enumBoxes: 1,
+            boxLayout: 'inline',
+            badgeWidth: 0,
+            boxWidth,
+            boxHeight,
+            totalBoxHeight: boxHeight,
+            numReserve,
+            textWidth,
+            itemGap,
+            maxChars: question.type === 'word_box' ? wordBoxMaxChars : 1,
+        };
+    }
+
+    if (isEnumeration) {
+        const useTwoColSubGrid =
+            enumBoxes >= 2 &&
+            ansStats.hasExplicitAnswer &&
+            ansStats.longestChars <= 12 &&
+            ansStats.longestWords <= 2;
+
+        const enumGapY = 3;
+        const isVeryLong = ansStats.longestChars > 32;
+        const boxHeight = isVeryLong
+            ? isCompact ? 21 : 23.5
+            : isCompact ? 16.5 : 18.5;
+
+        if (useTwoColSubGrid) {
+            const subColGutter = 8;
+            const cellWidth = (columnWidth - subColGutter) / 2;
+            const badgeWidth = 25;
+            const boxWidth = Math.max(60, cellWidth - badgeWidth);
+            const rows = Math.ceil(enumBoxes / 2);
+            const totalBoxHeight = rows * boxHeight + Math.max(0, rows - 1) * enumGapY;
+            return {
+                isLetter: false,
+                isEnumeration: true,
+                enumBoxes,
+                boxLayout: 'below_grid2',
+                badgeWidth,
+                boxWidth,
+                boxHeight,
+                totalBoxHeight,
+                numReserve: 0,
+                textWidth: columnWidth,
+                itemGap,
+                maxChars: ansStats.maxChars,
+            };
+        }
+
+        const badgeWidth = 28;
+        const boxWidth = Math.max(120, columnWidth - badgeWidth);
+        const totalBoxHeight = enumBoxes * boxHeight + Math.max(0, enumBoxes - 1) * enumGapY;
+        return {
+            isLetter: false,
+            isEnumeration: true,
+            enumBoxes,
+            boxLayout: 'below_full',
+            badgeWidth,
+            boxWidth,
+            boxHeight,
+            totalBoxHeight,
+            numReserve: 0,
+            textWidth: columnWidth,
+            itemGap,
+            maxChars: ansStats.maxChars,
+        };
+    }
+
+    const isShortInlineText =
+        ansStats.hasExplicitAnswer &&
+        ansStats.longestChars <= 10 &&
+        ansStats.longestWords <= 2;
+
+    if (isShortInlineText) {
+        const boxWidth = isCompact ? 84 : 88;
+        const boxHeight = isCompact ? 15.5 : 18;
+        const numReserve = question.questionNumber >= 10 ? 18 : 14;
+        const textWidth = Math.max(70, columnWidth - boxWidth - numReserve);
+        return {
+            isLetter: false,
+            isEnumeration: false,
+            enumBoxes: 1,
+            boxLayout: 'inline',
+            badgeWidth: 0,
+            boxWidth,
+            boxHeight,
+            totalBoxHeight: boxHeight,
+            numReserve,
+            textWidth,
+            itemGap,
+            maxChars: ansStats.maxChars,
+        };
+    }
+
+    const badgeWidth = 22;
+    const boxWidth = Math.max(140, columnWidth - badgeWidth);
+    const isVeryLong = ansStats.longestChars > 32;
+    const boxHeight = isVeryLong
+        ? isCompact ? 22 : 25
+        : isCompact ? 17.5 : 19.5;
+
     return {
-        isLetter,
-        isEnumeration,
-        enumBoxes,
+        isLetter: false,
+        isEnumeration: false,
+        enumBoxes: 1,
+        boxLayout: 'below_full',
+        badgeWidth,
         boxWidth,
         boxHeight,
-        totalBoxHeight,
-        numReserve,
-        textWidth,
+        totalBoxHeight: boxHeight,
+        numReserve: 0,
+        textWidth: columnWidth,
         itemGap,
+        maxChars: ansStats.maxChars,
     };
 }
 
-/**
- * Measures the vertical height required to render a single question and its options/boxes.
- */
+export function getAllInOneSectionBannerHeight(fontSize: number, isFirstInColumn: boolean): number {
+    const bannerH = fontSize <= 9.5 ? 12.5 : 14;
+    const topGap = isFirstInColumn ? 0 : fontSize <= 9.5 ? 3 : 4.5;
+    const bottomGap = 3.5;
+    return topGap + bannerH + bottomGap;
+}
+
 export function measureQuestionHeight(
     question: ScannableQuestion,
     fontSize: number,
@@ -588,30 +836,33 @@ export function measureQuestionHeight(
     font: PDFFont,
     isAllInOne: boolean = false,
     allowCompactOptionPairing: boolean = false,
-    wordBoxMaxChars: number = 1
+    wordBoxMaxChars: number = 1,
+    answerKey?: AnswerKeyItem[],
+    boldFont?: PDFFont
 ): number {
     const lineHeight = fontSize * getLineHeightFactor(fontSize);
-    const metrics = isAllInOne ? getAllInOneItemMetrics(question, fontSize, columnWidth, wordBoxMaxChars) : null;
+    const metrics = isAllInOne
+        ? getAllInOneItemMetrics(question, fontSize, columnWidth, wordBoxMaxChars, answerKey)
+        : null;
     const itemGap = metrics ? metrics.itemGap : fontSize >= 10.5 ? 6 : fontSize >= 9.0 ? 4.5 : 3.5;
 
     const availableTextWidth = metrics ? metrics.textWidth : columnWidth;
 
-    // Measure question stem
     const prefix = `${question.questionNumber}. `;
-    const prefixW = measureTextWidth(prefix, fontSize, font);
+    const prefixW = measureTextWidth(prefix, fontSize, boldFont || font);
     const stemLines = wrapText(question.questionText, Math.max(50, availableTextWidth - prefixW), fontSize, font);
     let height = stemLines.length * lineHeight;
 
-    // Measure options (for multiple choice)
     if (question.type === 'multiple_choice' && question.options && question.options.length > 0) {
         const optionIndent = isAllInOne ? 10 : fontSize >= 10.0 ? 14 : 11;
         const optFontSize = isAllInOne ? fontSize * 0.94 : fontSize;
         const optLineHeight = isAllInOne ? lineHeight * 0.94 : lineHeight;
         const optionWidth = Math.max(50, availableTextWidth - optionIndent);
+        const pairThreshold = isAllInOne ? 10.0 : 9.5;
 
         if (
             allowCompactOptionPairing &&
-            fontSize <= 9.5 &&
+            fontSize <= pairThreshold &&
             canPairMcOptions(question.options, optionWidth, optFontSize, font)
         ) {
             const pairedRows = Math.ceil(question.options.length / 2);
@@ -620,58 +871,108 @@ export function measureQuestionHeight(
             for (let i = 0; i < question.options.length; i++) {
                 const letter = String.fromCharCode(65 + i);
                 const cleanOpt = question.options[i].replace(/^[A-D][.)]\s*/i, '');
-                const optPrefixW = measureTextWidth(`${letter}) `, optFontSize, font);
+                const optPrefixW = measureTextWidth(`${letter}) `, optFontSize, boldFont || font);
                 const optLines = wrapText(cleanOpt, Math.max(40, optionWidth - optPrefixW), optFontSize, font);
                 height += optLines.length * optLineHeight;
             }
         }
     }
 
-    // In ALL-IN-ONE layout, ensure row height accommodates the answer box(es) height
     if (metrics) {
-        height = Math.max(height, metrics.totalBoxHeight + 2);
+        if (metrics.boxLayout === 'inline') {
+            height = Math.max(height, metrics.totalBoxHeight + 2);
+        } else {
+            height += 2.5 + metrics.totalBoxHeight;
+        }
     }
 
     return height + itemGap;
 }
 
-/**
- * Computes height-balanced 2-column split & dimensions for ALL-IN-ONE layout,
- * keeping sequential order (1..splitIndex left, splitIndex+1..N right) while
- * minimizing max(col1Height, col2Height) so both columns fill the bond paper evenly.
- */
+function sumAllInOneSliceHeight(
+    slice: ScannableQuestion[],
+    itemHeights: number[],
+    offset: number,
+    hasMultipleTypes: boolean,
+    fontSize: number,
+    initialPrevType: ScannableQuestion['type'] | null = null
+): number {
+    let total = 0;
+    let prevType = initialPrevType;
+    for (let i = 0; i < slice.length; i++) {
+        const q = slice[i];
+        if (hasMultipleTypes && q.type !== prevType) {
+            total += getAllInOneSectionBannerHeight(fontSize, i === 0);
+            prevType = q.type;
+        }
+        total += itemHeights[offset + i];
+    }
+    return total;
+}
+
 export function measureAllInOneColumns(
     questions: ScannableQuestion[],
     fontSize: number,
     columnWidth: number,
     font: PDFFont,
-    wordBoxMaxChars: number = 1
+    wordBoxMaxChars: number = 1,
+    answerKey?: AnswerKeyItem[],
+    boldFont?: PDFFont,
+    paperSize: 'short' | 'long' = 'short'
 ): { col1Height: number; col2Height: number; maxHeight: number; splitIndex: number } {
     if (questions.length === 0) {
         return { col1Height: 0, col2Height: 0, maxHeight: 0, splitIndex: 0 };
     }
+    const hasMultipleTypes = new Set(questions.map((q) => q.type)).size > 1;
+    const allowPairing =
+        paperSize === 'long'
+            ? fontSize <= 10.0
+            : fontSize <= 9.5 && questions.length <= 20;
+
     if (questions.length === 1) {
-        const h = measureQuestionHeight(questions[0], fontSize, columnWidth, font, true, false, wordBoxMaxChars);
+        const h = measureQuestionHeight(
+            questions[0],
+            fontSize,
+            columnWidth,
+            font,
+            true,
+            allowPairing,
+            wordBoxMaxChars,
+            answerKey,
+            boldFont
+        );
         return { col1Height: h, col2Height: 0, maxHeight: h, splitIndex: 1 };
     }
 
     const heights = questions.map((q) =>
-        measureQuestionHeight(q, fontSize, columnWidth, font, true, false, wordBoxMaxChars)
+        measureQuestionHeight(
+            q,
+            fontSize,
+            columnWidth,
+            font,
+            true,
+            allowPairing,
+            wordBoxMaxChars,
+            answerKey,
+            boldFont
+        )
     );
-    const total = heights.reduce((acc, h) => acc + h, 0);
 
     let bestSplit = Math.ceil(questions.length / 2);
     let bestCol1 = 0;
-    let bestCol2 = total;
+    let bestCol2 = Infinity;
     let bestMax = Infinity;
-    let running = 0;
 
     for (let i = 0; i < questions.length; i++) {
-        running += heights[i];
-        const col1 = running;
-        const col2 = total - running;
+        const col1Slice = questions.slice(0, i + 1);
+        const col2Slice = questions.slice(i + 1);
+        const col1 = sumAllInOneSliceHeight(col1Slice, heights, 0, hasMultipleTypes, fontSize, null);
+        const lastCol1Type = col1Slice[col1Slice.length - 1]?.type ?? null;
+        const col2 =
+            col2Slice.length > 0
+                ? sumAllInOneSliceHeight(col2Slice, heights, i + 1, hasMultipleTypes, fontSize, lastCol1Type)
+                : 0;
         const curMax = Math.max(col1, col2);
-        // Prefer strictly lower maxHeight, or on tie prefer col1 >= col2 (natural reading balance)
         if (curMax < bestMax - 0.5 || (Math.abs(curMax - bestMax) <= 0.5 && col1 >= col2 && bestCol1 < bestCol2)) {
             bestMax = curMax;
             bestSplit = i + 1;

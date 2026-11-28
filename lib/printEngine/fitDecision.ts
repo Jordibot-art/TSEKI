@@ -2,9 +2,11 @@
 
 import { PDFFont } from 'pdf-lib';
 import { throwIfExportAborted } from './cancel';
-import { BondPaperSize, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS } from './constants';
+import { BondPaperSize, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
+import { textRequiresUnicodeFont } from './fonts/embedFonts';
 import {
     extractSharedWordBank,
+    fitHeaderText,
     getLineHeightFactor,
     getMeasureBoldFont,
     getMeasureFont,
@@ -32,6 +34,36 @@ function isPrimaryGrade(gradeLevel?: string): boolean {
 }
 
 /**
+ * Estimates exact vertical space available for ALL-IN-ONE question columns,
+ * matching drawAllInOneHeader and drawAllInOneFooter in allInOneRenderer.ts.
+ */
+export function estimateAllInOneAvailableHeight(
+    title: string,
+    pageWidth: number,
+    pageHeight: number,
+    boldFont: PDFFont
+): number {
+    const startY = pageHeight - MARGINS.top - 4;
+    const headerTextX = MARGINS.left + 24;
+    const qrX = pageWidth - MARGINS.right - 24 - QR_CODE_CONFIG.size;
+    const scoreBoxX = qrX - 12 - 80;
+    const maxHeaderWidth = Math.max(120, scoreBoxX - headerTextX - 12);
+
+    const fittedTitle = fitHeaderText(title || 'Classroom Assessment', maxHeaderWidth, boldFont, 13.5, 9.5, 2);
+    const titleStartY = fittedTitle.lines.length > 1 ? startY - 21 : startY - 24;
+    const titleLineH = fittedTitle.fontSize * 1.24;
+    const lastTitleY = titleStartY - (fittedTitle.lines.length - 1) * titleLineH;
+    const subtitleY = fittedTitle.lines.length > 1 ? lastTitleY - 13.5 : startY - 39;
+    const nameY = Math.min(startY - 63, subtitleY - 13.5);
+    const dateY = nameY - 11;
+    const instY = dateY - 13;
+    const cursorY = instY - 12;
+
+    const footerSafeBottomY = MARGINS.bottom + 16;
+    return Math.max(120, cursorY - footerSafeBottomY);
+}
+
+/**
  * Estimates part header height (banner + instructions + optional word bank)
  * matching bookletRenderer's responsive sizing.
  */
@@ -46,7 +78,6 @@ function estimatePartOverhead(
     const isCompact = fontSize <= 9.5;
     const bannerHeight = isCompact ? 14 : 16;
     const instLineH = isCompact ? 9.5 : 11;
-    // Representative ~75-char instruction wraps ~2 lines in 258pt col
     const instLines = partType === 'multiple_choice' || partType === 'word_box' ? 2 : 1;
     let overhead = bannerHeight + (isCompact ? 10 : 12) + instLines * instLineH + (isCompact ? 2 : 4);
 
@@ -88,10 +119,10 @@ export function estimateBookletLayout(
 
     const sharedWordBank = extractSharedWordBank(questions, answerKey);
     const printableHeight = pageHeight - MARGINS.top - MARGINS.bottom;
-    // Page 1: header (~84 pt) + footer & bottom buffer (~34 pt)
-    const page1Reserved = 84 + 34;
-    // Continuation pages: header (~68 pt) + footer & bottom buffer (~34 pt)
-    const pageNReserved = 68 + 34;
+    // Matches bookletRenderer Page 1 header (~96 pt) + footer & bottom buffer (~28 pt)
+    const page1Reserved = 96 + 28;
+    // Continuation pages: header (~70 pt) + footer & bottom buffer (~28 pt)
+    const pageNReserved = 70 + 28;
 
     const page1Capacity = Math.max(200, printableHeight - page1Reserved);
     const pageNCapacity = Math.max(200, printableHeight - pageNReserved);
@@ -135,14 +166,33 @@ export function estimateBookletLayout(
                 addHeight(partGap);
             }
             const partHeaderH = estimatePartOverhead(q.type, sharedWordBank, fontSize, columnWidth, font, boldFont);
-            const firstItemH = measureQuestionHeight(q, fontSize, columnWidth, font, false, allowPairing);
-            // Keep part header together with at least its first question
+            const firstItemH = measureQuestionHeight(
+                q,
+                fontSize,
+                columnWidth,
+                font,
+                false,
+                allowPairing,
+                1,
+                answerKey,
+                boldFont
+            );
             advanceSlot(Math.min(partHeaderH, currentCapacity) + Math.min(firstItemH, 40));
             addHeight(partHeaderH);
             prevType = q.type;
         }
 
-        const qHeight = measureQuestionHeight(q, fontSize, columnWidth, font, false, allowPairing);
+        const qHeight = measureQuestionHeight(
+            q,
+            fontSize,
+            columnWidth,
+            font,
+            false,
+            allowPairing,
+            1,
+            answerKey,
+            boldFont
+        );
         advanceSlot(qHeight);
         addHeight(qHeight);
     }
@@ -176,11 +226,11 @@ export function estimateBookletPages(
  * Selects the optimal responsive Question Booklet font size for any question count (1-50+)
  * and bond paper size (Short 8.5x11" or Long 8.5x13"):
  *
- * - For <= 30 questions that fit cleanly on 1-2 pages: preserves 11.0 pt standard font size
- *   (only stepping down gently if 11pt spills a tiny orphan tail onto an extra page).
- * - For large exams (> 30 questions, e.g. 31-50 items): steps down cleanly (down to 7.5 pt,
- *   or 10.5 pt for Grades 1-3) and picks the largest readable font that achieves the minimum
- *   compact page count so the entire bond paper is utilized efficiently.
+ * - On Long Bond Paper: actively uses the extra 2" height to pack <=30-item booklets onto
+ *   fewer pages (e.g. 1 page instead of 2) whenever a readable >=9.0pt font achieves it.
+ * - On Short Bond Paper: preserves 11.0 pt standard font when 1-2 pages are well filled,
+ *   stepping down gently if 11pt spills an orphan tail.
+ * - For > 30 questions: picks the largest readable font achieving minimum compact page count.
  */
 export function chooseBookletFontSize(
     questions: GeneratedAssessment['questions'],
@@ -209,7 +259,6 @@ export function chooseBookletFontSize(
         boldFont
     );
 
-    // 1. Standard 1-30 questions: strongly prefer 11.0 pt standard font when it fits cleanly
     if (questions.length <= 30) {
         if (stdLayout.pages === 1) {
             return {
@@ -220,8 +269,8 @@ export function chooseBookletFontSize(
             };
         }
 
-        // If 11pt already fills 2 pages well (not an almost-empty orphan page), keep 11pt standard
-        if (stdLayout.pages === 2 && stdLayout.lastPageFillRatio >= 0.25) {
+        // On Short bond, if 11pt fills 2 pages well, preserve crisp 11pt standard
+        if (paperSize === 'short' && stdLayout.pages === 2 && stdLayout.lastPageFillRatio >= 0.25) {
             return {
                 fontSize: FONT_CONFIG.DEFAULT_SIZE,
                 lineHeight: FONT_CONFIG.DEFAULT_SIZE * getLineHeightFactor(FONT_CONFIG.DEFAULT_SIZE),
@@ -230,7 +279,8 @@ export function chooseBookletFontSize(
             };
         }
 
-        // Otherwise 11pt spilled an orphan tail or >=3 pages: gently step down (min 9.0 pt for <=30 items)
+        // On Long bond (or when 11pt spilled an orphan tail / >=3 pages on Short):
+        // gently step down (min 9.0 pt) if it reduces the total booklet page count!
         const gentleMin = isPrimary ? FONT_CONFIG.MIN_SIZE_PRIMARY : 9.0;
         const gentleCandidates = allCandidates.filter((sz) => sz < FONT_CONFIG.DEFAULT_SIZE && sz >= gentleMin);
         for (const sz of gentleCandidates) {
@@ -253,16 +303,14 @@ export function chooseBookletFontSize(
         };
     }
 
-    // 2. Large assessments (> 30 questions, e.g. 31-50 items):
-    // Find the minimum compact page count achievable and choose the LARGEST font that fits it
+    // Large assessments (> 30 questions, e.g. 31-50+ items):
+    // Find minimum compact page count achievable and choose the LARGEST font that fits it
     const simulations = allCandidates.map((sz) => ({
         fontSize: sz,
         ...estimateBookletLayout(questions, sz, columnWidth, dimensions.height, font, answerKey, boldFont),
     }));
 
     const minPages = Math.min(...simulations.map((s) => s.pages));
-
-    // Pick largest font size that achieves minPages (candidates are already sorted descending)
     const best = simulations.find((s) => s.pages === minPages) || simulations[0];
 
     return {
@@ -276,7 +324,8 @@ export function chooseBookletFontSize(
 /**
  * Determines whether the assessment fits on a single ALL-IN-ONE page,
  * or requires a SEPARATE reusable question booklet and answer sheet,
- * responsively adapting font size to question count (1-50+) and paper size (short vs long).
+ * responsively adapting font size and answer box layout to question count,
+ * answer lengths, and bond paper size (Short 8.5x11" vs Long 8.5x13").
  */
 export async function decideFit(
     assessment: GeneratedAssessment,
@@ -285,16 +334,13 @@ export async function decideFit(
 ): Promise<FitResult> {
     throwIfExportAborted(options.signal);
     const font = measureFont || (await getMeasureFont());
-    const boldFont = measureFont ? undefined : await getMeasureBoldFont();
+    const boldFont = measureFont ? font : await getMeasureBoldFont();
     throwIfExportAborted(options.signal);
     const paperSize = options.paperSize || 'short';
     const dimensions = PAPER_DIMENSIONS[paperSize];
 
     const printableWidth = dimensions.width - MARGINS.left - MARGINS.right; // 540 pt
-    const printableHeight = dimensions.height - MARGINS.top - MARGINS.bottom; // 720 pt (short) / 864 pt (long)
-
-    // Match allInOneRenderer's exact 2-column width (colGutter = 20 -> 260 pt each)
-    const allInOneColWidth = (printableWidth - 20) / 2;
+    const allInOneColWidth = (printableWidth - 20) / 2; // 260 pt
 
     // If teacher explicitly requested SEPARATE
     if (options.forceSeparate || options.mode === 'SEPARATE') {
@@ -310,63 +356,78 @@ export async function decideFit(
             mode: 'SEPARATE',
             fontSize: bookletChoice.fontSize,
             lineHeight: bookletChoice.lineHeight,
-            pages: bookletChoice.bookletPages + 1, // booklet pages + 1 answer sheet
-            fitMessage: `Separate question booklet (${bookletChoice.bookletPages} ${bookletChoice.bookletPages === 1 ? 'page' : 'pages'} at ${bookletChoice.fontSize} pt) + 1 answer sheet`,
+            pages: bookletChoice.bookletPages + 1,
+            fitMessage: `Separate question booklet (${bookletChoice.bookletPages} ${bookletChoice.bookletPages === 1 ? 'page' : 'pages'} at ${bookletChoice.fontSize} pt on ${paperSize} bond) + answer sheet`,
         };
     }
 
+    // Account for slightly wider Noto Sans glyphs (~6%) when Unicode symbols are present
+    const textSample = [
+        assessment.quizTitle || '',
+        options.classTitle || '',
+        ...assessment.questions.flatMap((q) => [q.questionText || '', ...(q.options || [])]),
+    ].join(' ');
+    const unicodeWidthFactor = !measureFont && textRequiresUnicodeFont(textSample) ? 0.94 : 1.0;
+    const effectiveMeasureColWidth = allInOneColWidth * unicodeWidthFactor;
+
     const isPrimary = isPrimaryGrade(options.gradeLevel);
-    const isDenseCount = assessment.questions.length > 30;
-    const rawAllInOneCandidates = isDenseCount
-        ? FONT_CONFIG.ALL_IN_ONE_DENSE_CANDIDATES
-        : FONT_CONFIG.ALL_IN_ONE_CANDIDATES;
-    const minAllInOne = isPrimary
-        ? FONT_CONFIG.MIN_SIZE_PRIMARY
-        : isDenseCount
-            ? 8.0
-            : FONT_CONFIG.MIN_SIZE_DEFAULT;
-    const candidates = rawAllInOneCandidates.filter((f) => f >= minAllInOne);
+    const maxSingleSheetItems = paperSize === 'long' ? 38 : 32;
 
-    // Reserved heights on ALL-IN-ONE page:
-    // Header (eyebrow, 1-2 line title, subtitle, student lines, score box, QR): ~100 pt
-    // Instructions strip + top gap: ~26 pt
-    // Footer & bottom margin buffer: ~28 pt
-    const reservedVertical = 100 + 26 + 28;
-    const availableQuestionHeight = printableHeight - reservedVertical;
+    if (assessment.questions.length <= maxSingleSheetItems) {
+        const rawAllInOneCandidates =
+            paperSize === 'long'
+                ? FONT_CONFIG.ALL_IN_ONE_LONG_CANDIDATES
+                : FONT_CONFIG.ALL_IN_ONE_CANDIDATES;
+        const minAllInOne = isPrimary
+            ? FONT_CONFIG.MIN_SIZE_PRIMARY
+            : paperSize === 'long'
+                ? FONT_CONFIG.MIN_SIZE_LONG_BOND
+                : FONT_CONFIG.MIN_SIZE_DEFAULT;
+        const candidates = rawAllInOneCandidates.filter((f) => f >= minAllInOne);
 
-    // Account for the full shared Word Bank banner height in ALL-IN-ONE mode if word_box items exist
-    const sharedWordBank = extractSharedWordBank(assessment.questions, assessment.answerKey);
-    const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
-
-    // Check each candidate font size descending (always trying 11.0 pt standard first!)
-    for (const fontSize of candidates) {
-        const wordBankReserve =
-            sharedWordBank.length > 0
-                ? measureWordBankLayout(
-                      sharedWordBank,
-                      boldFont ? printableWidth : printableWidth * 0.94,
-                      fontSize,
-                      boldFont || font,
-                      'ALL_IN_ONE'
-                  ).totalHeight
-                : 0;
-        const effectiveHeight = availableQuestionHeight - wordBankReserve;
-        const { maxHeight } = measureAllInOneColumns(
-            assessment.questions,
-            fontSize,
-            allInOneColWidth,
-            font,
-            wordBoxMaxChars
+        const title = assessment.quizTitle || (assessment as any).title || 'Classroom Assessment';
+        const availableQuestionHeight = estimateAllInOneAvailableHeight(
+            title,
+            dimensions.width,
+            dimensions.height,
+            boldFont
         );
 
-        if (effectiveHeight > 0 && maxHeight <= effectiveHeight) {
-            return {
-                mode: 'ALL_IN_ONE',
+        const sharedWordBank = extractSharedWordBank(assessment.questions, assessment.answerKey);
+        const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
+
+        for (const fontSize of candidates) {
+            const wordBankReserve =
+                sharedWordBank.length > 0
+                    ? measureWordBankLayout(
+                          sharedWordBank,
+                          printableWidth * unicodeWidthFactor,
+                          fontSize,
+                          boldFont,
+                          'ALL_IN_ONE'
+                      ).totalHeight
+                    : 0;
+            const effectiveHeight = availableQuestionHeight - wordBankReserve;
+            const { maxHeight } = measureAllInOneColumns(
+                assessment.questions,
                 fontSize,
-                lineHeight: fontSize * getLineHeightFactor(fontSize),
-                pages: 1,
-                fitMessage: `Fits on 1 ${paperSize} bond page at ${fontSize} pt (ALL-IN-ONE)`,
-            };
+                effectiveMeasureColWidth,
+                font,
+                wordBoxMaxChars,
+                assessment.answerKey,
+                boldFont,
+                paperSize
+            );
+
+            if (effectiveHeight > 0 && maxHeight <= effectiveHeight) {
+                return {
+                    mode: 'ALL_IN_ONE',
+                    fontSize,
+                    lineHeight: fontSize * getLineHeightFactor(fontSize),
+                    pages: 1,
+                    fitMessage: `Fits on 1 ${paperSize} bond page at ${fontSize} pt (ALL-IN-ONE)`,
+                };
+            }
         }
     }
 
@@ -383,7 +444,7 @@ export async function decideFit(
         mode: 'SEPARATE',
         fontSize: bookletChoice.fontSize,
         lineHeight: bookletChoice.lineHeight,
-        pages: bookletChoice.bookletPages + 1, // booklet pages + 1 answer sheet
+        pages: bookletChoice.bookletPages + 1,
         fitMessage: `Switched to separate booklet (${bookletChoice.bookletPages} ${bookletChoice.bookletPages === 1 ? 'page' : 'pages'} at ${bookletChoice.fontSize} pt on ${paperSize} bond) + answer sheet`,
     };
 }

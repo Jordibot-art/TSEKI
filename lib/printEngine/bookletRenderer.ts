@@ -9,9 +9,8 @@ import {
     canPairMcOptions,
     extractSharedWordBank,
     fitHeaderText,
+    getEnumerationBoxCount,
     getLineHeightFactor,
-    getMeasureBoldFont,
-    getMeasureFont,
     measureQuestionHeight,
     measureWordBankLayout,
     truncateTextToWidth,
@@ -73,9 +72,9 @@ export async function renderBookletPDF(
                   assessment.questions,
                   paperSize,
                   options.gradeLevel,
-                  await getMeasureFont(),
+                  font,
                   assessment.answerKey,
-                  await getMeasureBoldFont()
+                  fontBold
               ).fontSize;
     const lineHeight = fontSize * getLineHeightFactor(fontSize);
 
@@ -675,7 +674,7 @@ function groupQuestionsByPart(
             parts.push(currentPart);
         }
         currentPart.questions.push(q);
-        currentPart.pts += (q.type === 'enumeration' ? (q.answerBoxesRequired || 3) : 1);
+        currentPart.pts += q.type === 'enumeration' ? getEnumerationBoxCount(q, answerKey) : 1;
     }
 
     return parts;

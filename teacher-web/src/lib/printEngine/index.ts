@@ -119,6 +119,7 @@ export async function generatePrintPackage(
             version,
             quizId,
             paperSize,
+            answerKey: activeAssessment.answerKey,
             skipPdfSave: true,
         };
 
@@ -237,6 +238,7 @@ export async function generatePrintPackage(
             version,
             quizId,
             paperSize,
+            answerKey: activeAssessment.answerKey,
         });
         await abortableDelay(0, signal);
 

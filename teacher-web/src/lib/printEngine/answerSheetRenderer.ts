@@ -1,6 +1,6 @@
 // teacher-web/src/lib/printEngine/answerSheetRenderer.ts
 
-import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
+import { PDFDocument, type PDFFont, type PDFPage, rgb } from 'pdf-lib';
 import { abortableDelay, throwIfExportAborted } from './cancel';
 import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
@@ -9,13 +9,15 @@ import { drawCornerMarkers } from './markers';
 import {
     extractSharedWordBank,
     fitHeaderText,
+    getEnumerationBoxCount,
+    getExpectedAnswerStats,
     getMeasureBoldFont,
     getMeasureFont,
     getWordBankMaxChars,
     truncateTextToWidth,
 } from './measure';
 import { drawQRCode } from './qrStamp';
-import type { LayoutItem, LayoutPage, MarkerRect, PrintOptions, QRRect, ScannableQuestion } from './types';
+import type { AnswerKeyItem, LayoutItem, LayoutPage, MarkerRect, PrintOptions, QRRect, ScannableQuestion } from './types';
 
 export interface AnswerSheetRenderResult {
     pdfBytes: Uint8Array;
@@ -45,12 +47,6 @@ interface PageState {
     cursorY: number;
 }
 
-/**
- * Builds the physical scannable Answer Sheet PDF with corner registration squares,
- * QR stamp, student information lines, score box, and segmented answer boxes.
- * Enforces 1 page typical, hard max 2 pages ("Sheet 2 of 2") on overflow.
- * Collects pixel-precise top-origin coordinates for LayoutJSON.
- */
 export async function renderAnswerSheetPDF(
     questions: ScannableQuestion[],
     options: PrintOptions = {}
@@ -93,12 +89,12 @@ export async function renderAnswerSheetPDF(
     const version = options.version || 'A';
     const quizId = options.quizId || `QZ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${questions.length}`;
 
-    // Calculate total points
     const totalPoints = questions.reduce((sum, q) => {
         if (q.type === 'enumeration') {
-            return sum + (q.answerBoxesRequired || 3);
+            return sum + getEnumerationBoxCount(q, options.answerKey);
         }
-        return sum + 1;
+        const keyItem = options.answerKey?.find((k) => k.questionNumber === q.questionNumber);
+        return sum + (keyItem?.points || 1);
     }, 0);
 
     const sheetCtx: SheetContext = {
@@ -117,7 +113,6 @@ export async function renderAnswerSheetPDF(
 
     const pageStates: PageState[] = [];
 
-    // Create Page 1
     const page1 = doc.addPage([dims.width, dims.height]);
     const markers1 = drawCornerMarkers(page1, dims.width, dims.height);
     const headerBottomY = drawAnswerSheetHeader(page1, sheetCtx);
@@ -131,14 +126,12 @@ export async function renderAnswerSheetPDF(
     };
     pageStates.push(state1);
 
-    // Draw Answer Sections (with overflow support up to hard max 2 pages)
     drawAnswerSections(pageStates, sheetCtx, questions);
     if (!options.skipPdfSave) {
         await abortableDelay(0, options.signal);
     }
     throwIfExportAborted(options.signal);
 
-    // Stamp QR codes & footers now that totalSheetPages (1 or 2) is known
     const totalSheetPages = pageStates.length;
     const layoutPages: LayoutPage[] = [];
 
@@ -191,10 +184,9 @@ function drawAnswerSheetHeader(
 ): number {
     const { width, height, font, fontBold, version, totalPoints, options, totalQuestions } = ctx;
 
-    const startY = height - MARGINS.top - 4; // leave buffer from top markers
+    const startY = height - MARGINS.top - 4;
     const headerTextX = MARGINS.left + 24;
 
-    // Score box on right (left of QR code)
     const qrSize = QR_CODE_CONFIG.size;
     const scoreBoxWidth = 84;
     const scoreBoxHeight = 44;
@@ -227,25 +219,23 @@ function drawAnswerSheetHeader(
         color: rgb(0.1, 0.1, 0.1),
     });
 
-    // Safe horizontal width strictly left of the SCORE box & QR code
     const maxHeaderWidth = Math.max(120, scoreBoxX - headerTextX - 12);
 
-    // Small system title
+    const paperLabel = options.paperSize === 'long' ? 'LONG BOND' : 'SHORT BOND';
     const eyebrowText = truncateTextToWidth(
-        'TSEKI SMART ASSESSMENT SYSTEM | ANSWER SHEET',
+        `TSEKI SMART ASSESSMENT SYSTEM | ANSWER SHEET (${paperLabel})`,
         maxHeaderWidth,
         8.5,
         fontBold
     );
     page.drawText(eyebrowText, {
-        x: headerTextX, // slightly indented from corner marker
+        x: headerTextX,
         y: startY - 8,
         size: 8.5,
         font: fontBold,
         color: rgb(0.35, 0.38, 0.44),
     });
 
-    // Title (auto-scales / wraps cleanly up to 2 lines strictly inside maxHeaderWidth)
     const title = options.quizId ? `Assessment: ${options.quizId}` : 'Class Assessment';
     const fittedTitle = fitHeaderText(title, maxHeaderWidth, fontBold, 14.5, 9.5, 2);
     const titleStartY = fittedTitle.lines.length > 1 ? startY - 22 : startY - 26;
@@ -259,7 +249,6 @@ function drawAnswerSheetHeader(
         });
     }
 
-    // Subtitle
     const lastTitleY = titleStartY - (fittedTitle.lines.length - 1) * fittedTitle.lineHeight;
     const subtitleY = fittedTitle.lines.length > 1 ? lastTitleY - 12 : startY - 41;
     const classInfo = options.classTitle || 'BSIT-4';
@@ -277,8 +266,6 @@ function drawAnswerSheetHeader(
         color: rgb(0.3, 0.35, 0.4),
     });
 
-    // Student Information lines (below 56pt QR code and wrapped subtitle)
-    // Row 1: Last Name, First Name, Middle Name
     const nameY = Math.min(startY - 62, subtitleY - 12);
     page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left,
@@ -288,7 +275,6 @@ function drawAnswerSheetHeader(
         color: rgb(0.15, 0.15, 0.15),
     });
 
-    // Row 2: Date, Section
     const dateY = nameY - 11;
     page.drawText('Date: ___________________________________, Section: ___________________________________', {
         x: MARGINS.left,
@@ -298,7 +284,6 @@ function drawAnswerSheetHeader(
         color: rgb(0.15, 0.15, 0.15),
     });
 
-    // Dark ink instructions
     const instY = dateY - 11;
     page.drawText(
         'Use DARK INK and CAPITAL LETTERS. One answer per box, kept inside the box. Do not fold this sheet or cover the black squares in the corners.',
@@ -311,7 +296,6 @@ function drawAnswerSheetHeader(
         }
     );
 
-    // Thin separator line
     page.drawLine({
         start: { x: MARGINS.left, y: instY - 6 },
         end: { x: width - MARGINS.right, y: instY - 6 },
@@ -357,7 +341,6 @@ function drawContinuationSheetHeader(
         color: rgb(0.1, 0.12, 0.16),
     });
 
-    // Keep full-width student name line cleanly below the 56pt QR code
     const nameY = startY - QR_CODE_CONFIG.size - 6;
     page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left,
@@ -390,7 +373,6 @@ function ensureSheetSpace(
         return current;
     }
 
-    // Overflow to Page 2 (hard max 2 pages)
     const page2 = ctx.doc.addPage([ctx.width, ctx.height]);
     const markers2 = drawCornerMarkers(page2, ctx.width, ctx.height);
     const cursorY2 = drawContinuationSheetHeader(page2, ctx);
@@ -421,7 +403,28 @@ interface AnswerSheetDensity {
     sectionGap: number;
 }
 
+interface AnswerSheetLayoutPlan {
+    density: AnswerSheetDensity;
+    enumCols: 1 | 2 | 3;
+    stackPairedTextFullWidth: boolean;
+    singleTextFullWidth: boolean;
+}
+
 const SHEET_DENSITIES: AnswerSheetDensity[] = [
+    {
+        letterCols: 10,
+        letterWidth: 44,
+        letterSpacingX: 11,
+        letterHeight: 29,
+        letterNumHeight: 10.0,
+        letterInputHeight: 19.0,
+        letterSpacingY: 6.5,
+        textBoxHeight: 22.5,
+        textSpacingY: 5.5,
+        enumBoxHeight: 21.5,
+        enumSpacingY: 5.0,
+        sectionGap: 10,
+    },
     {
         letterCols: 10,
         letterWidth: 44,
@@ -466,11 +469,75 @@ const SHEET_DENSITIES: AnswerSheetDensity[] = [
     },
 ];
 
-function estimateSheetSectionsHeight(
+interface EnumSubBoxItem {
+    qNum: number;
+    subIdx: number;
+    maxChars: number;
+}
+
+function partitionEnumerationColumns(
+    questions: ScannableQuestion[],
+    numCols: 1 | 2 | 3,
+    answerKey?: AnswerKeyItem[]
+): EnumSubBoxItem[][] {
+    const groups: EnumSubBoxItem[][] = [];
+    const flat: EnumSubBoxItem[] = [];
+
+    for (const q of questions) {
+        const count = getEnumerationBoxCount(q, answerKey);
+        const stats = getExpectedAnswerStats(q, answerKey);
+        const group: EnumSubBoxItem[] = [];
+        for (let sub = 1; sub <= count; sub++) {
+            const item: EnumSubBoxItem = { qNum: q.questionNumber, subIdx: sub, maxChars: stats.maxChars };
+            group.push(item);
+            flat.push(item);
+        }
+        groups.push(group);
+    }
+
+    if (numCols === 1 || flat.length === 0) {
+        return [flat];
+    }
+
+    const idealPerCol = Math.ceil(flat.length / numCols);
+    const groupedCols: EnumSubBoxItem[][] = Array.from({ length: numCols }, () => []);
+    let colIdx = 0;
+    let remainingItems = flat.length;
+
+    for (let g = 0; g < groups.length; g++) {
+        const grp = groups[g];
+        const colsLeft = numCols - colIdx;
+        const targetForThisCol = Math.ceil(remainingItems / colsLeft);
+        if (
+            groupedCols[colIdx].length > 0 &&
+            colIdx < numCols - 1 &&
+            groupedCols[colIdx].length + grp.length > targetForThisCol + 1
+        ) {
+            colIdx += 1;
+        }
+        groupedCols[colIdx].push(...grp);
+        remainingItems -= grp.length;
+    }
+
+    const groupedMaxRows = Math.max(...groupedCols.map((c) => c.length));
+    if (groupedMaxRows <= idealPerCol + 1) {
+        return groupedCols;
+    }
+
+    const evenCols: EnumSubBoxItem[][] = [];
+    for (let c = 0; c < numCols; c++) {
+        evenCols.push(flat.slice(c * idealPerCol, (c + 1) * idealPerCol));
+    }
+    return evenCols;
+}
+
+function estimateSheetPlanHeight(
     byType: Map<ScannableQuestion['type'], ScannableQuestion[]>,
     seenTypes: ScannableQuestion['type'][],
-    d: AnswerSheetDensity
+    plan: AnswerSheetLayoutPlan,
+    answerKey?: AnswerKeyItem[]
 ): number {
+    const d = plan.density;
     let total = 0;
     const processed = new Set<ScannableQuestion['type']>();
 
@@ -486,24 +553,102 @@ function estimateSheetSectionsHeight(
             const id = !processed.has('identification') ? (byType.get('identification') || []) : [];
             processed.add('fill_blank');
             processed.add('identification');
-            let maxRows: number;
+
             if (fb.length > 0 && id.length > 0) {
-                maxRows = Math.max(fb.length, id.length);
+                if (plan.stackPairedTextFullWidth) {
+                    total +=
+                        21 + fb.length * (d.textBoxHeight + d.textSpacingY) + d.sectionGap +
+                        21 + id.length * (d.textBoxHeight + d.textSpacingY) + d.sectionGap;
+                } else {
+                    const maxRows = Math.max(fb.length, id.length);
+                    total += 21 + maxRows * (d.textBoxHeight + d.textSpacingY) + d.sectionGap;
+                }
             } else {
                 const singleCount = Math.max(fb.length, id.length);
-                maxRows = singleCount > 8 ? Math.ceil(singleCount / 2) : singleCount;
+                const rows = plan.singleTextFullWidth ? singleCount : Math.ceil(singleCount / 2);
+                total += 21 + rows * (d.textBoxHeight + d.textSpacingY) + d.sectionGap;
             }
-            total += 21 + maxRows * (d.textBoxHeight + d.textSpacingY) + d.sectionGap;
         } else if (qType === 'enumeration') {
             processed.add('enumeration');
             const en = byType.get('enumeration') || [];
-            const totalSubBoxes = en.reduce((acc, q) => acc + (q.answerBoxesRequired || 3), 0);
-            const rowsPerCol = Math.ceil(totalSubBoxes / 3);
-            total += 21 + rowsPerCol * (d.enumBoxHeight + d.enumSpacingY) + d.sectionGap;
+            const cols = partitionEnumerationColumns(en, plan.enumCols, answerKey);
+            const maxRows = Math.max(1, ...cols.map((c) => c.length));
+            total += 21 + maxRows * (d.enumBoxHeight + d.enumSpacingY) + d.sectionGap;
         }
     }
 
     return total;
+}
+
+function selectOptimalSheetPlan(
+    byType: Map<ScannableQuestion['type'], ScannableQuestion[]>,
+    seenTypes: ScannableQuestion['type'][],
+    page1Available: number,
+    answerKey?: AnswerKeyItem[]
+): AnswerSheetLayoutPlan {
+    const fb = byType.get('fill_blank') || [];
+    const id = byType.get('identification') || [];
+    const en = byType.get('enumeration') || [];
+
+    const maxTextLen = [...fb, ...id].reduce((mx, q) => {
+        const st = getExpectedAnswerStats(q, answerKey);
+        return st.hasExplicitAnswer ? Math.max(mx, st.longestChars) : mx;
+    }, 0);
+
+    const maxEnumLen = en.reduce((mx, q) => {
+        const st = getExpectedAnswerStats(q, answerKey);
+        return st.hasExplicitAnswer ? Math.max(mx, st.longestChars) : mx;
+    }, 0);
+
+    const totalEnumBoxes = en.reduce((sum, q) => sum + getEnumerationBoxCount(q, answerKey), 0);
+    const singleTextCount = Math.max(fb.length, id.length);
+    const hasLongText = maxTextLen > 20;
+
+    let enumColCandidates: (1 | 2 | 3)[];
+    if (en.length === 0) {
+        enumColCandidates = [2];
+    } else if (maxEnumLen > 24 || totalEnumBoxes <= 4) {
+        enumColCandidates = [1, 2, 3];
+    } else {
+        enumColCandidates = [2, 3];
+    }
+
+    const singleTextCandidates =
+        singleTextCount <= 8
+            ? [true]
+            : hasLongText
+                ? [true, false]
+                : [false];
+
+    const stackPairedCandidates =
+        fb.length > 0 && id.length > 0 && hasLongText
+            ? [true, false]
+            : [false];
+
+    for (const density of SHEET_DENSITIES) {
+        for (const stackPairedTextFullWidth of stackPairedCandidates) {
+            for (const singleTextFullWidth of singleTextCandidates) {
+                for (const enumCols of enumColCandidates) {
+                    const candidate: AnswerSheetLayoutPlan = {
+                        density,
+                        enumCols,
+                        stackPairedTextFullWidth,
+                        singleTextFullWidth,
+                    };
+                    if (estimateSheetPlanHeight(byType, seenTypes, candidate, answerKey) <= page1Available) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    return {
+        density: SHEET_DENSITIES[SHEET_DENSITIES.length - 1],
+        enumCols: maxEnumLen > 24 ? 1 : maxEnumLen > 14 ? 2 : 3,
+        stackPairedTextFullWidth: false,
+        singleTextFullWidth: singleTextCount <= 8,
+    };
 }
 
 function drawAnswerSections(
@@ -512,6 +657,7 @@ function drawAnswerSections(
     questions: ScannableQuestion[]
 ): void {
     const { printableWidth, font, fontBold } = ctx;
+    const answerKey = ctx.options.answerKey;
 
     const seenTypes: ScannableQuestion['type'][] = [];
     const byType = new Map<ScannableQuestion['type'], ScannableQuestion[]>();
@@ -524,13 +670,8 @@ function drawAnswerSections(
     }
 
     const page1Available = pageStates[0].cursorY - (MARGINS.bottom + 22);
-    let density = SHEET_DENSITIES[SHEET_DENSITIES.length - 1];
-    for (const candidate of SHEET_DENSITIES) {
-        if (estimateSheetSectionsHeight(byType, seenTypes, candidate) <= page1Available) {
-            density = candidate;
-            break;
-        }
-    }
+    const plan = selectOptimalSheetPlan(byType, seenTypes, page1Available, answerKey);
+    const density = plan.density;
 
     let sectionNum = 1;
     const processed = new Set<ScannableQuestion['type']>();
@@ -561,7 +702,7 @@ function drawAnswerSections(
         } else if (qType === 'word_box') {
             processed.add('word_box');
             const wb = byType.get('word_box')!;
-            const sharedWordBank = extractSharedWordBank(questions);
+            const sharedWordBank = extractSharedWordBank(questions, answerKey);
             const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
             const rows = Math.ceil(wb.length / density.letterCols);
             const needed = 21 + rows * (density.letterHeight + density.letterSpacingY);
@@ -589,41 +730,60 @@ function drawAnswerSections(
             processed.add('fill_blank');
             processed.add('identification');
 
-            const colWidth = (printableWidth - 16) / 2;
+            const halfColWidth = (printableWidth - 16) / 2;
             const col1X = MARGINS.left;
-            const col2X = MARGINS.left + colWidth + 16;
+            const col2X = MARGINS.left + halfColWidth + 16;
 
             if (fb.length > 0 && id.length > 0) {
-                const maxRows = Math.max(fb.length, id.length);
-                const needed = 21 + maxRows * (density.textBoxHeight + density.textSpacingY);
-                const st = ensureSheetSpace(pageStates, ctx, needed);
+                if (plan.stackPairedTextFullWidth) {
+                    const firstList = qType === 'fill_blank' ? fb : id;
+                    const firstLabel = qType === 'fill_blank' ? 'FILL IN THE BLANK' : 'IDENTIFICATION';
+                    const secondList = qType === 'fill_blank' ? id : fb;
+                    const secondLabel = qType === 'fill_blank' ? 'IDENTIFICATION' : 'FILL IN THE BLANK';
 
-                let leftBottomY = st.cursorY;
-                let rightBottomY = st.cursorY;
-
-                if (qType === 'fill_blank') {
-                    const fbTitle = `${toRoman(sectionNum++)}. FILL IN THE BLANK (${fb[0].questionNumber}-${fb[fb.length - 1].questionNumber})`;
-                    leftBottomY = drawSectionBanner(st.pdfPage, col1X, st.cursorY, colWidth, fbTitle, fontBold);
-                    leftBottomY = drawTextBoxColumn(st.pdfPage, col1X, leftBottomY, colWidth, fb, font, fontBold, 'text', st.items, ctx.height, density);
-
-                    const idTitle = `${toRoman(sectionNum++)}. IDENTIFICATION (${id[0].questionNumber}-${id[id.length - 1].questionNumber})`;
-                    rightBottomY = drawSectionBanner(st.pdfPage, col2X, st.cursorY, colWidth, idTitle, fontBold);
-                    rightBottomY = drawTextBoxColumn(st.pdfPage, col2X, rightBottomY, colWidth, id, font, fontBold, 'text', st.items, ctx.height, density);
+                    for (const [list, lbl] of [
+                        [firstList, firstLabel],
+                        [secondList, secondLabel],
+                    ] as const) {
+                        const needed = 21 + list.length * (density.textBoxHeight + density.textSpacingY);
+                        const st = ensureSheetSpace(pageStates, ctx, needed);
+                        const title = `${toRoman(sectionNum++)}. ${lbl} (${list[0].questionNumber}-${list[list.length - 1].questionNumber})`;
+                        st.cursorY = drawSectionBanner(st.pdfPage, MARGINS.left, st.cursorY, printableWidth, title, fontBold);
+                        st.cursorY = drawTextBoxColumn(st.pdfPage, MARGINS.left, st.cursorY, printableWidth, list, font, fontBold, 'text', st.items, ctx.height, density, answerKey);
+                        st.cursorY -= density.sectionGap;
+                    }
                 } else {
-                    const idTitle = `${toRoman(sectionNum++)}. IDENTIFICATION (${id[0].questionNumber}-${id[id.length - 1].questionNumber})`;
-                    leftBottomY = drawSectionBanner(st.pdfPage, col1X, st.cursorY, colWidth, idTitle, fontBold);
-                    leftBottomY = drawTextBoxColumn(st.pdfPage, col1X, leftBottomY, colWidth, id, font, fontBold, 'text', st.items, ctx.height, density);
+                    const maxRows = Math.max(fb.length, id.length);
+                    const needed = 21 + maxRows * (density.textBoxHeight + density.textSpacingY);
+                    const st = ensureSheetSpace(pageStates, ctx, needed);
 
-                    const fbTitle = `${toRoman(sectionNum++)}. FILL IN THE BLANK (${fb[0].questionNumber}-${fb[fb.length - 1].questionNumber})`;
-                    rightBottomY = drawSectionBanner(st.pdfPage, col2X, st.cursorY, colWidth, fbTitle, fontBold);
-                    rightBottomY = drawTextBoxColumn(st.pdfPage, col2X, rightBottomY, colWidth, fb, font, fontBold, 'text', st.items, ctx.height, density);
+                    let leftBottomY = st.cursorY;
+                    let rightBottomY = st.cursorY;
+
+                    if (qType === 'fill_blank') {
+                        const fbTitle = `${toRoman(sectionNum++)}. FILL IN THE BLANK (${fb[0].questionNumber}-${fb[fb.length - 1].questionNumber})`;
+                        leftBottomY = drawSectionBanner(st.pdfPage, col1X, st.cursorY, halfColWidth, fbTitle, fontBold);
+                        leftBottomY = drawTextBoxColumn(st.pdfPage, col1X, leftBottomY, halfColWidth, fb, font, fontBold, 'text', st.items, ctx.height, density, answerKey);
+
+                        const idTitle = `${toRoman(sectionNum++)}. IDENTIFICATION (${id[0].questionNumber}-${id[id.length - 1].questionNumber})`;
+                        rightBottomY = drawSectionBanner(st.pdfPage, col2X, st.cursorY, halfColWidth, idTitle, fontBold);
+                        rightBottomY = drawTextBoxColumn(st.pdfPage, col2X, rightBottomY, halfColWidth, id, font, fontBold, 'text', st.items, ctx.height, density, answerKey);
+                    } else {
+                        const idTitle = `${toRoman(sectionNum++)}. IDENTIFICATION (${id[0].questionNumber}-${id[id.length - 1].questionNumber})`;
+                        leftBottomY = drawSectionBanner(st.pdfPage, col1X, st.cursorY, halfColWidth, idTitle, fontBold);
+                        leftBottomY = drawTextBoxColumn(st.pdfPage, col1X, leftBottomY, halfColWidth, id, font, fontBold, 'text', st.items, ctx.height, density, answerKey);
+
+                        const fbTitle = `${toRoman(sectionNum++)}. FILL IN THE BLANK (${fb[0].questionNumber}-${fb[fb.length - 1].questionNumber})`;
+                        rightBottomY = drawSectionBanner(st.pdfPage, col2X, st.cursorY, halfColWidth, fbTitle, fontBold);
+                        rightBottomY = drawTextBoxColumn(st.pdfPage, col2X, rightBottomY, halfColWidth, fb, font, fontBold, 'text', st.items, ctx.height, density, answerKey);
+                    }
+
+                    st.cursorY = Math.min(leftBottomY, rightBottomY) - density.sectionGap;
                 }
-
-                st.cursorY = Math.min(leftBottomY, rightBottomY) - density.sectionGap;
             } else {
                 const singleList = fb.length > 0 ? fb : id;
                 const label = fb.length > 0 ? 'FILL IN THE BLANK' : 'IDENTIFICATION';
-                const useTwoCols = singleList.length > 8;
+                const useTwoCols = !plan.singleTextFullWidth;
                 const rows = useTwoCols ? Math.ceil(singleList.length / 2) : singleList.length;
                 const needed = 21 + rows * (density.textBoxHeight + density.textSpacingY);
                 const st = ensureSheetSpace(pageStates, ctx, needed);
@@ -633,32 +793,32 @@ function drawAnswerSections(
                     st.pdfPage,
                     MARGINS.left,
                     st.cursorY,
-                    useTwoCols ? printableWidth : colWidth,
+                    printableWidth,
                     bannerTitle,
                     fontBold
                 );
 
                 if (useTwoCols) {
                     const half = Math.ceil(singleList.length / 2);
-                    const leftBottomY = drawTextBoxColumn(st.pdfPage, col1X, contentStartY, colWidth, singleList.slice(0, half), font, fontBold, 'text', st.items, ctx.height, density);
-                    const rightBottomY = drawTextBoxColumn(st.pdfPage, col2X, contentStartY, colWidth, singleList.slice(half), font, fontBold, 'text', st.items, ctx.height, density);
+                    const leftBottomY = drawTextBoxColumn(st.pdfPage, col1X, contentStartY, halfColWidth, singleList.slice(0, half), font, fontBold, 'text', st.items, ctx.height, density, answerKey);
+                    const rightBottomY = drawTextBoxColumn(st.pdfPage, col2X, contentStartY, halfColWidth, singleList.slice(half), font, fontBold, 'text', st.items, ctx.height, density, answerKey);
                     st.cursorY = Math.min(leftBottomY, rightBottomY) - density.sectionGap;
                 } else {
-                    const bottomY = drawTextBoxColumn(st.pdfPage, col1X, contentStartY, colWidth, singleList, font, fontBold, 'text', st.items, ctx.height, density);
+                    const bottomY = drawTextBoxColumn(st.pdfPage, col1X, contentStartY, printableWidth, singleList, font, fontBold, 'text', st.items, ctx.height, density, answerKey);
                     st.cursorY = bottomY - density.sectionGap;
                 }
             }
         } else if (qType === 'enumeration') {
             processed.add('enumeration');
             const en = byType.get('enumeration')!;
-            const totalSubBoxes = en.reduce((acc, q) => acc + (q.answerBoxesRequired || 3), 0);
-            const rowsPerCol = Math.ceil(totalSubBoxes / 3);
+            const enumColsData = partitionEnumerationColumns(en, plan.enumCols, answerKey);
+            const rowsPerCol = Math.max(1, ...enumColsData.map((c) => c.length));
             const needed = 21 + rowsPerCol * (density.enumBoxHeight + density.enumSpacingY);
             const st = ensureSheetSpace(pageStates, ctx, needed);
 
             const title = `${toRoman(sectionNum++)}. ENUMERATION (${en[0].questionNumber}-${en[en.length - 1].questionNumber}) - one answer per box`;
             st.cursorY = drawSectionBanner(st.pdfPage, MARGINS.left, st.cursorY, printableWidth, title, fontBold);
-            st.cursorY = drawEnumerationSection(st.pdfPage, MARGINS.left, st.cursorY, printableWidth, en, font, fontBold, st.items, ctx.height, density);
+            st.cursorY = drawEnumerationSection(st.pdfPage, MARGINS.left, st.cursorY, printableWidth, enumColsData, font, fontBold, st.items, ctx.height, density);
             st.cursorY -= density.sectionGap;
         }
     }
@@ -778,7 +938,8 @@ function drawTextBoxColumn(
     itemType: 'text',
     layoutItems: LayoutItem[],
     pageHeight: number,
-    density: AnswerSheetDensity
+    density: AnswerSheetDensity,
+    answerKey?: AnswerKeyItem[]
 ): number {
     const boxHeight = density.textBoxHeight;
     const numWidth = 24;
@@ -789,6 +950,7 @@ function drawTextBoxColumn(
 
     for (const q of questions) {
         const boxY = cursorY - boxHeight;
+        const stats = getExpectedAnswerStats(q, answerKey);
 
         page.drawRectangle({
             x: startX,
@@ -832,7 +994,7 @@ function drawTextBoxColumn(
                 width: inputWidth,
                 height: boxHeight,
             },
-            maxChars: 25,
+            maxChars: stats.maxChars,
         });
 
         cursorY -= (boxHeight + spacingY);
@@ -846,39 +1008,25 @@ function drawEnumerationSection(
     startX: number,
     startY: number,
     totalWidth: number,
-    questions: ScannableQuestion[],
+    cols: EnumSubBoxItem[][],
     _font: PDFFont,
     fontBold: PDFFont,
     layoutItems: LayoutItem[],
     pageHeight: number,
     density: AnswerSheetDensity
 ): number {
-    const colSpacing = 12;
-    const colWidth = (totalWidth - colSpacing * 2) / 3;
+    const numCols = Math.max(1, cols.length);
+    const colSpacing = numCols === 1 ? 0 : numCols === 2 ? 16 : 12;
+    const colWidth = (totalWidth - colSpacing * (numCols - 1)) / numCols;
     const boxHeight = density.enumBoxHeight;
     const numWidth = 32;
     const spacingY = density.enumSpacingY;
     const badgeFontSize = boxHeight <= 17 ? 7.0 : 7.5;
 
-    const subBoxes: { qNum: number; subIdx: number }[] = [];
-    for (const q of questions) {
-        const count = q.answerBoxesRequired || 3;
-        for (let sub = 1; sub <= count; sub++) {
-            subBoxes.push({ qNum: q.questionNumber, subIdx: sub });
-        }
-    }
-
-    const perCol = Math.ceil(subBoxes.length / 3);
-    const cols = [
-        subBoxes.slice(0, perCol),
-        subBoxes.slice(perCol, perCol * 2),
-        subBoxes.slice(perCol * 2),
-    ];
-
     let maxBottomY = startY;
 
-    for (let c = 0; c < 3; c++) {
-        const colItems = cols[c];
+    for (let c = 0; c < numCols; c++) {
+        const colItems = cols[c] || [];
         const colX = startX + c * (colWidth + colSpacing);
         let cursorY = startY;
 
@@ -905,7 +1053,6 @@ function drawEnumerationSection(
                 color: rgb(0.1, 0.1, 0.1),
             });
 
-            // Handwriting box
             const inputX = colX + numWidth;
             const inputWidth = colWidth - numWidth;
 
@@ -929,7 +1076,7 @@ function drawEnumerationSection(
                     width: inputWidth,
                     height: boxHeight,
                 },
-                maxChars: 25,
+                maxChars: item.maxChars,
             });
 
             cursorY -= (boxHeight + spacingY);
@@ -954,7 +1101,7 @@ function drawAnswerSheetFooter(
 
     const leftText = `Tseki Vision Grader Answer Sheet  |  ${totalQuestions} items  |  ${totalPoints} points  |  Version ${version}`;
     page.drawText(leftText, {
-        x: MARGINS.left + 24, // buffer from bottom-left corner marker
+        x: MARGINS.left + 24,
         y,
         size: 7.8,
         font,
@@ -964,7 +1111,7 @@ function drawAnswerSheetFooter(
     const rightText = `Do not fold  |  Sheet ${sheetNum} of ${totalSheets}`;
     const rightW = font.widthOfTextAtSize(rightText, 7.8);
     page.drawText(rightText, {
-        x: width - MARGINS.right - 24 - rightW, // buffer from bottom-right corner marker
+        x: width - MARGINS.right - 24 - rightW,
         y,
         size: 7.8,
         font,

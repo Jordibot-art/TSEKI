@@ -31,6 +31,7 @@ export function computeAssessmentCacheKey(
     const resolvedDocTag = docTag || (options.target === 'ANSWER_KEY_ONLY' ? 'key' : 'student');
 
     const payload = JSON.stringify({
+        lv: 2,
         t: assessment.quizTitle,
         q: assessment.questions.map((q) => [q.questionNumber, q.type, q.questionText, q.options, q.answerBoxesRequired]),
         k: assessment.answerKey?.map((a) => [a.questionNumber, a.correctAnswer, a.points]),

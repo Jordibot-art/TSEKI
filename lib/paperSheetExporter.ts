@@ -136,10 +136,26 @@ export function buildPaperSheetHtml({
       const points = answerObj ? answerObj.points : 1;
 
       const normType = normalizeQuestionType(q.type);
-      const boxCount = Math.max(1, q.answerBoxesRequired || 1);
+      const parsedEnumKey =
+        normType === "enumeration" && rawCorrectAnswer
+          ? rawCorrectAnswer
+              .split(/(?:^|\s*)[,\n;/]+(?:\s*)|(?:\d+[\.\)]\s*)/g)
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+          : [];
+      const boxCount = Math.max(
+        1,
+        normType === "enumeration"
+          ? Math.max(q.answerBoxesRequired || 3, parsedEnumKey.length)
+          : q.answerBoxesRequired || 1
+      );
       const isTextFill = normType === "identification";
       const isEnum = normType === "enumeration";
       const isWordBox = normType === "word_box";
+      const maxAnsLen = isEnum
+        ? Math.max(16, ...parsedEnumKey.map((s) => s.length))
+        : rawCorrectAnswer.trim().length || 16;
+      const useBelowFullBox = isEnum || (isTextFill && maxAnsLen > 10);
 
       // Format answer for answer key
       let formattedAnswer = rawCorrectAnswer;
@@ -199,8 +215,16 @@ export function buildPaperSheetHtml({
               }
             }
 
-            const boxClass = isTextFill ? "box-wide" : isEnum ? "box-enum" : isWordBox ? "box-wide" : "box-square";
-            const watermark = isEnum && boxCount > 1 && !filledText ? `<span class="box-watermark">#${idx + 1}</span>` : "";
+            const boxClass = useBelowFullBox
+              ? "box-full"
+              : isTextFill
+                ? "box-wide"
+                : isEnum
+                  ? "box-enum"
+                  : isWordBox
+                    ? "box-wide"
+                    : "box-square";
+            const watermark = isEnum && !filledText ? `<span class="box-watermark">${q.questionNumber}.${idx + 1}</span>` : "";
 
             return `
               <div class="answer-box ${boxClass}">
@@ -214,7 +238,7 @@ export function buildPaperSheetHtml({
       `;
 
       return `
-        <div class="question-row">
+        <div class="question-row ${useBelowFullBox ? "question-row-stacked" : ""}">
           <div class="q-body">
             <div class="q-statement">
               <span class="q-num">${q.questionNumber}.</span>
@@ -225,7 +249,7 @@ export function buildPaperSheetHtml({
             ${optionsHtml}
             ${wordBankHtml}
           </div>
-          <div class="q-box-cell">
+          <div class="q-box-cell ${useBelowFullBox ? "q-box-cell-full" : ""}">
             ${boxesHtml}
           </div>
         </div>
@@ -251,15 +275,14 @@ export function buildPaperSheetHtml({
     }
     html, body {
       width: 100%;
-      height: 100%;
+      min-height: 100%;
       margin: 0;
       padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       color: #111827;
-      font-size: ${questionCount > 15 ? "9.5px" : "10px"};
-      line-height: 1.25;
+      font-size: ${questionCount > 24 ? (isLongPaper ? "9px" : "8.5px") : questionCount > 15 ? (isLongPaper ? "10px" : "9.5px") : "10.5px"};
+      line-height: 1.26;
       background: #FFFFFF;
-      overflow: hidden;
     }
 
     /* ── Header ── */
@@ -388,6 +411,26 @@ export function buildPaperSheetHtml({
       padding-bottom: ${questionCount > 15 ? "3px" : "4px"};
       border-bottom: 1px dashed #E5E7EB;
       page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .question-row-stacked {
+      flex-direction: column;
+      gap: 4px;
+    }
+    .q-box-cell-full {
+      width: 100%;
+    }
+    .q-box-cell-full .boxes-cluster {
+      flex-direction: column;
+      width: 100%;
+      gap: 3px;
+    }
+    .box-full {
+      width: 100%;
+      min-height: 23px;
+      padding: 2px 6px;
+      justify-content: flex-start;
+      gap: 6px;
     }
 
     .q-body {
@@ -493,16 +536,13 @@ export function buildPaperSheetHtml({
 
     /* Compact Footer */
     .sheet-footer {
-      position: absolute;
-      bottom: 3mm;
-      left: 8mm;
-      right: 8mm;
+      margin-top: 8px;
       display: flex;
       justify-content: space-between;
       font-size: 8px;
       color: #9CA3AF;
       border-top: 1px dashed #E5E7EB;
-      padding-top: 2px;
+      padding-top: 3px;
     }
   </style>
 </head>

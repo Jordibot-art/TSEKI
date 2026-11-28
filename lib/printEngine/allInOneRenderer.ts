@@ -2,14 +2,17 @@
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import { abortableDelay, throwIfExportAborted } from './cancel';
-import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
+import { COLORS, FONT_CONFIG, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { topY } from './layoutJson';
 import { drawCornerMarkers } from './markers';
 import {
+    canPairMcOptions,
     extractSharedWordBank,
     fitHeaderText,
     getAllInOneItemMetrics,
+    getAllInOneSectionBannerHeight,
+    getEnumerationBoxCount,
     getLineHeightFactor,
     getMeasureBoldFont,
     getMeasureFont,
@@ -41,11 +44,77 @@ interface AllInOneContext {
     version: 'A' | 'B' | 'C';
     quizId: string;
     totalPoints: number;
+    gradeLevel?: string;
+}
+
+interface ColumnSpacingBonus {
+    boxHeightBonus: number;
+    itemGapBonus: number;
+}
+
+function isPrimaryGrade(gradeLevel?: string): boolean {
+    return Boolean(gradeLevel && /^(grade\s*[1-3]|1|2|3)$/i.test(gradeLevel.trim()));
+}
+
+function toRoman(num: number): string {
+    const map = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+    return map[num - 1] || `${num}`;
+}
+
+function formatAllInOnePartTitle(type: ScannableQuestion['type'], partIndex: number, wordBoxMaxChars: number): string {
+    const roman = toRoman(partIndex);
+    switch (type) {
+        case 'multiple_choice':
+            return `PART ${roman} · MULTIPLE CHOICE (Write A, B, C, or D)`;
+        case 'true_false':
+            return `PART ${roman} · TRUE OR FALSE (Write T or F)`;
+        case 'word_box':
+            return wordBoxMaxChars > 1
+                ? `PART ${roman} · WORD BOX (Write Word Bank letter(s))`
+                : `PART ${roman} · WORD BOX (Write Word Bank letter)`;
+        case 'fill_blank':
+            return `PART ${roman} · FILL IN THE BLANK`;
+        case 'identification':
+            return `PART ${roman} · IDENTIFICATION`;
+        case 'enumeration':
+            return `PART ${roman} · ENUMERATION (One answer per numbered box)`;
+        default:
+            return `PART ${roman} · ASSESSMENT`;
+    }
+}
+
+function buildAllInOneInstructionLine(questions: ScannableQuestion[], paperSize: 'short' | 'long'): string {
+    const uniqueTypes = Array.from(new Set(questions.map((q) => q.type)));
+    if (uniqueTypes.length === 1) {
+        const only = uniqueTypes[0];
+        if (only === 'true_false') {
+            return 'Write T if the statement is True, or F if False clearly inside each designated answer box.';
+        }
+        if (only === 'identification' || only === 'fill_blank') {
+            return 'Write the exact term or phrase clearly inside each answer box. Keep handwriting inside the box.';
+        }
+        if (only === 'enumeration') {
+            return 'Write one required answer inside each numbered box (e.g. 1.1, 1.2). Do not write outside the boxes.';
+        }
+        if (only === 'word_box') {
+            return 'Choose the correct entry from the WORD BANK below and write its CAPITAL LETTER(S) inside each box.';
+        }
+        return 'Write the CAPITAL LETTER (A, B, C, or D) of your chosen answer clearly inside each answer box.';
+    }
+
+    const hints: string[] = [];
+    if (uniqueTypes.includes('multiple_choice')) hints.push('MC: A-D');
+    if (uniqueTypes.includes('true_false')) hints.push('T/F: T or F');
+    if (uniqueTypes.includes('word_box')) hints.push('Word Box: Bank Letter');
+    if (uniqueTypes.includes('identification') || uniqueTypes.includes('fill_blank')) hints.push('ID/Blank: Clear Term');
+    if (uniqueTypes.includes('enumeration')) hints.push('Enum: 1 Item per Box');
+    const paperTag = paperSize === 'long' ? 'Long Bond' : 'Short Bond';
+    return `Write answers clearly inside boxes (${hints.join('  |  ')}). Keep ${paperTag} corner squares clear.`;
 }
 
 /**
  * Builds a single-page ALL-IN-ONE scannable test paper containing both questions
- * and designated answer boxes on the same sheet.
+ * and designated answer boxes on the same sheet, responsively scaled to Short or Long bond paper.
  */
 export async function renderAllInOnePDF(
     assessment: GeneratedAssessment,
@@ -96,12 +165,10 @@ export async function renderAllInOnePDF(
     const colGutter = 20;
     const colWidth = (printableWidth - colGutter) / 2;
 
-    const fontSize = selectedFontSize;
-    const lineHeight = fontSize * getLineHeightFactor(fontSize);
-
     const totalPoints = assessment.questions.reduce((sum, q) => {
-        if (q.type === 'enumeration') return sum + (q.answerBoxesRequired || 3);
-        return sum + 1;
+        if (q.type === 'enumeration') return sum + getEnumerationBoxCount(q, assessment.answerKey);
+        const keyItem = assessment.answerKey?.find((k) => k.questionNumber === q.questionNumber);
+        return sum + (keyItem?.points || 1);
     }, 0);
 
     const ctx: AllInOneContext = {
@@ -111,13 +178,14 @@ export async function renderAllInOnePDF(
         width: dims.width,
         height: dims.height,
         printableWidth,
-        fontSize,
-        lineHeight,
+        fontSize: selectedFontSize,
+        lineHeight: selectedFontSize * getLineHeightFactor(selectedFontSize),
         colWidth,
         colGutter,
         version,
         quizId,
         totalPoints,
+        gradeLevel: options.gradeLevel,
     };
 
     const page = doc.addPage([dims.width, dims.height]);
@@ -127,17 +195,24 @@ export async function renderAllInOnePDF(
 
     // 2. Header
     const title = assessment.quizTitle || (assessment as any).title || 'Classroom Assessment';
-    const { cursorY, qr } = drawAllInOneHeader(page, ctx, options, title, assessment.questions.length);
+    const { cursorY, qr } = drawAllInOneHeader(
+        page,
+        ctx,
+        options,
+        title,
+        assessment.questions,
+        paperSize
+    );
     if (!options.skipPdfSave) {
         await abortableDelay(0, options.signal);
     }
 
-    // 3. Questions & Answer Boxes in 2 Columns
+    // 3. Questions & Adaptive Answer Boxes in 2 Balanced Columns
     const layoutItems: LayoutItem[] = [];
-    drawAllInOneColumns(page, ctx, cursorY, assessment.questions, assessment.answerKey, layoutItems);
+    drawAllInOneColumns(page, ctx, cursorY, assessment.questions, assessment.answerKey, layoutItems, paperSize);
 
     // 4. Footer
-    drawAllInOneFooter(page, ctx, assessment.questions.length);
+    drawAllInOneFooter(page, ctx, assessment.questions.length, paperSize);
 
     const layoutPages: LayoutPage[] = [
         {
@@ -165,9 +240,11 @@ function drawAllInOneHeader(
     ctx: AllInOneContext,
     options: PrintOptions,
     title: string,
-    itemCount: number
+    questions: ScannableQuestion[],
+    paperSize: 'short' | 'long'
 ): { cursorY: number; qr: QRRect } {
     const { width, height, font, fontBold, version, quizId, totalPoints } = ctx;
+    const itemCount = questions.length;
     const startY = height - MARGINS.top - 4;
     const headerTextX = MARGINS.left + 24;
 
@@ -224,9 +301,9 @@ function drawAllInOneHeader(
     // Safe horizontal width strictly left of the SCORE box (and well clear of QR code)
     const maxHeaderWidth = Math.max(120, scoreBoxX - headerTextX - 12);
 
-    // Small system title
+    const paperLabel = paperSize === 'long' ? 'LONG BOND 8.5x13"' : 'SHORT BOND 8.5x11"';
     const eyebrowText = truncateTextToWidth(
-        'TSEKI SMART ASSESSMENT SYSTEM | ALL-IN-ONE TEST PAPER',
+        `TSEKI SMART ASSESSMENT SYSTEM | ${paperLabel}`,
         maxHeaderWidth,
         7.5,
         fontBold
@@ -253,7 +330,6 @@ function drawAllInOneHeader(
         });
     }
 
-    // Subtitle (positioned cleanly below 1- or 2-line title with crisp breathing room)
     const lastTitleY = titleStartY - (fittedTitle.lines.length - 1) * titleLineH;
     const subtitleY = fittedTitle.lines.length > 1 ? lastTitleY - 13.5 : startY - 39;
     const classInfo = options.classTitle || 'Class Assessment';
@@ -271,8 +347,7 @@ function drawAllInOneHeader(
         color: rgb(0.3, 0.35, 0.4),
     });
 
-    // Student information lines (always cleanly below both QR code and wrapped subtitle)
-    // Row 1: Last Name, First Name, Middle Name
+    // Student information lines
     const nameY = Math.min(startY - 63, subtitleY - 13.5);
     page.drawText('Last Name: ___________________________, First Name: ___________________________, Middle Name: ___________________________', {
         x: MARGINS.left,
@@ -282,7 +357,6 @@ function drawAllInOneHeader(
         color: rgb(0.15, 0.15, 0.15),
     });
 
-    // Row 2: Date, Section
     const dateY = nameY - 11;
     page.drawText('Date: ___________________________________, Section: ___________________________________', {
         x: MARGINS.left,
@@ -294,15 +368,22 @@ function drawAllInOneHeader(
 
     // Instruction strip
     const instY = dateY - 13;
+    const instBoxWidth = width - MARGINS.left - MARGINS.right;
     page.drawRectangle({
         x: MARGINS.left,
         y: instY - 2,
-        width: width - MARGINS.left - MARGINS.right,
+        width: instBoxWidth,
         height: 14,
         color: rgb(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]),
     });
 
-    page.drawText('Write your final answers clearly in the designated answer boxes. Use CAPITAL LETTERS for multiple choice/T&F.', {
+    const instText = truncateTextToWidth(
+        buildAllInOneInstructionLine(questions, paperSize),
+        instBoxWidth - 12,
+        7.0,
+        fontBold
+    );
+    page.drawText(instText, {
         x: MARGINS.left + 6,
         y: instY + 2,
         size: 7.0,
@@ -319,17 +400,65 @@ function drawAllInOneColumns(
     startY: number,
     questions: ScannableQuestion[],
     answerKey: AnswerKeyItem[] | undefined,
-    layoutItems: LayoutItem[]
+    layoutItems: LayoutItem[],
+    paperSize: 'short' | 'long'
 ): void {
-    const { colWidth, colGutter, fontSize, font, fontBold, printableWidth } = ctx;
-    let bodyStartY = startY;
+    const { colWidth, colGutter, font, fontBold, printableWidth } = ctx;
+    const footerSafeBottomY = MARGINS.bottom + 16;
 
-    // If word_box items exist in ALL-IN-ONE mode, draw the complete shared Word Bank across all word_box items
     const sharedWordBank = extractSharedWordBank(questions, answerKey);
     const wordBoxMaxChars = getWordBankMaxChars(sharedWordBank.length);
-    if (sharedWordBank.length > 0) {
-        const wbLayout = measureWordBankLayout(sharedWordBank, printableWidth, fontSize, fontBold, 'ALL_IN_ONE');
 
+    // Embedded-font overflow guard: verify actual rendered column height with embedded font
+    // and step down gently if Unicode / embedded font metrics wrapped an extra line.
+    const minFontFloor = isPrimaryGrade(ctx.gradeLevel)
+        ? FONT_CONFIG.MIN_SIZE_PRIMARY
+        : paperSize === 'long'
+            ? 7.5
+            : 8.0;
+
+    let activeFontSize = ctx.fontSize;
+    let wbLayout =
+        sharedWordBank.length > 0
+            ? measureWordBankLayout(sharedWordBank, printableWidth, activeFontSize, fontBold, 'ALL_IN_ONE')
+            : null;
+    let colPlan = measureAllInOneColumns(
+        questions,
+        activeFontSize,
+        colWidth,
+        font,
+        wordBoxMaxChars,
+        answerKey,
+        fontBold,
+        paperSize
+    );
+
+    while (
+        activeFontSize > minFontFloor &&
+        colPlan.maxHeight > startY - (wbLayout ? wbLayout.totalHeight : 0) - footerSafeBottomY
+    ) {
+        activeFontSize = Math.max(minFontFloor, Math.round((activeFontSize - 0.5) * 10) / 10);
+        wbLayout =
+            sharedWordBank.length > 0
+                ? measureWordBankLayout(sharedWordBank, printableWidth, activeFontSize, fontBold, 'ALL_IN_ONE')
+                : null;
+        colPlan = measureAllInOneColumns(
+            questions,
+            activeFontSize,
+            colWidth,
+            font,
+            wordBoxMaxChars,
+            answerKey,
+            fontBold,
+            paperSize
+        );
+    }
+
+    ctx.fontSize = activeFontSize;
+    ctx.lineHeight = activeFontSize * getLineHeightFactor(activeFontSize);
+
+    let bodyStartY = startY;
+    if (wbLayout && sharedWordBank.length > 0) {
         page.drawRectangle({
             x: MARGINS.left,
             y: bodyStartY - wbLayout.boxHeight,
@@ -357,13 +486,166 @@ function drawAllInOneColumns(
     const col1X = MARGINS.left;
     const col2X = MARGINS.left + colWidth + colGutter;
 
-    // Height-balanced sequential column split so both columns use the bond paper evenly
-    const { splitIndex } = measureAllInOneColumns(questions, fontSize, colWidth, font, wordBoxMaxChars);
-    const col1Questions = questions.slice(0, splitIndex);
-    const col2Questions = questions.slice(splitIndex);
+    const col1Questions = questions.slice(0, colPlan.splitIndex);
+    const col2Questions = questions.slice(colPlan.splitIndex);
 
-    renderQuestionColumn(page, ctx, col1X, bodyStartY, col1Questions, layoutItems, wordBoxMaxChars);
-    renderQuestionColumn(page, ctx, col2X, bodyStartY, col2Questions, layoutItems, wordBoxMaxChars);
+    // Precompute sequential part numbers across the assessment so Mixed part headers stay accurate
+    const hasMultipleTypes = new Set(questions.map((q) => q.type)).size > 1;
+    const partIndexByQNum = new Map<number, number>();
+    let pCounter = 0;
+    let lastSeenType: ScannableQuestion['type'] | null = null;
+    for (const q of questions) {
+        if (q.type !== lastSeenType) {
+            pCounter += 1;
+            lastSeenType = q.type;
+        }
+        partIndexByQNum.set(q.questionNumber, pCounter);
+    }
+
+    // Responsively distribute vertical slack on Short / Long bond paper into roomier boxes & clean spacing
+    const availableBodyHeight = Math.max(0, bodyStartY - footerSafeBottomY);
+    const rawSlack = Math.max(0, availableBodyHeight - colPlan.maxHeight);
+
+    const countBoxRowsInCol = (list: ScannableQuestion[]) =>
+        list.reduce((acc, q) => {
+            const m = getAllInOneItemMetrics(q, activeFontSize, colWidth, wordBoxMaxChars, answerKey);
+            if (m.boxLayout === 'below_grid2') return acc + Math.ceil(m.enumBoxes / 2);
+            if (m.boxLayout === 'below_full') return acc + m.enumBoxes;
+            return acc + 1;
+        }, 0);
+
+    const maxBoxRows = Math.max(1, countBoxRowsInCol(col1Questions), countBoxRowsInCol(col2Questions));
+    const maxColItems = Math.max(1, col1Questions.length, col2Questions.length);
+
+    let boxHeightBonus = 0;
+    let itemGapBonus = 0;
+    if (rawSlack > 8 && questions.length > 0) {
+        // Allocate up to 40% of slack to slightly taller handwriting boxes (capped at +3.5 pt per box row)
+        boxHeightBonus = Math.min(3.5, (rawSlack * 0.4) / maxBoxRows);
+        const remainingSlack = Math.max(0, rawSlack - boxHeightBonus * maxBoxRows - 4);
+        // Allocate remaining slack into balanced inter-item breathing room (capped so short quizzes stay cohesive)
+        const maxGapBonus = paperSize === 'long' ? 6.5 : 4.5;
+        itemGapBonus = Math.min(maxGapBonus, remainingSlack / maxColItems);
+    }
+
+    const bonus: ColumnSpacingBonus = { boxHeightBonus, itemGapBonus };
+    const col1LastType = col1Questions.length > 0 ? col1Questions[col1Questions.length - 1].type : null;
+
+    const allowOptionPairing =
+        paperSize === 'long'
+            ? activeFontSize <= 10.0
+            : activeFontSize <= 9.5 && questions.length <= 20;
+
+    renderQuestionColumn(
+        page,
+        ctx,
+        col1X,
+        bodyStartY,
+        col1Questions,
+        answerKey,
+        layoutItems,
+        wordBoxMaxChars,
+        hasMultipleTypes,
+        partIndexByQNum,
+        null,
+        bonus,
+        allowOptionPairing
+    );
+    renderQuestionColumn(
+        page,
+        ctx,
+        col2X,
+        bodyStartY,
+        col2Questions,
+        answerKey,
+        layoutItems,
+        wordBoxMaxChars,
+        hasMultipleTypes,
+        partIndexByQNum,
+        col1LastType,
+        bonus,
+        allowOptionPairing
+    );
+}
+
+function drawAllInOneSectionBanner(
+    page: PDFPage,
+    ctx: AllInOneContext,
+    x: number,
+    cursorY: number,
+    title: string,
+    isFirstInColumn: boolean
+): number {
+    const { colWidth, fontBold, fontSize } = ctx;
+    const isCompact = fontSize <= 9.5;
+    const bannerH = isCompact ? 12.5 : 14;
+    const topGap = isFirstInColumn ? 0 : isCompact ? 3 : 4.5;
+    const bottomGap = 3.5;
+    const bannerTopY = cursorY - topGap;
+
+    page.drawRectangle({
+        x,
+        y: bannerTopY - bannerH,
+        width: colWidth,
+        height: bannerH,
+        color: rgb(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]),
+    });
+
+    const bannerFontSize = isCompact ? 7.2 : 7.8;
+    page.drawText(truncateTextToWidth(title, colWidth - 10, bannerFontSize, fontBold), {
+        x: x + 5,
+        y: bannerTopY - bannerH + (isCompact ? 3.5 : 4.0),
+        size: bannerFontSize,
+        font: fontBold,
+        color: rgb(0.12, 0.14, 0.18),
+    });
+
+    return cursorY - getAllInOneSectionBannerHeight(fontSize, isFirstInColumn);
+}
+
+function drawLabeledTextBox(
+    page: PDFPage,
+    x: number,
+    y: number,
+    badgeWidth: number,
+    boxWidth: number,
+    boxHeight: number,
+    badgeText: string,
+    fontBold: PDFFont
+): void {
+    page.drawRectangle({
+        x,
+        y,
+        width: badgeWidth,
+        height: boxHeight,
+        color: rgb(COLORS.lightGray[0], COLORS.lightGray[1], COLORS.lightGray[2]),
+        borderColor: rgb(0.3, 0.3, 0.3),
+        borderWidth: 0.8,
+    });
+
+    const maxBadgeFont = boxHeight <= 17 ? 6.8 : 7.4;
+    let badgeFontSize = maxBadgeFont;
+    while (badgeFontSize > 5.5 && fontBold.widthOfTextAtSize(badgeText, badgeFontSize) > badgeWidth - 4) {
+        badgeFontSize -= 0.4;
+    }
+    const badgeW = fontBold.widthOfTextAtSize(badgeText, badgeFontSize);
+    page.drawText(badgeText, {
+        x: x + (badgeWidth - badgeW) / 2,
+        y: y + (boxHeight - badgeFontSize) / 2 + 0.8,
+        size: badgeFontSize,
+        font: fontBold,
+        color: rgb(0.12, 0.12, 0.12),
+    });
+
+    page.drawRectangle({
+        x: x + badgeWidth,
+        y,
+        width: boxWidth,
+        height: boxHeight,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(0.2, 0.2, 0.2),
+        borderWidth: 0.8,
+    });
 }
 
 function renderQuestionColumn(
@@ -372,15 +654,44 @@ function renderQuestionColumn(
     startX: number,
     startY: number,
     questions: ScannableQuestion[],
+    answerKey: AnswerKeyItem[] | undefined,
     layoutItems: LayoutItem[],
-    wordBoxMaxChars: number = 1
+    wordBoxMaxChars: number,
+    hasMultipleTypes: boolean,
+    partIndexByQNum: Map<number, number>,
+    initialPrevType: ScannableQuestion['type'] | null,
+    bonus: ColumnSpacingBonus,
+    allowOptionPairing: boolean
 ): void {
     const { colWidth, fontSize, lineHeight, font, fontBold } = ctx;
     let cursorY = startY;
+    let prevType = initialPrevType;
 
-    for (const q of questions) {
-        const metrics = getAllInOneItemMetrics(q, fontSize, colWidth, wordBoxMaxChars);
-        const { isLetter, isEnumeration, enumBoxes, boxWidth, boxHeight, textWidth, itemGap } = metrics;
+    for (let idx = 0; idx < questions.length; idx++) {
+        const q = questions[idx];
+
+        if (hasMultipleTypes && q.type !== prevType) {
+            const pIdx = partIndexByQNum.get(q.questionNumber) || 1;
+            const partTitle = formatAllInOnePartTitle(q.type, pIdx, wordBoxMaxChars);
+            cursorY = drawAllInOneSectionBanner(page, ctx, startX, cursorY, partTitle, idx === 0);
+            prevType = q.type;
+        }
+
+        const metrics = getAllInOneItemMetrics(q, fontSize, colWidth, wordBoxMaxChars, answerKey);
+        const {
+            isLetter,
+            isEnumeration,
+            enumBoxes,
+            boxLayout,
+            badgeWidth,
+            boxWidth,
+            textWidth,
+            itemGap,
+            maxChars,
+        } = metrics;
+
+        const boxHeight = metrics.boxHeight + bonus.boxHeightBonus;
+        const effectiveItemGap = itemGap + bonus.itemGapBonus;
 
         // Question stem
         const prefix = `${q.questionNumber}. `;
@@ -389,7 +700,6 @@ function renderQuestionColumn(
 
         const itemStartY = cursorY;
 
-        // Draw prefix
         page.drawText(prefix, {
             x: startX,
             y: cursorY - fontSize,
@@ -421,96 +731,165 @@ function renderQuestionColumn(
             cursorY -= lineHeight;
         }
 
-        // Draw multiple choice options
-        if (q.type === 'multiple_choice' && q.options) {
+        // Draw multiple choice options (supports compact 2x2 pairing when fontSize <= 10.0)
+        if (q.type === 'multiple_choice' && q.options && q.options.length > 0) {
             const optFontSize = fontSize * 0.94;
             const optLineH = lineHeight * 0.94;
             const optIndent = 10;
-            for (let i = 0; i < q.options.length; i++) {
-                const optLetter = String.fromCharCode(65 + i);
-                const optPrefix = `${optLetter}) `;
-                const optPrefixW = fontBold.widthOfTextAtSize(optPrefix, optFontSize);
-                const optText = q.options[i].replace(/^[A-D][.)]\s*/i, '');
-                const optLines = wrapText(optText, Math.max(40, textWidth - optIndent - optPrefixW), optFontSize, font);
+            const optAvailWidth = Math.max(50, textWidth - optIndent);
 
-                page.drawText(optPrefix, {
-                    x: startX + optIndent,
-                    y: cursorY - optFontSize,
-                    size: optFontSize,
-                    font: fontBold,
-                    color: rgb(0.1, 0.1, 0.1),
-                });
+            if (allowOptionPairing && canPairMcOptions(q.options, optAvailWidth, optFontSize, font)) {
+                const halfColWidth = (optAvailWidth - 10) / 2;
+                const secondColX = startX + optIndent + halfColWidth + 10;
 
-                if (optLines.length > 0) {
-                    page.drawText(optLines[0], {
-                        x: startX + optIndent + optPrefixW,
-                        y: cursorY - optFontSize,
-                        size: optFontSize,
-                        font,
-                        color: rgb(0.15, 0.15, 0.15),
-                    });
-                }
-                cursorY -= optLineH;
+                for (let row = 0; row < q.options.length; row += 2) {
+                    for (let colIdx = 0; colIdx < 2; colIdx++) {
+                        const optIdx = row + colIdx;
+                        if (optIdx >= q.options.length) break;
+                        const optLetter = String.fromCharCode(65 + optIdx);
+                        const optPrefix = `${optLetter}) `;
+                        const optPrefixW = fontBold.widthOfTextAtSize(optPrefix, optFontSize);
+                        const optText = q.options[optIdx].replace(/^[A-D][.)]\s*/i, '').trim();
+                        const cellX = colIdx === 0 ? startX + optIndent : secondColX;
 
-                for (let j = 1; j < optLines.length; j++) {
-                    page.drawText(optLines[j], {
-                        x: startX + optIndent + optPrefixW,
-                        y: cursorY - optFontSize,
-                        size: optFontSize,
-                        font,
-                        color: rgb(0.15, 0.15, 0.15),
-                    });
+                        page.drawText(optPrefix, {
+                            x: cellX,
+                            y: cursorY - optFontSize,
+                            size: optFontSize,
+                            font: fontBold,
+                            color: rgb(0.1, 0.1, 0.1),
+                        });
+                        page.drawText(optText, {
+                            x: cellX + optPrefixW,
+                            y: cursorY - optFontSize,
+                            size: optFontSize,
+                            font,
+                            color: rgb(0.15, 0.15, 0.15),
+                        });
+                    }
                     cursorY -= optLineH;
+                }
+            } else {
+                for (let i = 0; i < q.options.length; i++) {
+                    const optLetter = String.fromCharCode(65 + i);
+                    const optPrefix = `${optLetter}) `;
+                    const optPrefixW = fontBold.widthOfTextAtSize(optPrefix, optFontSize);
+                    const optText = q.options[i].replace(/^[A-D][.)]\s*/i, '');
+                    const optLines = wrapText(optText, Math.max(40, optAvailWidth - optPrefixW), optFontSize, font);
+
+                    page.drawText(optPrefix, {
+                        x: startX + optIndent,
+                        y: cursorY - optFontSize,
+                        size: optFontSize,
+                        font: fontBold,
+                        color: rgb(0.1, 0.1, 0.1),
+                    });
+
+                    if (optLines.length > 0) {
+                        page.drawText(optLines[0], {
+                            x: startX + optIndent + optPrefixW,
+                            y: cursorY - optFontSize,
+                            size: optFontSize,
+                            font,
+                            color: rgb(0.15, 0.15, 0.15),
+                        });
+                    }
+                    cursorY -= optLineH;
+
+                    for (let j = 1; j < optLines.length; j++) {
+                        page.drawText(optLines[j], {
+                            x: startX + optIndent + optPrefixW,
+                            y: cursorY - optFontSize,
+                            size: optFontSize,
+                            font,
+                            color: rgb(0.15, 0.15, 0.15),
+                        });
+                        cursorY -= optLineH;
+                    }
                 }
             }
         }
 
-        // Draw Answer Box(es) on the right side of this item
-        const boxX = startX + colWidth - boxWidth;
-        const indicatorFontSize = 6.5;
-        let lowestBoxY = itemStartY;
+        // Draw Answer Box(es) according to adaptive boxLayout
+        if (boxLayout === 'below_grid2') {
+            cursorY -= 2.5;
+            const enumGapY = 3;
+            const subColGutter = 8;
+            const cellWidth = (colWidth - subColGutter) / 2;
+            const rows = Math.ceil(enumBoxes / 2);
+            let subIdx = 1;
 
-        if (isEnumeration && enumBoxes > 1) {
-            const enumGap = 3;
-            for (let b = 0; b < enumBoxes; b++) {
-                const boxY = itemStartY - (b + 1) * boxHeight - b * enumGap - 2;
-                lowestBoxY = boxY;
-                page.drawRectangle({
-                    x: boxX,
-                    y: boxY,
-                    width: boxWidth,
-                    height: boxHeight,
-                    color: rgb(1, 1, 1),
-                    borderColor: rgb(0.2, 0.2, 0.2),
-                    borderWidth: 0.8,
-                });
+            for (let r = 0; r < rows; r++) {
+                const rowBoxY = cursorY - boxHeight;
+                for (let c = 0; c < 2 && subIdx <= enumBoxes; c++) {
+                    const cellX = startX + c * (cellWidth + subColGutter);
+                    const label = `${q.questionNumber}.${subIdx}`;
+                    drawLabeledTextBox(page, cellX, rowBoxY, badgeWidth, boxWidth, boxHeight, label, fontBold);
 
-                const label = `${q.questionNumber}.${b + 1}`;
-                const labelW = fontBold.widthOfTextAtSize(label, 5.8);
-                page.drawText(label, {
-                    x: boxX - labelW - 3,
-                    y: boxY + boxHeight / 2 - 2.5,
-                    size: 5.8,
-                    font: fontBold,
-                    color: rgb(0.4, 0.4, 0.4),
-                });
+                    layoutItems.push({
+                        questionNumber: q.questionNumber,
+                        subIndex: subIdx,
+                        type: 'text',
+                        rect: {
+                            x: cellX + badgeWidth,
+                            y: topY(rowBoxY, boxHeight, ctx.height),
+                            width: boxWidth,
+                            height: boxHeight,
+                        },
+                        maxChars,
+                    });
+                    subIdx += 1;
+                }
+                cursorY = rowBoxY - (r < rows - 1 ? enumGapY : 0);
+            }
+            cursorY -= effectiveItemGap;
+        } else if (boxLayout === 'below_full') {
+            cursorY -= 2.5;
+            if (isEnumeration) {
+                const enumGapY = 3;
+                for (let b = 0; b < enumBoxes; b++) {
+                    const rowBoxY = cursorY - boxHeight;
+                    const label = `${q.questionNumber}.${b + 1}`;
+                    drawLabeledTextBox(page, startX, rowBoxY, badgeWidth, boxWidth, boxHeight, label, fontBold);
+
+                    layoutItems.push({
+                        questionNumber: q.questionNumber,
+                        subIndex: b + 1,
+                        type: 'text',
+                        rect: {
+                            x: startX + badgeWidth,
+                            y: topY(rowBoxY, boxHeight, ctx.height),
+                            width: boxWidth,
+                            height: boxHeight,
+                        },
+                        maxChars,
+                    });
+                    cursorY = rowBoxY - (b < enumBoxes - 1 ? enumGapY : 0);
+                }
+            } else {
+                const rowBoxY = cursorY - boxHeight;
+                const label = `${q.questionNumber}`;
+                drawLabeledTextBox(page, startX, rowBoxY, badgeWidth, boxWidth, boxHeight, label, fontBold);
 
                 layoutItems.push({
                     questionNumber: q.questionNumber,
-                    subIndex: b + 1,
                     type: 'text',
                     rect: {
-                        x: boxX,
-                        y: topY(boxY, boxHeight, ctx.height),
+                        x: startX + badgeWidth,
+                        y: topY(rowBoxY, boxHeight, ctx.height),
                         width: boxWidth,
                         height: boxHeight,
                     },
-                    maxChars: 20,
+                    maxChars,
                 });
+                cursorY = rowBoxY;
             }
+            cursorY -= effectiveItemGap;
         } else {
+            // Inline right-aligned box (MC, TF, Word Box, or concise <=10-char Identification)
+            const boxX = startX + colWidth - boxWidth;
+            const indicatorFontSize = 6.5;
             const boxY = itemStartY - boxHeight - 2;
-            lowestBoxY = boxY;
 
             page.drawRectangle({
                 x: boxX,
@@ -522,7 +901,6 @@ function renderQuestionColumn(
                 borderWidth: 0.8,
             });
 
-            // Small right-aligned indicator clearly separated from question text
             const numLabel = `${q.questionNumber}`;
             const numLabelW = fontBold.widthOfTextAtSize(numLabel, indicatorFontSize);
             page.drawText(numLabel, {
@@ -533,13 +911,14 @@ function renderQuestionColumn(
                 color: rgb(0.4, 0.4, 0.4),
             });
 
-            const itemType = q.type === 'true_false'
-                ? 'tf'
-                : q.type === 'word_box'
-                    ? 'word_box'
-                    : isLetter
-                        ? 'letter'
-                        : 'text';
+            const itemType =
+                q.type === 'true_false'
+                    ? 'tf'
+                    : q.type === 'word_box'
+                        ? 'word_box'
+                        : isLetter
+                            ? 'letter'
+                            : 'text';
 
             layoutItems.push({
                 questionNumber: q.questionNumber,
@@ -550,23 +929,25 @@ function renderQuestionColumn(
                     width: boxWidth,
                     height: boxHeight,
                 },
-                maxChars: q.type === 'word_box' ? wordBoxMaxChars : isLetter ? 1 : 25,
+                maxChars,
             });
-        }
 
-        cursorY = Math.min(cursorY, lowestBoxY) - itemGap;
+            cursorY = Math.min(cursorY, boxY) - effectiveItemGap;
+        }
     }
 }
 
 function drawAllInOneFooter(
     page: PDFPage,
     ctx: AllInOneContext,
-    itemCount: number
+    itemCount: number,
+    paperSize: 'short' | 'long'
 ): void {
     const { quizId, version, totalPoints, font } = ctx;
     const y = MARGINS.bottom;
+    const bondTag = paperSize === 'long' ? 'Long Bond' : 'Short Bond';
 
-    const text = `Tseki All-in-One Paper  |  ${quizId}  |  Version ${version}  |  ${itemCount} Items  |  ${totalPoints} Points`;
+    const text = `Tseki All-in-One (${bondTag})  |  ${quizId}  |  Version ${version}  |  ${itemCount} Items  |  ${totalPoints} Points`;
     page.drawText(text, {
         x: MARGINS.left + 24,
         y,

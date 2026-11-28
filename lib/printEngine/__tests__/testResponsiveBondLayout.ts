@@ -178,7 +178,143 @@ async function main() {
     assert.ok(fit50Grade2.fontSize >= 10.5, `Grade 2 floor violated: ${fit50Grade2.fontSize}`);
     console.log(`  PASS: Grade 2 floor preserved (${fit50Grade2.fontSize}pt >= 10.5pt)`);
 
-    console.log('\nResults: 8 passed, 0 failed');
+    // 9. Long Identification & Enumeration answers get wide full-column boxes in ALL_IN_ONE (Short & Long)
+    const longAnswerMixed: GeneratedAssessment = {
+        quizTitle: 'Cellular Biology Mixed Quiz (Long Answers)',
+        questions: [
+            {
+                questionNumber: 1,
+                type: 'multiple_choice',
+                questionText: 'Which organelle synthesizes ATP energy in eukaryotic cells?',
+                options: ['A) Ribosome', 'B) Mitochondrion', 'C) Golgi body', 'D) Lysosome'],
+                answerBoxesRequired: 1,
+            },
+            {
+                questionNumber: 2,
+                type: 'true_false',
+                questionText: 'Prokaryotic cells contain a membrane-bound nucleus.',
+                options: ['True', 'False'],
+                answerBoxesRequired: 1,
+            },
+            {
+                questionNumber: 3,
+                type: 'identification',
+                questionText: 'Identify the biological macromolecule _______________ responsible for hereditary genetic blueprints:',
+                options: [],
+                answerBoxesRequired: 1,
+            },
+            {
+                questionNumber: 4,
+                type: 'enumeration',
+                questionText: 'Enumerate the three major metabolic stages of aerobic cellular respiration:',
+                options: [],
+                // Intentionally set to 1 to verify AI-broken box count auto-heals from 3-item answerKey!
+                answerBoxesRequired: 1,
+            },
+        ],
+        answerKey: [
+            { questionNumber: 1, correctAnswer: 'B', points: 1 },
+            { questionNumber: 2, correctAnswer: 'F', points: 1 },
+            { questionNumber: 3, correctAnswer: 'Deoxyribonucleic Acid (DNA)', points: 1 },
+            {
+                questionNumber: 4,
+                correctAnswer: 'Glycolysis, Citric Acid (Krebs) Cycle, Electron Transport Chain',
+                points: 3,
+            },
+        ],
+    };
+
+    for (const bond of ['short', 'long'] as const) {
+        const pkgMixed = await generatePrintPackage(longAnswerMixed, { paperSize: bond });
+        assert.strictEqual(pkgMixed.mode, 'ALL_IN_ONE', `4-item mixed quiz must fit ALL_IN_ONE on ${bond}`);
+        const docMixed = await PDFDocument.load(pkgMixed.studentPdf);
+        assert.strictEqual(docMixed.getPageCount(), 1);
+        const { width: pw, height: ph } = docMixed.getPages()[0].getSize();
+        assert.strictEqual(pw, PAPER_DIMENSIONS[bond].width);
+        assert.strictEqual(ph, PAPER_DIMENSIONS[bond].height);
+        assertAllBoxesInsideBounds(pkgMixed, bond);
+
+        const items = pkgMixed.layoutJson.pages[0].items;
+        // Q1 (1) + Q2 (1) + Q3 (1) + Q4 auto-healed enumeration (3) = 6 boxes
+        assert.strictEqual(items.length, 6, `Expected 6 boxes (auto-healed 3 enum sub-boxes), got ${items.length}`);
+        const idBox = items.find((i) => i.questionNumber === 3)!;
+        const enumBoxes = items.filter((i) => i.questionNumber === 4);
+        assert.strictEqual(enumBoxes.length, 3);
+        assert.ok(idBox.rect.width >= 230, `Identification box too short (${idBox.rect.width}pt < 230pt)`);
+        assert.ok(idBox.maxChars >= 30, `Identification maxChars should adapt to long answer (${idBox.maxChars})`);
+        for (const eb of enumBoxes) {
+            assert.ok(eb.rect.width >= 225, `Enumeration box too short (${eb.rect.width}pt < 225pt)`);
+            assert.ok(eb.maxChars >= 30, `Enumeration maxChars should adapt to long sub-answer (${eb.maxChars})`);
+        }
+    }
+    console.log('  PASS: Long Identification & Enumeration answers get wide (>=230pt) adaptive boxes & auto-healed sub-boxes on Short & Long');
+
+    // 10. Separate Answer Sheet gives full-width (>=500pt) boxes for <=8 Identification & long Enumeration answers
+    const separateLongAnsPkg = await generatePrintPackage(longAnswerMixed, {
+        paperSize: 'long',
+        forceSeparate: true,
+    });
+    assertAllBoxesInsideBounds(separateLongAnsPkg, 'long');
+    const sepSheetItems = separateLongAnsPkg.layoutJson.pages[0].items;
+    const sepIdBox = sepSheetItems.find((i) => i.questionNumber === 3)!;
+    const sepEnumBoxes = sepSheetItems.filter((i) => i.questionNumber === 4);
+    assert.ok(sepIdBox.rect.width >= 500, `Expected full-width (>=500pt) Answer Sheet ID box, got ${sepIdBox.rect.width}`);
+    for (const eb of sepEnumBoxes) {
+        assert.ok(eb.rect.width >= 500, `Expected full-width (>=500pt) Answer Sheet long Enum box, got ${eb.rect.width}`);
+    }
+    console.log(
+        `  PASS: Separate Answer Sheet expands Identification (${sepIdBox.rect.width}pt) & long Enumeration (${sepEnumBoxes[0].rect.width}pt) to full width`
+    );
+
+    // 11. 22-item Mixed quiz (MC + ID + Enumeration) fits on 1 single Long Bond page while Short switches or uses smaller font
+    const q22Mixed: GeneratedAssessment = {
+        quizTitle: '22-Item Midterm Mixed Assessment',
+        questions: [
+            ...makeMcQuestions(12, true),
+            ...Array.from({ length: 8 }, (_, i) => ({
+                questionNumber: 13 + i,
+                type: 'identification' as const,
+                questionText: `Identify the networking concept or protocol described in item ${13 + i}:`,
+                options: [],
+                answerBoxesRequired: 1,
+            })),
+            {
+                questionNumber: 21,
+                type: 'enumeration' as const,
+                questionText: 'List three private IPv4 address classes:',
+                options: [],
+                answerBoxesRequired: 3,
+            },
+            {
+                questionNumber: 22,
+                type: 'enumeration' as const,
+                questionText: 'List two transport layer protocols:',
+                options: [],
+                answerBoxesRequired: 2,
+            },
+        ],
+        answerKey: [
+            ...Array.from({ length: 12 }, (_, i) => ({ questionNumber: i + 1, correctAnswer: 'A', points: 1 })),
+            ...Array.from({ length: 8 }, (_, i) => ({
+                questionNumber: 13 + i,
+                correctAnswer: 'Domain Name System',
+                points: 1,
+            })),
+            { questionNumber: 21, correctAnswer: 'Class A, Class B, Class C', points: 3 },
+            { questionNumber: 22, correctAnswer: 'Transmission Control Protocol, User Datagram Protocol', points: 2 },
+        ],
+    };
+    const pkg22Short = await generatePrintPackage(q22Mixed, { paperSize: 'short' });
+    const pkg22Long = await generatePrintPackage(q22Mixed, { paperSize: 'long' });
+    assert.strictEqual(pkg22Long.mode, 'ALL_IN_ONE', `22-item Mixed quiz should fit on 1 Long Bond sheet, got ${pkg22Long.mode}`);
+    assert.strictEqual((await PDFDocument.load(pkg22Long.studentPdf)).getPageCount(), 1);
+    assertAllBoxesInsideBounds(pkg22Short, 'short');
+    assertAllBoxesInsideBounds(pkg22Long, 'long');
+    console.log(
+        `  PASS: 22-Item Mixed (MC+ID+Enum) -> Short: ${pkg22Short.mode} (${pkg22Short.pages}p @ ${pkg22Short.fontSize}pt) | Long: ${pkg22Long.mode} (1p @ ${pkg22Long.fontSize}pt)`
+    );
+
+    console.log('\nResults: 11 passed, 0 failed');
 }
 
 main().catch((err) => {

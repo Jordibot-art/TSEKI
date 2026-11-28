@@ -1,6 +1,11 @@
 // lib/printEngine/layoutJson.ts
 
-import { extractSharedWordBank, getWordBankMaxChars, resolveWordBankLabel } from './measure';
+import {
+    extractSharedWordBank,
+    getExpectedAnswerStats,
+    getWordBankMaxChars,
+    resolveWordBankLabel,
+} from './measure';
 import { AnswerKeyItem, AnswerVariant, GeneratedAssessment, LayoutItem, LayoutJSON, LayoutPage } from './types';
 
 export interface FlaggedQuestion {
@@ -156,6 +161,7 @@ export function generateAnswerVariants(assessment: GeneratedAssessment): AnswerV
             }
         }
 
+        const expectedStats = getExpectedAnswerStats(q, assessment.answerKey);
         variants.push({
             questionNumber: q.questionNumber,
             type: q.type,
@@ -165,7 +171,7 @@ export function generateAnswerVariants(assessment: GeneratedAssessment): AnswerV
                     ? wordBoxMaxChars
                     : q.type === 'multiple_choice' || q.type === 'true_false'
                         ? 1
-                        : 25,
+                        : expectedStats.maxChars,
         });
     }
 

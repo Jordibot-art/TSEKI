@@ -1,11 +1,18 @@
 // teacher-web/src/lib/printEngine/answerKeyRenderer.ts
 
-import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
+import { PDFDocument, type PDFFont, type PDFPage, rgb } from 'pdf-lib';
 import { abortableDelay, throwIfExportAborted } from './cancel';
 import { MARGINS, PAPER_DIMENSIONS } from './constants';
 import { embedPrintFonts } from './fonts/embedFonts';
 import { generateAnswerVariants } from './layoutJson';
-import { extractSharedWordBank, fitHeaderText, resolveWordBankLabel, wrapText } from './measure';
+import {
+    extractSharedWordBank,
+    fitHeaderText,
+    getEnumerationBoxCount,
+    resolveWordBankLabel,
+    truncateTextToWidth,
+    wrapText,
+} from './measure';
 import type { AnswerVariant, GeneratedAssessment, PrintOptions, ScannableQuestion } from './types';
 
 interface TableColumns {
@@ -44,18 +51,18 @@ export async function renderAnswerKeyPDF(
     const printableWidth = dims.width - MARGINS.left - MARGINS.right; // 540 pt
     const tableX = MARGINS.left;
 
-    // 5 Column widths: #, Type, Correct answer, Points, Grader rule
     const colW: TableColumns = {
-        num: 42,
-        type: 90,
-        answer: 205,
-        pts: 43,
-        rule: printableWidth - 42 - 90 - 205 - 43, // 160 pt
+        num: 54,
+        type: 86,
+        answer: 202,
+        pts: 40,
+        rule: printableWidth - 54 - 86 - 202 - 40, // 158 pt
     };
 
     const totalPoints = assessment.questions.reduce((sum, q) => {
-        if (q.type === 'enumeration') return sum + (q.answerBoxesRequired || 3);
-        return sum + 1;
+        if (q.type === 'enumeration') return sum + getEnumerationBoxCount(q, assessment.answerKey);
+        const keyItem = assessment.answerKey?.find((k) => k.questionNumber === q.questionNumber);
+        return sum + (keyItem?.points || 1);
     }, 0);
 
     const pages: PDFPage[] = [];
@@ -114,7 +121,11 @@ export async function renderAnswerKeyPDF(
         cursorY -= rowHeight;
     }
 
-    // Draw grading notes at end of table
+    if (cursorY - 10 < MARGINS.bottom + 42) {
+        currentPage = doc.addPage([dims.width, dims.height]);
+        pages.push(currentPage);
+        cursorY = dims.height - MARGINS.top - 16;
+    }
     drawGradingGuidelines(currentPage, tableX, cursorY - 10, printableWidth, font, fontBold);
 
     // Footers
@@ -241,9 +252,9 @@ function buildAnswerKeyRows(
         const isShaded = i % 2 === 1;
 
         if (q.type === 'enumeration') {
-            const boxes = q.answerBoxesRequired || 3;
+            const boxes = getEnumerationBoxCount(q, answerKey);
             rows.push({
-                numLabel: `${q.questionNumber}.1-${q.questionNumber}.${boxes}`,
+                numLabel: boxes > 1 ? `${q.questionNumber}.1-${q.questionNumber}.${boxes}` : `${q.questionNumber}.1`,
                 typeLabel: 'Enumeration',
                 answer: rawAns,
                 pts: boxes,
@@ -324,7 +335,7 @@ function drawTableRow(
     let curX = x;
 
     // #
-    page.drawText(row.numLabel, {
+    page.drawText(truncateTextToWidth(row.numLabel, colW.num - 8, 8.2, fontBold), {
         x: curX + 6,
         y: y - 11.5,
         size: 8.2,

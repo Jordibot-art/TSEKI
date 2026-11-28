@@ -17,6 +17,7 @@ export interface PrintOptions {
     quizId?: string;
     classTitle?: string;
     subject?: string;
+    answerKey?: AnswerKeyItem[];  // optional answer key for adaptive box sizing
     signal?: AbortSignal;         // optional cooperative cancellation signal
 }
 

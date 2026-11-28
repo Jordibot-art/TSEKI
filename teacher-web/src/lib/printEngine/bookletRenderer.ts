@@ -1,6 +1,6 @@
 // teacher-web/src/lib/printEngine/bookletRenderer.ts
 
-import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
+import { PDFDocument, type PDFFont, type PDFPage, rgb } from 'pdf-lib';
 import { abortableDelay, throwIfExportAborted } from './cancel';
 import { COLORS, MARGINS, PAPER_DIMENSIONS, QR_CODE_CONFIG } from './constants';
 import { chooseBookletFontSize } from './fitDecision';
@@ -9,6 +9,7 @@ import {
     canPairMcOptions,
     extractSharedWordBank,
     fitHeaderText,
+    getEnumerationBoxCount,
     getLineHeightFactor,
     measureQuestionHeight,
     measureWordBankLayout,
@@ -665,7 +666,7 @@ function groupQuestionsByPart(
             parts.push(currentPart);
         }
         currentPart.questions.push(q);
-        currentPart.pts += (q.type === 'enumeration' ? (q.answerBoxesRequired || 3) : 1);
+        currentPart.pts += q.type === 'enumeration' ? getEnumerationBoxCount(q, answerKey) : 1;
     }
 
     return parts;
